@@ -1,6 +1,8 @@
 import pygame
 import pymunk
-from shared.const import PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W
+from shared.const import (
+  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W,
+)
 
 class Peg:
   def __init__(self, space, pos):
@@ -9,7 +11,8 @@ class Peg:
     self.body.position = pos
     shape = pymunk.Circle(self.body, PEG_R)
     # <STRANGE>#71 group=1 excludes peg from colliding with player parts; only grabs (constraints) interact
-    shape.filter = pymunk.ShapeFilter(group=1)
+    # <STRANGE>#249 peg category 0b100000 excluded from item mask; group=1 still blocks player collision
+    shape.filter = pymunk.ShapeFilter(group=1, categories=0b100000)
     space.add(self.body, shape)
     self.pos = pymunk.Vec2d(*pos)
 
@@ -19,8 +22,9 @@ class Peg:
   def draw(self, screen, cam):
     sc = cam.scale
     x, y = cam.to_screen(*self.pos)
-    pygame.draw.circle(screen, PEG_FILL, (int(x), int(y)), int(PEG_R * sc))
+    ix, iy = int(x), int(y)
+    pygame.draw.circle(screen, PEG_FILL, (ix, iy), int(PEG_R * sc))
     # <STRANGE>#87 gray edge lerps with grab_count; two hands on same peg -> fully gray
     t = min(self.grab_count, 2) / 2
     edge = tuple(int(a + (b - a) * t) for a, b in zip(PEG_EDGE, PEG_EDGE_GRABBED))
-    pygame.draw.circle(screen, edge, (int(x), int(y)), int(PEG_R * sc), max(1, int(PEG_EDGE_W * sc)))
+    pygame.draw.circle(screen, edge, (ix, iy), int(PEG_R * sc), max(1, int(PEG_EDGE_W * sc)))

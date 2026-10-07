@@ -16,6 +16,9 @@ class Platform:
     self.body.position = pos
     shape = pymunk.Poly.create_box(self.body, (self.w, self.h))
     shape.filter = pymunk.ShapeFilter(categories=0b10)
+    # <STRANGE>#268 same reasoning as floor: friction/elasticity multiply, defaults 0 kill both
+    shape.friction = 1.0
+    shape.elasticity = 0.5
     space.add(self.body, shape)
 
   def grab_points(self):

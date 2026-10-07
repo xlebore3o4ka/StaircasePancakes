@@ -2,12 +2,19 @@ import json
 from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
+from .entities.item import make_item
 
 class Level:
   def __init__(self, space, path):
     self.space = space
     data = json.load(open(path))
-    self.pegs = [Peg(space, tuple(p)) for p in data.get("pegs", [])]
+    # <STRANGE>#239 pegs accept both [x,y] and {x,y}; keeps old levels valid
+    self.pegs = []
+    for p in data.get("pegs", []):
+      if isinstance(p, dict):
+        self.pegs.append(Peg(space, (p["x"], p["y"])))
+      else:
+        self.pegs.append(Peg(space, tuple(p)))
     self.platforms = []
     for pd in data.get("platforms", []):
       self.platforms.append(Platform(
@@ -21,6 +28,7 @@ class Level:
       Background((bd["x"], bd["y"]), bd["w"], bd["h"], tuple(bd.get("color", BG_FILL)))
       for bd in data.get("backgrounds", [])
     ]
+    self.items = [make_item(space, it) for it in data.get("items", [])]
 
   def grabbables(self):
     return self.pegs + self.platforms
@@ -31,6 +39,12 @@ class Level:
   def draw_backgrounds(self, screen, cam):
     for b in self.backgrounds:
       b.draw(screen, cam)
+
+  def draw_items(self, screen, cam):
+    # <STRANGE>#250 held items are drawn by Player (under the arm); skip them here to avoid double draw
+    for it in self.items:
+      if it.held_by is None:
+        it.draw(screen, cam)
 
   def draw(self, screen, cam):
     for peg in self.pegs:

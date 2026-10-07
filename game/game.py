@@ -16,7 +16,7 @@ class Game:
       player = Player(space, (0, BODY_R))
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
-      level = Level(space, "levels/test2.json")
+      level = Level(space, "levels/test.json")
       clock = pygame.time.Clock()
       running = True
       while running:
@@ -27,7 +27,7 @@ class Game:
             running = False
           player.handle_event(e)
         level.update(player)
-        player.update(cam, level.grabbables())
+        player.update(cam, level.grabbables(), level.items)
         space.step(1 / 60)
         cam.follow(player.body.position)
         w.screen.fill((89, 95, 102))
@@ -37,6 +37,7 @@ class Game:
         fx1, fy1 = cam.to_screen(cam.x + cam.w, 0)
         pygame.draw.rect(w.screen, (19, 20, 26), (fx0, fy0, fx1 - fx0, w.screen.get_height() - fy0))
         level.draw(w.screen, cam)
+        level.draw_items(w.screen, cam)
         player.draw(w.screen, cam)
         w.flip()
         clock.tick(60)

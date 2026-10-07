@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE
 
 ARM_MASS = 0.1
 ARM_MIN_ANG = math.radians(15)
@@ -71,6 +71,10 @@ class Player:
     # <STRANGE>#72 SlideJoint per arm caps body-to-peg distance at ARM_DX; hard stop, not force
     self.joints = [None, None]
     self.stamina = [float(STAMINA_MAX), float(STAMINA_MAX)]
+    # <STRANGE>#251 held[i] is an Item; throw_requested set on mouse-up, consumed in update
+    self.held = [None, None]
+    self.throw_requested = [False, False]
+    self.shake_t = [0.0, 0.0]
 
   def _is_grounded(self):
     # <STRANGE>#124 query mask 0b10 hits floor/platform only; body is 0b01, arms 0b100, so no self-hits
@@ -78,6 +82,17 @@ class Player:
     pt = (b.x, b.y - BODY_R - 2)
     hits = self.space.point_query(pt, 6, pymunk.ShapeFilter(mask=0b10))
     return len(hits) > 0
+
+  def _use(self, i):
+    item = self.held[i]
+    if item is None:
+      return
+    if item.use():
+      # <STRANGE>#253 consumed: for now just drop it; real removal from world later
+      item.release((0, 0))
+      self.held[i] = None
+    else:
+      self.shake_t[i] = ITEM_USE_SHAKE_TIME
 
   def _release(self, i):
     if self.joints[i] is not None:
@@ -98,9 +113,13 @@ class Player:
       if e.button == 1:
         self.pressed[0] = False
         self.grab_lock[0] = False
+        if self.held[0] is not None:
+          self.throw_requested[0] = True
       elif e.button == 3:
         self.pressed[1] = False
         self.grab_lock[1] = False
+        if self.held[1] is not None:
+          self.throw_requested[1] = True
     # <STRANGE>#193 scancode not key: e.key depends on layout (K_a != Cyrillic "a"), scancode is physical position
     # <STRANGE>#196 pygame-ce exposes no SCANCODE_* constants; raw SDL scancodes: A=4, D=7, SPACE=44
     elif e.type == pygame.KEYDOWN:
@@ -111,6 +130,11 @@ class Player:
       elif e.scancode == 44:
         self.jump = True
         self.jump_queued = True
+      # <STRANGE>#252 SDL scancodes: Q=20, E=8
+      elif e.scancode == 20:
+        self._use(0)
+      elif e.scancode == 8:
+        self._use(1)
     elif e.type == pygame.KEYUP:
       if e.scancode == 4:
         self.move[0] = False
@@ -121,7 +145,7 @@ class Player:
         # <STRANGE>#182 queue must clear on release; otherwise pressing in air and releasing still fires on landing
         self.jump_queued = False
 
-  def update(self, cam, pegs):
+  def update(self, cam, pegs, items):
     # <STRANGE>#18 arms kinematic, pinned to body at fixed offset; body only moves from gravity and future peg grabs
     # <STRANGE>#39 accel applied per-frame, so real accel scales with fps; 60fps assumption baked into MOVE_ACC
     # <STRANGE>#91 stamina drain shared across grabbed arms, regen only when free; force-release at 0
@@ -172,7 +196,17 @@ class Player:
       if arm.body_type != pymunk.Body.KINEMATIC:
         arm.body_type = pymunk.Body.KINEMATIC
       if self.pressed[i]:
-        if self.grabbed[i] is None and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN:
+        if self.held[i] is None and self.grabbed[i] is None and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN:
+          # <STRANGE>#254 items checked first: tighter range, more specific than peg grab
+          item_hit = None
+          for it in items:
+            if it.held_by is None and arm.position.get_distance(it.body.position) <= it.grab_dist():
+              item_hit = it
+              break
+          if item_hit is not None:
+            self.held[i] = item_hit
+            item_hit.hold(i)
+        if self.held[i] is None and self.grabbed[i] is None and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN:
           # <STRANGE>#34 grab check uses arm's current world pos, not mouse; cursor may be anywhere, arm is what must touch the peg
           for obj in pegs:
             hit = None
@@ -243,6 +277,34 @@ class Player:
         arm.position = self.arm_pos[i]
       arm.velocity = (0, 0)
 
+    # <STRANGE>#264 throws processed FIRST: otherwise arm lerps toward rest this frame and item inherits downward velocity on release
+    for i in range(2):
+      if self.throw_requested[i]:
+        self.throw_requested[i] = False
+        item = self.held[i]
+        if item is not None:
+          item.release(item.throw_vel)
+          self.held[i] = None
+
+    # <STRANGE>#255 held items follow arm position exactly (no lerp); throw_vel is last-frame delta * 60
+    for i in range(2):
+      item = self.held[i]
+      if item is None:
+        continue
+      arm = self.arms[i]
+      prev = pymunk.Vec2d(item.body.position.x, item.body.position.y)
+      side = -1 if i == 0 else 1
+      target = pymunk.Vec2d(arm.position.x + ITEM_OFFSET * side, arm.position.y)
+      item.body.position = target
+      item.body.velocity = (0, 0)
+      item.throw_vel = (target - prev) * 60
+
+    for i in range(2):
+      if self.shake_t[i] > 0:
+        self.shake_t[i] -= 1 / 60
+        if self.shake_t[i] < 0:
+          self.shake_t[i] = 0.0
+
   def draw(self, screen, cam):
     sc = cam.scale
     bx, by = cam.to_screen(*self.body.position)
@@ -255,14 +317,31 @@ class Player:
         shake = SHAKE_MAX * (1 - s_t * 2) * sc
         ax += random.uniform(-shake, shake)
         ay += random.uniform(-shake, shake)
-      r = int(self.arm_r[i] * sc)
+      # <STRANGE>#256 use-shake applied to arm visuals only; item follows physics position, not shaken
+      if self.shake_t[i] > 0:
+        amp = ITEM_USE_SHAKE_AMP * sc
+        ax += random.uniform(-amp, amp)
+        ay += random.uniform(-amp, amp)
+      # <STRANGE>#257 held item drawn before arm so the arm renders on top (item is "under" the hand)
+      if self.held[i] is not None:
+        self.held[i].draw(screen, cam)
       # <STRANGE>#93 stamina tints arm from white (full) to red (empty); R stays 223, G/B lerp
       # <STRANGE>#99 stamina can go negative from jump cost before drain clamp runs; clamp t to [0,1]
       arm_color = (223, int(223 * s_t), int(223 * s_t))
-      pygame.draw.circle(screen, arm_color, (int(ax), int(ay)), r)
+      if self.held[i] is not None:
+        # <STRANGE>#274 arm shrinks to half and goes translucent while holding; no ring drawn so item reads clearly
+        r = int(self.arm_r[i] * ARM_HOLD_SCALE * sc)
+        size = r * 2
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (*arm_color, ARM_HOLD_ALPHA), (r, r), r)
+        screen.blit(surf, (int(ax) - r, int(ay) - r))
+      else:
+        r = int(self.arm_r[i] * sc)
+        pygame.draw.circle(screen, arm_color, (int(ax), int(ay)), r)
       # <STRANGE>#77 grab_lock means released after jump; draw as if not pressed even though button is held
       # <STRANGE>#98 stamina gate only blocks NEW press visuals; ongoing grab keeps its filled marker until release
-      pressed_vis = self.grabbed[i] is not None or (self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN)
+      # <STRANGE>#275 no marker while holding an item; the held cube itself is the visual indicator
+      pressed_vis = self.held[i] is None and (self.grabbed[i] is not None or (self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN))
       if pressed_vis:
         # <STRANGE>#69 ring = free, filled = grabbed; thickness param 0 makes pygame draw filled
         if self.grabbed[i] is not None:
