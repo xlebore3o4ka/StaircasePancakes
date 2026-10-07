@@ -56,18 +56,14 @@ INPUT_PLACEHOLDER = (110, 116, 128)
 # Lock badge helper
 # =========================================================
 def draw_lock_badge(screen, cx, cy, size=14):
-  """Small gold padlock marker, centred at (cx, cy), on a dark disc for contrast."""
   cx, cy = int(cx), int(cy)
   pygame.draw.circle(screen, (25, 28, 35), (cx, cy), size // 2 + 3)
   x = cx - size // 2
   y = cy - size // 2
   body = pygame.Rect(x, y + 4, size, size - 4)
-  # shackle
   pygame.draw.arc(screen, GOLD, (x + 2, y - 1, size - 4, size - 1), 0, math.pi, 2)
-  # body
   pygame.draw.rect(screen, GOLD, body, border_radius=2)
   pygame.draw.rect(screen, (20, 20, 20), body, 1, border_radius=2)
-  # keyhole
   pygame.draw.circle(screen, (20, 20, 20), (cx, body.y + body.h // 2 - 1), 2)
 
 
@@ -82,6 +78,11 @@ class EditorPeg:
 
   def hit(self, wx, wy):
     return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
+
+  def intersects_rect(self, l, r, b, t):
+    nx = max(l, min(self.x, r))
+    ny = max(b, min(self.y, t))
+    return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
 
   def to_json(self):
     if self.locked:
@@ -111,6 +112,10 @@ class EditorPlatform:
   def hit(self, wx, wy):
     l, r, b, t = self.world_rect()
     return l <= wx <= r and b <= wy <= t
+
+  def intersects_rect(self, l, r, b, t):
+    ol, orr, ob, ot = self.world_rect()
+    return not (orr < l or ol > r or ot < b or ob > t)
 
   def edge_hit(self, wx, wy):
     l, r, b, t = self.world_rect()
@@ -161,6 +166,10 @@ class EditorBackground:
   def hit(self, wx, wy):
     l, r, b, t = self.world_rect()
     return l <= wx <= r and b <= wy <= t
+
+  def intersects_rect(self, l, r, b, t):
+    ol, orr, ob, ot = self.world_rect()
+    return not (orr < l or ol > r or ot < b or ob > t)
 
   def edge_hit(self, wx, wy):
     l, r, b, t = self.world_rect()
@@ -387,12 +396,14 @@ class TopPanel:
     # --- body widgets ---
     self.lock_btn = UIToggleButton(0, 0, 120, PANEL_WIDGET_H,
                                    "Lock tool", self._on_lock_toggle)
+    self.zone_unlock_btn = UIToggleButton(0, 0, 140, PANEL_WIDGET_H,
+                                          "Zone unlock", self._on_zone_toggle)
     self.save_btn = UIButton(0, 0, 88, PANEL_WIDGET_H, "Save", editor.save)
     self.load_btn = UIButton(0, 0, 88, PANEL_WIDGET_H, "Load", editor.load)
     self.name_input = UITextInput(0, 0, 220, PANEL_WIDGET_H,
                                   placeholder="level name")
-    self.body_widgets.extend([self.lock_btn, self.save_btn,
-                              self.load_btn, self.name_input])
+    self.body_widgets.extend([self.lock_btn, self.zone_unlock_btn,
+                              self.save_btn, self.load_btn, self.name_input])
 
     self.layout(editor.screen.get_width())
 
@@ -423,9 +434,17 @@ class TopPanel:
       if self.editor.tool == "lock":
         self.editor.set_tool("peg")
 
+  def _on_zone_toggle(self, active):
+    if active:
+      self.editor.set_tool("unlock_zone")
+    else:
+      if self.editor.tool == "unlock_zone":
+        self.editor.set_tool("peg")
+
   def sync_tool(self, name):
-    """Called by Editor.set_tool so the button reflects external tool changes."""
+    """Called by Editor.set_tool so toggles reflect external tool changes."""
     self.lock_btn.active = (name == "lock")
+    self.zone_unlock_btn.active = (name == "unlock_zone")
 
   def _active_widgets(self):
     return list(self.header_widgets) + (list(self.body_widgets) if self.expanded else [])
@@ -483,22 +502,24 @@ class Editor:
     self.pan_last = (0, 0)
     self.cursor = None
     self.ghost_idle = 0.0
+    # ---- eraser ----
+    self.erasing = False
+    self._erase_prev = None
+    # ---- zone unlock ----
+    self.zone_start = None  # world coords (wx, wy)
+    self.zone_now = None
     self._lock_cursor = self._make_lock_cursor()
     self.panel = TopPanel(self)
 
-  # ---- lock cursor ----
+  # ---- cursors ----
   def _make_lock_cursor(self):
     surf = pygame.Surface((28, 28), pygame.SRCALPHA)
-    # soft dark disc for contrast
     pygame.draw.circle(surf, (0, 0, 0, 90), (14, 16), 12)
     body = pygame.Rect(7, 13, 14, 11)
-    # shackle (top arc)
     pygame.draw.arc(surf, (255, 215, 0), (9, 4, 10, 14), 0, math.pi, 3)
     pygame.draw.arc(surf, (0, 0, 0),     (9, 4, 10, 14), 0, math.pi, 1)
-    # body
     pygame.draw.rect(surf, (255, 215, 0), body, border_radius=2)
     pygame.draw.rect(surf, (0, 0, 0),     body, 2, border_radius=2)
-    # keyhole
     pygame.draw.circle(surf, (0, 0, 0), (14, body.y + body.h // 2 - 1), 2)
     try:
       return pygame.cursors.Cursor((14, 16), surf)
@@ -508,9 +529,61 @@ class Editor:
   def set_tool(self, name):
     self.ghost_idle = 0.0
     self.tool = name
+    self.erasing = False
+    self._erase_prev = None
+    self.zone_start = None
+    self.zone_now = None
     if hasattr(self, "panel"):
       self.panel.sync_tool(name)
 
+  # ---- eraser helpers ----
+  def _erase_at(self, wx, wy):
+    keep = []
+    for obj in self.objects:
+      if not obj.locked and obj.hit(wx, wy):
+        if obj is self.selected:
+          self.selected = None
+        continue
+      keep.append(obj)
+    self.objects = keep
+
+  def _erase_segment(self, x0, y0, x1, y1, step=6.0):
+    d = math.hypot(x1 - x0, y1 - y0)
+    steps = max(1, int(d / step))
+    for i in range(steps + 1):
+      t = i / steps
+      self._erase_at(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+
+  # ---- zone unlock helpers ----
+  def _zone_rect(self):
+    if self.zone_start is None or self.zone_now is None:
+      return None
+    x0, y0 = self.zone_start
+    x1, y1 = self.zone_now
+    l = min(x0, x1); r = max(x0, x1)
+    b = min(y0, y1); t = max(y0, y1)
+    return l, r, b, t
+
+  def _apply_zone_unlock(self):
+    rect = self._zone_rect()
+    if rect is None:
+      return 0
+    l, r, b, t = rect
+    if l == r and b == t:
+      # clicked without dragging — unlock the object under the cursor instead
+      for obj in reversed(self.objects):
+        if obj.hit(l, b):
+          obj.locked = False
+          return 1
+      return 0
+    count = 0
+    for obj in self.objects:
+      if obj.locked and obj.intersects_rect(l, r, b, t):
+        obj.locked = False
+        count += 1
+    return count
+
+  # ---- coordinate helpers ----
   def to_screen(self, wx, wy):
     sw, sh = self.screen.get_size()
     return wx - self.cam_x + sw / 2, sh / 2 - (wy - self.cam_y)
@@ -576,12 +649,21 @@ class Editor:
     elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
       self.on_mouse_down(e.pos)
     elif e.type == pygame.MOUSEBUTTONUP and e.button == 1:
+      # finish zone unlock
+      if self.drag is not None and self.drag[0] == "zone_unlock":
+        self._apply_zone_unlock()
+      # eraser stop
+      self.erasing = False
+      self._erase_prev = None
+      # clamp freshly created platforms
       if self.drag is not None and self.drag[0] == "create" and self.selected is not None:
         if self.selected.w < MIN_SIZE:
           self.selected.w = MIN_SIZE
         if self.selected.h < MIN_SIZE:
           self.selected.h = MIN_SIZE
       self.drag = None
+      self.zone_start = None
+      self.zone_now = None
     elif e.type == pygame.MOUSEMOTION:
       if self.panning:
         dx = e.pos[0] - self.pan_last[0]
@@ -589,6 +671,16 @@ class Editor:
         self.cam_x -= dx
         self.cam_y += dy
         self.pan_last = e.pos
+      elif self.drag is not None and self.drag[0] == "zone_unlock":
+        self.zone_now = self.from_screen(*e.pos)
+      elif self.erasing:
+        wx, wy = self.from_screen(*e.pos)
+        if self._erase_prev is None:
+          self._erase_at(wx, wy)
+        else:
+          px, py = self._erase_prev
+          self._erase_segment(px, py, wx, wy)
+        self._erase_prev = (wx, wy)
       elif self.drag is not None:
         self.on_mouse_move(self.from_screen(*e.pos))
 
@@ -598,6 +690,8 @@ class Editor:
     if y >= sh - BOT_H:
       if self.tab_ghost_rect().collidepoint(pos):
         self.set_tool("ghost")
+      elif self.tab_eraser_rect().collidepoint(pos):
+        self.set_tool("eraser")
       elif self.tab_peg_rect().collidepoint(pos):
         self.set_tool("peg")
       elif self.tab_plat_rect().collidepoint(pos):
@@ -608,7 +702,21 @@ class Editor:
 
     wx, wy = self.from_screen(x, y)
 
-    # --- lock tool: toggle lock on the topmost hit object ---
+    # --- zone unlock: start rectangle selection ---
+    if self.tool == "unlock_zone":
+      self.drag = ("zone_unlock", None)
+      self.zone_start = (wx, wy)
+      self.zone_now = (wx, wy)
+      return
+
+    # --- eraser: continuous delete while LMB held ---
+    if self.tool == "eraser":
+      self.erasing = True
+      self._erase_prev = (wx, wy)
+      self._erase_at(wx, wy)
+      return
+
+    # --- lock tool: toggle lock on topmost hit object ---
     if self.tool == "lock":
       for obj in reversed(self.objects):
         if obj.hit(wx, wy):
@@ -618,7 +726,7 @@ class Editor:
           return
       return
 
-    # --- resize only if the currently-selected object is unlocked ---
+    # --- resize only if selected object is unlocked ---
     if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
        and not self.selected.locked:
       edge = self.selected.edge_hit(wx, wy)
@@ -720,13 +828,23 @@ class Editor:
           pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
         self.cursor = "lock"
       return
+    if self.tool == "eraser":
+      if self.cursor != "eraser":
+        pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_CROSSHAIR)
+        self.cursor = "eraser"
+      return
+    if self.tool == "unlock_zone":
+      if self.cursor != "zone":
+        pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_CROSSHAIR)
+        self.cursor = "zone"
+      return
 
     want = pygame.SYSTEM_CURSOR_ARROW
     if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
        and not self.selected.locked:
       mx, my = pygame.mouse.get_pos()
       wx, wy = self.from_screen(mx, my)
-      edge = self.selected.edge_hit(wx, my * 0 + wy)
+      edge = self.selected.edge_hit(wx, wy)
       if edge in ("left", "right"):
         want = pygame.SYSTEM_CURSOR_SIZEWE
       elif edge in ("top", "bottom"):
@@ -748,8 +866,27 @@ class Editor:
     if self.selected is not None:
       sx, sy = self.to_screen(self.selected.x, self.selected.y)
       pygame.draw.circle(self.screen, GREEN, (int(sx), int(sy)), 6)
+    self.draw_zone_preview()
     self.draw_bottom_bar()
     self.panel.draw(self.screen)
+
+  def draw_zone_preview(self):
+    rect = self._zone_rect()
+    if rect is None:
+      return
+    l, r, b, t = rect
+    x0, y0 = self.to_screen(l, t)
+    x1, y1 = self.to_screen(r, b)
+    rr = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                     int(abs(x1 - x0)), int(abs(y1 - y0)))
+    if rr.w <= 0 or rr.h <= 0:
+      # single point — small marker
+      pygame.draw.circle(self.screen, GOLD, rr.topleft, 3)
+      return
+    overlay = pygame.Surface(rr.size, pygame.SRCALPHA)
+    overlay.fill((255, 215, 0, 40))
+    self.screen.blit(overlay, rr.topleft)
+    pygame.draw.rect(self.screen, GOLD, rr, 2)
 
   def draw_floor_line(self):
     _, y = self.to_screen(0, 0)
@@ -786,7 +923,9 @@ class Editor:
   def draw_bottom_bar(self):
     h = self.screen.get_height()
     pygame.draw.rect(self.screen, UI_BG, (0, h - BOT_H, self.screen.get_width(), BOT_H))
+    # order: ghost, eraser, peg, platform, background
     self.draw_tab(self.tab_ghost_rect(), "ghost", self.tool == "ghost")
+    self.draw_tab(self.tab_eraser_rect(), "eraser", self.tool == "eraser")
     self.draw_tab(self.tab_peg_rect(), "peg", self.tool == "peg")
     self.draw_tab(self.tab_plat_rect(), "platform", self.tool == "platform")
     self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
@@ -809,27 +948,39 @@ class Editor:
       pygame.draw.circle(self.screen, (255, 255, 255), (cx - br - ar - 1, cy), ar)
       pygame.draw.circle(self.screen, (255, 255, 255), (cx + br + ar + 1, cy), ar)
       pygame.draw.circle(self.screen, (255, 255, 255), (cx, cy), br)
+    elif name == "eraser":
+      rr = pygame.Rect(0, 0, 84, 32)
+      rr.center = r.center
+      pygame.draw.rect(self.screen, (240, 150, 170), rr, border_radius=4)
+      band = pygame.Rect(rr.x, rr.centery - 4, rr.w, 8)
+      pygame.draw.rect(self.screen, (200, 90, 120), band)
+      pygame.draw.rect(self.screen, (60, 60, 70), rr, 2, border_radius=4)
     else:
       rr = pygame.Rect(0, 0, 100, 40)
       rr.center = r.center
       pygame.draw.rect(self.screen, PLAT_FILL, rr)
       pygame.draw.rect(self.screen, PLAT_EDGE, rr, PLAT_EDGE_W)
 
+  # ---- bottom tabs (ghost, eraser, peg, platform, background) ----
   def tab_ghost_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(10, h - BOT_H + 6, 120, BOT_H - 12)
 
-  def tab_peg_rect(self):
+  def tab_eraser_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(140, h - BOT_H + 6, 120, BOT_H - 12)
 
-  def tab_plat_rect(self):
+  def tab_peg_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(270, h - BOT_H + 6, 120, BOT_H - 12)
 
-  def tab_bg_rect(self):
+  def tab_plat_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(400, h - BOT_H + 6, 120, BOT_H - 12)
+
+  def tab_bg_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(530, h - BOT_H + 6, 120, BOT_H - 12)
 
   def save(self):
     root = tk.Tk()
