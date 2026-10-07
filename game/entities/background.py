@@ -1,6 +1,5 @@
 import pygame
-
-BG_FILL = (70, 75, 82)
+from shared.const import BG_FILL
 
 class Background:
   def __init__(self, pos, w, h, color=BG_FILL):

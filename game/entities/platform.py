@@ -1,12 +1,9 @@
 import pygame
 import pymunk
-from .player import BODY_R
+from shared.const import BODY_R, PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W
 
 PLAT_W = 5 * BODY_R
 PLAT_H = 2 * BODY_R
-PLAT_FILL = (60, 60, 80)
-PLAT_EDGE = (255, 255, 255)
-PLAT_EDGE_W = 2
 
 class Platform:
   def __init__(self, space, pos, w=PLAT_W, h=PLAT_H, fill=PLAT_FILL, edge=PLAT_EDGE):

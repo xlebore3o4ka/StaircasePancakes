@@ -2,12 +2,9 @@ import math
 import random
 import pygame
 import pymunk
-from .peg import PEG_R
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R
 
-BODY_R = 36
-ARM_R = 13
 ARM_MASS = 0.1
-ARM_DX = 45
 ARM_MIN_ANG = math.radians(15)
 ARM_LERP = 0.6
 ARM_LERP_GRAB = 0.9
@@ -20,7 +17,6 @@ GROUND_DRAG = 0.25
 PULL_ACC = 8000
 PULL_RANGE = 400
 MAX_WALK_VX = 400
-JUMP_V = 500
 STAMINA_MAX = 100
 STAMINA_HOLD_DRAIN = 0.2
 STAMINA_JUMP_COST = 20

@@ -1,11 +1,6 @@
 import pygame
 import pymunk
-
-PEG_R = 16
-PEG_FILL = (220, 60, 60)
-PEG_EDGE = (255, 255, 255)
-PEG_EDGE_GRABBED = (70, 70, 70)
-PEG_EDGE_W = 4
+from shared.const import PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W
 
 class Peg:
   def __init__(self, space, pos):

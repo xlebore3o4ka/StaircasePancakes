@@ -2,21 +2,20 @@
 set -e
 
 python - <<'EOF'
-p = "editor/editor.py"
+p = "game/entities/player.py"
 s = open(p).read()
 
-old = """  def set_tool(self, name):
-    if self.tool == "ghost" and name != "ghost":
-      self.ghost_target = [0.0, float(BODY_R)]
-    self.tool = name"""
-new = """  def set_tool(self, name):
-    # <STRANGE>#233 reset idle on any tool change so the return timer starts fresh from the switch moment
-    self.ghost_idle = 0.0
-    self.tool = name"""
-assert old in s, "set_tool"
+old = "from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V\n"
+new = "from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R\n"
+assert old in s, "player shared import"
+s = s.replace(old, new, 1)
+
+old = "    from shared.const import PEG_R\n    GRAB_DIST = PEG_R + ARM_R + 20"
+new = "    GRAB_DIST = PEG_R + ARM_R + 20"
+assert old in s, "inner import"
 s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
 EOF
 
-python -c "import ast; ast.parse(open('editor/editor.py').read()); print('syntax ok')"
+python -c "import ast; ast.parse(open('game/entities/player.py').read()); print('player syntax ok')"

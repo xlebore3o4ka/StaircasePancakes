@@ -3,8 +3,12 @@ import math
 import pygame
 import tkinter as tk
 from tkinter import filedialog
-from game.entities.player import BODY_R, ARM_R, ARM_DX, JUMP_V
-from game.entities.peg import PEG_R
+from shared.const import (
+  BODY_R, ARM_R, ARM_DX, JUMP_V, GRAVITY,
+  PEG_R, PEG_FILL, PEG_EDGE,
+  PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W,
+  BG_FILL,
+)
 
 TOP_H = 40
 BOT_H = 70
@@ -13,21 +17,16 @@ UI_BG = (30, 33, 40)
 GOLD = (255, 215, 0)
 GREY = (110, 110, 110)
 GREEN = (60, 220, 100)
-PEG_R = 16
 PLAT_DEFAULT_W = 180
 PLAT_DEFAULT_H = 72
-PLAT_FILL = (60, 60, 80)
-PLAT_EDGE = (255, 255, 255)
-PLAT_EDGE_W = 2
 RESIZE_ZONE = 8
 MIN_SIZE = 20
 PLAYER_R = BODY_R
 GHOST_ALPHA = 110
-GRAVITY = 900
 JUMP_H = JUMP_V * JUMP_V / (2 * GRAVITY)
 ARM_ALPHA = 90
 JUMP_ALPHA = 70
-BG_DEFAULT_COLOR = (70, 75, 82)
+BG_DEFAULT_COLOR = BG_FILL
 GHOST_LERP = 0.15
 GHOST_SNAP = 0.5
 GHOST_RETURN_DELAY = 2.0
@@ -46,8 +45,8 @@ class EditorPeg:
 
   def draw(self, screen, ed):
     sx, sy = ed.to_screen(self.x, self.y)
-    pygame.draw.circle(screen, (220, 60, 60), (int(sx), int(sy)), self.r)
-    pygame.draw.circle(screen, (255, 255, 255), (int(sx), int(sy)), self.r, 4)
+    pygame.draw.circle(screen, PEG_FILL, (int(sx), int(sy)), self.r)
+    pygame.draw.circle(screen, PEG_EDGE, (int(sx), int(sy)), self.r, 4)
 
 
 class EditorPlatform:
@@ -443,8 +442,8 @@ class Editor:
     pygame.draw.rect(self.screen, color, r, 3 if active else 2)
     cx, cy = r.center
     if name == "peg":
-      pygame.draw.circle(self.screen, (220, 60, 60), (cx, cy), PEG_R)
-      pygame.draw.circle(self.screen, (255, 255, 255), (cx, cy), PEG_R, 4)
+      pygame.draw.circle(self.screen, PEG_FILL, (cx, cy), PEG_R)
+      pygame.draw.circle(self.screen, PEG_EDGE, (cx, cy), PEG_R, 4)
     elif name == "background":
       rr = pygame.Rect(0, 0, 100, 40)
       rr.center = r.center
