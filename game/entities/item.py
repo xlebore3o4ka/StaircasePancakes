@@ -1,3 +1,4 @@
+import math
 import pygame
 import pymunk
 from shared.const import ARM_R, ITEM_GRAB_DIST, CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY
@@ -54,11 +55,18 @@ class CubeItem(Item):
   def draw(self, screen, cam):
     sc = cam.scale
     p = self.body.position
-    x0, y0 = cam.to_screen(p.x - self.w / 2, p.y + self.h / 2)
-    x1, y1 = cam.to_screen(p.x + self.w / 2, p.y - self.h / 2)
-    r = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
-    pygame.draw.rect(screen, CUBE_FILL, r)
-    pygame.draw.rect(screen, CUBE_EDGE, r, max(1, int(CUBE_EDGE_W * sc)))
+    a = self.body.angle
+    c, sn = math.cos(a), math.sin(a)
+    hw, hh = self.w / 2, self.h / 2
+    corners = []
+    # <STRANGE>#280 manual rotation of corners; pygame.draw.polygon takes screen coords in order
+    for lx, ly in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)):
+      wx = p.x + lx * c - ly * sn
+      wy = p.y + lx * sn + ly * c
+      sx, sy = cam.to_screen(wx, wy)
+      corners.append((sx, sy))
+    pygame.draw.polygon(screen, CUBE_FILL, corners)
+    pygame.draw.polygon(screen, CUBE_EDGE, corners, max(1, int(CUBE_EDGE_W * sc)))
 
 
 def make_item(space, spec):

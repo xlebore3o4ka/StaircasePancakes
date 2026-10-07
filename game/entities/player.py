@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES
 
 ARM_MASS = 0.1
 ARM_MIN_ANG = math.radians(15)
@@ -75,6 +75,8 @@ class Player:
     self.held = [None, None]
     self.throw_requested = [False, False]
     self.shake_t = [0.0, 0.0]
+    # <STRANGE>#288 rolling history of instant throw velocities to smooth lerp spikes
+    self.throw_hist = [[], []]
 
   def _is_grounded(self):
     # <STRANGE>#124 query mask 0b10 hits floor/platform only; body is 0b01, arms 0b100, so no self-hits
@@ -102,6 +104,16 @@ class Player:
       self.grabbed[i][0].grab_count -= 1
     self.grabbed[i] = None
     self.rope_len[i] = None
+
+  def _release_item(self, i, item):
+    # <STRANGE>#290 cap final speed; huge lerp spikes get clamped, normal throws pass through
+    vx, vy = item.throw_vel
+    mag = (vx * vx + vy * vy) ** 0.5
+    if mag > THROW_MAX_SPEED:
+      vx, vy = vx / mag * THROW_MAX_SPEED, vy / mag * THROW_MAX_SPEED
+    self.throw_hist[i].clear()
+    self.held[i] = None
+    item.release((vx, vy))
 
   def handle_event(self, e):
     if e.type == pygame.MOUSEBUTTONDOWN:
@@ -283,8 +295,7 @@ class Player:
         self.throw_requested[i] = False
         item = self.held[i]
         if item is not None:
-          item.release(item.throw_vel)
-          self.held[i] = None
+          self._release_item(i, item)
 
     # <STRANGE>#255 held items follow arm position exactly (no lerp); throw_vel is last-frame delta * 60
     for i in range(2):
@@ -294,10 +305,24 @@ class Player:
       arm = self.arms[i]
       prev = pymunk.Vec2d(item.body.position.x, item.body.position.y)
       side = -1 if i == 0 else 1
-      target = pymunk.Vec2d(arm.position.x + ITEM_OFFSET * side, arm.position.y)
-      item.body.position = target
+      tx = arm.position.x + ITEM_OFFSET * side
+      ty = arm.position.y
+      # <STRANGE>#278 clamp held item above floor; arm can dip below y=0 and release item through the world
+      # <STRANGE>#283 Vec2d is immutable, so rebuild instead of mutating .y
+      r = item.radius()
+      if ty < r:
+        ty = r
+      item.body.position = pymunk.Vec2d(tx, ty)
       item.body.velocity = (0, 0)
-      item.throw_vel = (target - prev) * 60
+      # <STRANGE>#289 average last few frames so a single lerp jump doesn't blow up throw speed
+      inst = (pymunk.Vec2d(tx, ty) - prev) * 60
+      hist = self.throw_hist[i]
+      hist.append((inst.x, inst.y))
+      if len(hist) > THROW_SMOOTH_FRAMES:
+        hist.pop(0)
+      ax = sum(h[0] for h in hist) / len(hist)
+      ay = sum(h[1] for h in hist) / len(hist)
+      item.throw_vel = (ax, ay)
 
     for i in range(2):
       if self.shake_t[i] > 0:
