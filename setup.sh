@@ -5,11 +5,12 @@ python - <<'PYEOF'
 p = "shared/const.py"
 s = open(p).read()
 
-old = "ARM_HOLD_ALPHA = 130\n"
-new = """ARM_HOLD_ALPHA = 130
-ARM_HOLD_SCALE = 0.5
+old = "CUBE_ELASTICITY = 0.35\n"
+new = """CUBE_ELASTICITY = 0.35
+THROW_MAX_SPEED = 1400
+THROW_SMOOTH_FRAMES = 4
 """
-assert old in s, "ARM_HOLD_ALPHA"
+assert old in s, "CUBE_ELASTICITY"
 s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
@@ -19,49 +20,92 @@ python - <<'PYEOF'
 p = "game/entities/player.py"
 s = open(p).read()
 
-old = "from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA\n"
-new = "from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE\n"
-assert old in s, "player imports"
+old = "from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE\n"
+new = "from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES\n"
+assert old in s, "imports"
 s = s.replace(old, new, 1)
 
-old = """      r = int(self.arm_r[i] * sc)
-      # <STRANGE>#93 stamina tints arm from white (full) to red (empty); R stays 223, G/B lerp
-      # <STRANGE>#99 stamina can go negative from jump cost before drain clamp runs; clamp t to [0,1]
-      arm_color = (223, int(223 * s_t), int(223 * s_t))
-      if self.held[i] is not None:
-        # <STRANGE>#271 arm goes translucent with item in hand so the item reads through it
-        size = r * 2
-        surf = pygame.Surface((size, size), pygame.SRCALPHA)
-        pygame.draw.circle(surf, (*arm_color, ARM_HOLD_ALPHA), (r, r), r)
-        screen.blit(surf, (int(ax) - r, int(ay) - r))
-      else:
-        pygame.draw.circle(screen, arm_color, (int(ax), int(ay)), r)"""
-new = """      # <STRANGE>#93 stamina tints arm from white (full) to red (empty); R stays 223, G/B lerp
-      # <STRANGE>#99 stamina can go negative from jump cost before drain clamp runs; clamp t to [0,1]
-      arm_color = (223, int(223 * s_t), int(223 * s_t))
-      if self.held[i] is not None:
-        # <STRANGE>#274 arm shrinks to half and goes translucent while holding; no ring drawn so item reads clearly
-        r = int(self.arm_r[i] * ARM_HOLD_SCALE * sc)
-        size = r * 2
-        surf = pygame.Surface((size, size), pygame.SRCALPHA)
-        pygame.draw.circle(surf, (*arm_color, ARM_HOLD_ALPHA), (r, r), r)
-        screen.blit(surf, (int(ax) - r, int(ay) - r))
-      else:
-        r = int(self.arm_r[i] * sc)
-        pygame.draw.circle(screen, arm_color, (int(ax), int(ay)), r)"""
-assert old in s, "arm draw"
+old = """    # <STRANGE>#251 held[i] is an Item; throw_requested set on mouse-up, consumed in update
+    self.held = [None, None]
+    self.throw_requested = [False, False]
+    self.shake_t = [0.0, 0.0]"""
+new = """    # <STRANGE>#251 held[i] is an Item; throw_requested set on mouse-up, consumed in update
+    self.held = [None, None]
+    self.throw_requested = [False, False]
+    self.shake_t = [0.0, 0.0]
+    # <STRANGE>#288 rolling history of instant throw velocities to smooth lerp spikes
+    self.throw_hist = [[], []]"""
+assert old in s, "held state"
 s = s.replace(old, new, 1)
 
-old = """      # <STRANGE>#77 grab_lock means released after jump; draw as if not pressed even though button is held
-      # <STRANGE>#98 stamina gate only blocks NEW press visuals; ongoing grab keeps its filled marker until release
-      pressed_vis = self.grabbed[i] is not None or (self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN)
-      if pressed_vis:"""
-new = """      # <STRANGE>#77 grab_lock means released after jump; draw as if not pressed even though button is held
-      # <STRANGE>#98 stamina gate only blocks NEW press visuals; ongoing grab keeps its filled marker until release
-      # <STRANGE>#275 no marker while holding an item; the held cube itself is the visual indicator
-      pressed_vis = self.held[i] is None and (self.grabbed[i] is not None or (self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN))
-      if pressed_vis:"""
-assert old in s, "pressed_vis"
+old = """    # <STRANGE>#264 throws processed FIRST: otherwise arm lerps toward rest this frame and item inherits downward velocity on release
+    for i in range(2):
+      if self.throw_requested[i]:
+        self.throw_requested[i] = False
+        item = self.held[i]
+        if item is not None:
+          item.release(item.throw_vel)
+          self.held[i] = None
+
+    # <STRANGE>#255 held items follow arm position exactly (no lerp); throw_vel is last-frame delta * 60"""
+new = """    # <STRANGE>#264 throws processed FIRST: otherwise arm lerps toward rest this frame and item inherits downward velocity on release
+    for i in range(2):
+      if self.throw_requested[i]:
+        self.throw_requested[i] = False
+        item = self.held[i]
+        if item is not None:
+          self._release_item(i, item)
+
+    # <STRANGE>#255 held items follow arm position exactly (no lerp); throw_vel is last-frame delta * 60"""
+assert old in s, "throw block"
+s = s.replace(old, new, 1)
+
+old = """      tx = arm.position.x + ITEM_OFFSET * side
+      ty = arm.position.y
+      # <STRANGE>#278 clamp held item above floor; arm can dip below y=0 and release item through the world
+      # <STRANGE>#283 Vec2d is immutable, so rebuild instead of mutating .y
+      r = item.radius()
+      if ty < r:
+        ty = r
+      item.body.position = pymunk.Vec2d(tx, ty)
+      item.body.velocity = (0, 0)
+      item.throw_vel = (target - prev) * 60"""
+new = """      tx = arm.position.x + ITEM_OFFSET * side
+      ty = arm.position.y
+      # <STRANGE>#278 clamp held item above floor; arm can dip below y=0 and release item through the world
+      # <STRANGE>#283 Vec2d is immutable, so rebuild instead of mutating .y
+      r = item.radius()
+      if ty < r:
+        ty = r
+      item.body.position = pymunk.Vec2d(tx, ty)
+      item.body.velocity = (0, 0)
+      # <STRANGE>#289 average last few frames so a single lerp jump doesn't blow up throw speed
+      inst = (pymunk.Vec2d(tx, ty) - prev) * 60
+      hist = self.throw_hist[i]
+      hist.append((inst.x, inst.y))
+      if len(hist) > THROW_SMOOTH_FRAMES:
+        hist.pop(0)
+      ax = sum(h[0] for h in hist) / len(hist)
+      ay = sum(h[1] for h in hist) / len(hist)
+      item.throw_vel = (ax, ay)"""
+assert old in s, "held item block"
+s = s.replace(old, new, 1)
+
+old = """    self.grabbed[i] = None
+    self.rope_len[i] = None"""
+new = """    self.grabbed[i] = None
+    self.rope_len[i] = None
+
+  def _release_item(self, i, item):
+    # <STRANGE>#290 cap final speed; huge lerp spikes get clamped, normal throws pass through
+    vx, vy = item.throw_vel
+    mag = (vx * vx + vy * vy) ** 0.5
+    if mag > THROW_MAX_SPEED:
+      vx, vy = vx / mag * THROW_MAX_SPEED, vy / mag * THROW_MAX_SPEED
+    self.throw_hist[i].clear()
+    self.held[i] = None
+    item.release((vx, vy))"""
+assert old in s, "_release"
 s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
