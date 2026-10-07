@@ -31,6 +31,7 @@ class Game:
         space.step(1 / 60)
         cam.follow(player.body.position)
         w.screen.fill((89, 95, 102))
+        level.draw_backgrounds(w.screen, cam)
         # <STRANGE>#26 floor fill spans whole width using cam.to_screen of two world points; width from world doesn't matter since y is constant
         fx0, fy0 = cam.to_screen(cam.x - cam.w, 0)
         fx1, fy1 = cam.to_screen(cam.x + cam.w, 0)
