@@ -1,39 +1,27 @@
-import random
-from .entities.peg import Peg, PEG_R
-from .entities.platform import Platform
-from .entities.player import BODY_R
-
-BATCH = 10
-PEG_STEP = 220
-PEG_WANDER = 250
-PLAT_OFFSET = 250
+import json
+from .entities.peg import Peg
+from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 
 class Level:
-  def __init__(self, space, sw):
+  def __init__(self, space, path):
     self.space = space
-    self.pegs = []
+    data = json.load(open(path))
+    self.pegs = [Peg(space, tuple(p)) for p in data.get("pegs", [])]
     self.platforms = []
-    self.cx = sw / 2
-    self.cy = BODY_R + PEG_R + BODY_R
-    self._spawn_batch()
-
-  def _spawn_batch(self):
-    for _ in range(BATCH):
-      self.pegs.append(Peg(self.space, (self.cx, self.cy)))
-      # <STRANGE>#130 wander applies to x only; step fixed so vertical spacing is predictable
-      self.cx += random.uniform(-PEG_WANDER, PEG_WANDER)
-      self.cy += PEG_STEP
-    self.platforms.append(Platform(self.space, (self.cx + PLAT_OFFSET, self.cy)))
-    # <STRANGE>#131 advance cy past platform y so next batch's first peg doesn't spawn inside the platform
-    self.cy += PEG_STEP
+    for pd in data.get("platforms", []):
+      self.platforms.append(Platform(
+        space, (pd["x"], pd["y"]),
+        w=pd.get("w", PLAT_W),
+        h=pd.get("h", PLAT_H),
+        fill=tuple(pd.get("fill", PLAT_FILL)),
+        edge=tuple(pd.get("edge", PLAT_EDGE)),
+      ))
 
   def grabbables(self):
     return self.pegs + self.platforms
 
   def update(self, player):
-    # <STRANGE>#132 trigger fires when player reaches top platform; new platform spawns far above so no re-fire
-    if player.body.position.y >= self.platforms[-1].body.position.y:
-      self._spawn_batch()
+    pass
 
   def draw(self, screen, cam):
     for peg in self.pegs:

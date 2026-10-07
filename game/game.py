@@ -1,18 +1,22 @@
 import pygame
 from .core.window import Window
 from .core.physics import make_space
-from .entities.player import Player
+from .entities.player import Player, BODY_R
 from .core.camera import Camera
 from .level import Level
+
+LOGICAL_W = 1920
+LOGICAL_H = 1080
 
 class Game:
   def run(self):
     with Window() as w:
       space = make_space()
-      sw, sh = w.screen.get_size()
-      cam = Camera(sw / 2, sh / 2, sw, sh)
-      player = Player(space, (sw / 2, sh / 2))
-      level = Level(space, sw)
+      # <STRANGE>#158 spawn at world origin on the floor; cam starts synced so it doesn't fly in
+      player = Player(space, (0, BODY_R))
+      # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
+      cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
+      level = Level(space, "levels/test2.json")
       clock = pygame.time.Clock()
       running = True
       while running:

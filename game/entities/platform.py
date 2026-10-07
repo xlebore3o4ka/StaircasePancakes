@@ -6,16 +6,17 @@ PLAT_W = 5 * BODY_R
 PLAT_H = 2 * BODY_R
 PLAT_FILL = (60, 60, 80)
 PLAT_EDGE = (255, 255, 255)
-PLAT_EDGE_W = 3
+PLAT_EDGE_W = 2
 
 class Platform:
-  def __init__(self, space, pos):
+  def __init__(self, space, pos, w=PLAT_W, h=PLAT_H, fill=PLAT_FILL, edge=PLAT_EDGE):
     self.grab_count = 0
-    self.w = PLAT_W
-    self.h = PLAT_H
+    self.w = w
+    self.h = h
+    self.fill = fill
+    self.edge = edge
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
     self.body.position = pos
-    # <STRANGE>#113 default filter (group=0) so player body collides; arms are kinematic so they pass through anyway
     shape = pymunk.Poly.create_box(self.body, (self.w, self.h))
     shape.filter = pymunk.ShapeFilter(categories=0b10)
     space.add(self.body, shape)
@@ -26,9 +27,10 @@ class Platform:
     return [(self.body.local_to_world(tl), tl), (self.body.local_to_world(tr), tr)]
 
   def draw(self, screen, cam):
+    sc = cam.scale
     p = self.body.position
     x0, y0 = cam.to_screen(p.x - self.w / 2, p.y + self.h / 2)
     x1, y1 = cam.to_screen(p.x + self.w / 2, p.y - self.h / 2)
     rect = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
-    pygame.draw.rect(screen, PLAT_FILL, rect)
-    pygame.draw.rect(screen, PLAT_EDGE, rect, PLAT_EDGE_W)
+    pygame.draw.rect(screen, self.fill, rect)
+    pygame.draw.rect(screen, self.edge, rect, max(1, int(PLAT_EDGE_W * sc)))

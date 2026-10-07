@@ -1,11 +1,14 @@
 import pygame
 
+DESIGN_H = 1080
+
 class Window:
   def __enter__(self):
-    # <PROBLEM>#3 set_mode((0,0), FULLSCREEN) unstable on Wayland/some Linux; fallback to display.Info() if it breaks
+    # <PROBLEM>#3 set_mode FULLSCREEN unstable on Wayland/some Linux; fallback to display.Info() if it breaks
     pygame.init()
     self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-    # <STRANGE>#5 self.screen is created only in __enter__ — access before with raises AttributeError, intentional
+    # <STRANGE>#187 scale tied to screen height; ultrawide sees more horizontally — acceptable for now, letterbox later if unfair
+    self.scale = self.screen.get_height() / DESIGN_H
     return self
 
   def __exit__(self, *exc):

@@ -22,9 +22,10 @@ class Peg:
     return [(self.pos, pymunk.Vec2d(0, 0))]
 
   def draw(self, screen, cam):
+    sc = cam.scale
     x, y = cam.to_screen(*self.pos)
-    pygame.draw.circle(screen, PEG_FILL, (int(x), int(y)), PEG_R)
+    pygame.draw.circle(screen, PEG_FILL, (int(x), int(y)), int(PEG_R * sc))
     # <STRANGE>#87 gray edge lerps with grab_count; two hands on same peg -> fully gray
     t = min(self.grab_count, 2) / 2
     edge = tuple(int(a + (b - a) * t) for a, b in zip(PEG_EDGE, PEG_EDGE_GRABBED))
-    pygame.draw.circle(screen, edge, (int(x), int(y)), PEG_R, PEG_EDGE_W)
+    pygame.draw.circle(screen, edge, (int(x), int(y)), int(PEG_R * sc), max(1, int(PEG_EDGE_W * sc)))

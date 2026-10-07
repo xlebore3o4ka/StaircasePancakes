@@ -9,6 +9,10 @@ ARM_R = 13
 ARM_MASS = 0.1
 ARM_DX = 45
 ARM_MIN_ANG = math.radians(15)
+ARM_LERP = 0.6
+ARM_LERP_GRAB = 0.9
+ARM_LERP_RETURN = 0.3
+REEL_SPEED = 25
 PRESS_R = 15
 MOVE_ACC = 2000
 AIR_DRAG = 0.005
@@ -19,7 +23,7 @@ MAX_WALK_VX = 400
 JUMP_V = 500
 STAMINA_MAX = 100
 STAMINA_HOLD_DRAIN = 0.2
-STAMINA_JUMP_COST = 10
+STAMINA_JUMP_COST = 20
 STAMINA_REGEN = 0.08
 STAMINA_LOW_THRESH = 50
 STAMINA_LOW_MUL = 1.5
@@ -50,16 +54,22 @@ class Player:
     # <STRANGE>#20 arm_dir/arm_r are visual-only state; arms themselves are kinematic points
     self.arm_dir = [pymunk.Vec2d(-1, 0), pymunk.Vec2d(1, 0)]
     self.arm_r = [float(ARM_R), float(ARM_R)]
-    self.lerp_t = 0.45
+    self.lerp_t = ARM_LERP
     # <STRANGE>#30 grabbed[i] is (obj, local_anchor, world_pos) tuple or None; obj.grab_count tracks active hands
     self.grabbed = [None, None]
+    # <STRANGE>#164 rope_len is current joint length; on grab starts at body-anchor distance, reels to ARM_DX
+    self.rope_len = [None, None]
     # <STRANGE>#37 arm_pos is the visual lerp target; grabbed sets target to peg, free sets to body+dir*ARM_DX
     self.arm_pos = [pymunk.Vec2d(*a.position) for a in self.arms]
-    self.arm_lerp = 0.25
+    self.arm_lerp = ARM_LERP
     # <STRANGE>#81 separate fast lerp for grab so arm snaps to peg quickly, free return stays smooth
-    self.arm_lerp_grab = 0.7
+    self.arm_lerp_grab = ARM_LERP_GRAB
+    # <STRANGE>#138 slower lerp only for unpressed return-to-rest; pressed tracking stays at ARM_LERP
+    self.arm_lerp_return = ARM_LERP_RETURN
     self.move = [False, False]
     self.jump = False
+    # <STRANGE>#141 edge-trigger jump: set on KEYDOWN, consumed on successful jump
+    self.jump_queued = False
     # <STRANGE>#58 grabbed[i] set by press; grab_lock blocks re-grab until the button is released and pressed again
     self.grab_lock = [False, False]
     # <STRANGE>#72 SlideJoint per arm caps body-to-peg distance at ARM_DX; hard stop, not force
@@ -80,6 +90,7 @@ class Player:
     if self.grabbed[i] is not None:
       self.grabbed[i][0].grab_count -= 1
     self.grabbed[i] = None
+    self.rope_len[i] = None
 
   def handle_event(self, e):
     if e.type == pygame.MOUSEBUTTONDOWN:
@@ -94,20 +105,25 @@ class Player:
       elif e.button == 3:
         self.pressed[1] = False
         self.grab_lock[1] = False
+    # <STRANGE>#193 scancode not key: e.key depends on layout (K_a != Cyrillic "a"), scancode is physical position
+    # <STRANGE>#196 pygame-ce exposes no SCANCODE_* constants; raw SDL scancodes: A=4, D=7, SPACE=44
     elif e.type == pygame.KEYDOWN:
-      if e.key == pygame.K_a:
+      if e.scancode == 4:
         self.move[0] = True
-      elif e.key == pygame.K_d:
+      elif e.scancode == 7:
         self.move[1] = True
-      elif e.key == pygame.K_SPACE:
+      elif e.scancode == 44:
         self.jump = True
+        self.jump_queued = True
     elif e.type == pygame.KEYUP:
-      if e.key == pygame.K_a:
+      if e.scancode == 4:
         self.move[0] = False
-      elif e.key == pygame.K_d:
+      elif e.scancode == 7:
         self.move[1] = False
-      elif e.key == pygame.K_SPACE:
+      elif e.scancode == 44:
         self.jump = False
+        # <STRANGE>#182 queue must clear on release; otherwise pressing in air and releasing still fires on landing
+        self.jump_queued = False
 
   def update(self, cam, pegs):
     # <STRANGE>#18 arms kinematic, pinned to body at fixed offset; body only moves from gravity and future peg grabs
@@ -128,9 +144,10 @@ class Player:
     # <STRANGE>#54 pitoned check via any grabbed arm; jump works on ground or while held to a peg
     pitoned = any(g is not None for g in self.grabbed)
     drag = GROUND_DRAG if grounded else AIR_DRAG
-    if self.jump and (grounded or pitoned):
+    if self.jump_queued and (grounded or pitoned):
       # <STRANGE>#55 direct velocity set; add input direction later for directional jump
       self.body.velocity = (self.body.velocity.x, JUMP_V)
+      self.jump_queued = False
       # <STRANGE>#92 jump cost split evenly among grabbed arms; ground jump is free (no arm spent)
       n = sum(1 for g in self.grabbed if g is not None)
       if n > 0:
@@ -172,17 +189,24 @@ class Player:
               self.grabbed[i] = (obj, anchor, world_pt)
               obj.grab_count += 1
               # <STRANGE>#114 local anchor on the target so distance is measured to the edge, not the body center
-              self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, ARM_DX, ARM_DX)
+              # <STRANGE>#164 start rope at current body-to-anchor distance so joint doesn't teleport body; reel in each frame
+              cur = self.body.position.get_distance(world_pt)
+              self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, cur, cur)
+              self.rope_len[i] = cur
               self.space.add(self.joints[i])
               break
         if self.grabbed[i] is not None:
-          d = self.grabbed[i][2] - self.body.position
-          # <STRANGE>#68 arm reach capped at ARM_DX from body; if peg is farther, arm stays extended toward it, body gets pulled in
+          # <STRANGE>#165 reel in: rope shortens each frame, body follows via rigid joint; stops at ARM_DX
+          if self.rope_len[i] > ARM_DX:
+            self.rope_len[i] = max(ARM_DX, self.rope_len[i] - REEL_SPEED)
+            self.joints[i].min = self.rope_len[i]
+            self.joints[i].max = self.rope_len[i]
+          # <STRANGE>#179 arm always snaps to the grab point; body reels in via rope_len, arm does not stretch with it
+          world_pt = self.grabbed[i][2]
+          d = world_pt - self.body.position
           if d.length > 0:
             self.arm_dir[i] = d.normalized()
-            target_pos = self.body.position + self.arm_dir[i] * min(d.length, ARM_DX)
-          else:
-            target_pos = self.arm_pos[i]
+          target_pos = world_pt
           self.arm_pos[i] += (target_pos - self.arm_pos[i]) * self.arm_lerp_grab
           arm.position = self.arm_pos[i]
           arm.velocity = (0, 0)
@@ -216,27 +240,26 @@ class Player:
     for i, arm in enumerate(self.arms):
       if self.grabbed[i] is None:
         target_pos = self.body.position + self.arm_dir[i] * ARM_DX
-        self.arm_pos[i] += (target_pos - self.arm_pos[i]) * self.arm_lerp
+        # <STRANGE>#139 lerp choice: slow return when unpressed and not near rest, fast otherwise
+        pressed = self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN
+        l = self.arm_lerp if pressed else self.arm_lerp_return
+        self.arm_pos[i] += (target_pos - self.arm_pos[i]) * l
         arm.position = self.arm_pos[i]
       arm.velocity = (0, 0)
 
   def draw(self, screen, cam):
+    sc = cam.scale
     bx, by = cam.to_screen(*self.body.position)
-    pygame.draw.circle(screen, (255, 255, 255), (int(bx), int(by)), BODY_R)
-    # <STRANGE>#27 eyes offset in world coords then pushed toward cursor; reuses raw mouse, not world mouse, for direction simplicity
-    mx, my = pygame.mouse.get_pos()
-    dx, dy = mx - bx, my - by
-    d = math.hypot(dx, dy)
+    pygame.draw.circle(screen, (255, 255, 255), (int(bx), int(by)), int(BODY_R * sc))
     for i, arm in enumerate(self.arms):
       ax, ay = cam.to_screen(*arm.position)
       # <STRANGE>#101 shake is visual only; grows from 0 at half stamina to SHAKE_MAX at 0
       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
-      shake = 0.0
       if s_t < 0.5:
-        shake = SHAKE_MAX * (1 - s_t * 2)
+        shake = SHAKE_MAX * (1 - s_t * 2) * sc
         ax += random.uniform(-shake, shake)
         ay += random.uniform(-shake, shake)
-      r = int(self.arm_r[i])
+      r = int(self.arm_r[i] * sc)
       # <STRANGE>#93 stamina tints arm from white (full) to red (empty); R stays 223, G/B lerp
       # <STRANGE>#99 stamina can go negative from jump cost before drain clamp runs; clamp t to [0,1]
       arm_color = (223, int(223 * s_t), int(223 * s_t))
