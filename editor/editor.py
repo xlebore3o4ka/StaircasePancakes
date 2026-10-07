@@ -18,6 +18,7 @@ GOLD = (255, 215, 0)
 GREY = (110, 110, 110)
 GREEN = (60, 220, 100)
 SEL_BLUE = (100, 200, 255)
+SNAP_COLOR = (255, 90, 200)
 PLAT_DEFAULT_W = 180
 PLAT_DEFAULT_H = 72
 RESIZE_ZONE = 8
@@ -34,6 +35,7 @@ GHOST_RETURN_DELAY = 2.0
 UNDO_LIMIT = 200
 PASTE_OFFSET = 20
 CLICK_THRESHOLD = 4
+SNAP_DIST = 6.0
 
 # ---- panel styling ----
 PANEL_HEADER_H = 36
@@ -403,12 +405,15 @@ class TopPanel:
                                    "Lock tool", self._on_lock_toggle)
     self.zone_unlock_btn = UIToggleButton(0, 0, 140, PANEL_WIDGET_H,
                                           "Zone unlock", self._on_zone_toggle)
+    self.snap_btn = UIToggleButton(0, 0, 80, PANEL_WIDGET_H,
+                                   "Snap", self._on_snap_toggle)
+    self.snap_btn.active = editor.snap_enabled
     self.undo_btn = UIButton(0, 0, 80, PANEL_WIDGET_H, "Undo", editor.undo)
     self.redo_btn = UIButton(0, 0, 80, PANEL_WIDGET_H, "Redo", editor.redo)
     self.save_btn = UIButton(0, 0, 88, PANEL_WIDGET_H, "Save", editor.save)
     self.load_btn = UIButton(0, 0, 88, PANEL_WIDGET_H, "Load", editor.load)
     self.body_widgets.extend([self.lock_btn, self.zone_unlock_btn,
-                              self.undo_btn, self.redo_btn,
+                              self.snap_btn, self.undo_btn, self.redo_btn,
                               self.save_btn, self.load_btn])
 
     self.layout(editor.screen.get_width())
@@ -446,6 +451,9 @@ class TopPanel:
     else:
       if self.editor.tool == "unlock_zone":
         self.editor.set_tool("select")
+
+  def _on_snap_toggle(self, active):
+    self.editor.snap_enabled = active
 
   def sync_tool(self, name):
     self.lock_btn.active = (name == "lock")
@@ -504,6 +512,7 @@ class Editor:
     self.drag = None
     self._move_data = []
     self._move_start = None
+    self._move_anchor = None
     self._resize_data = []
     # ---- camera ----
     self.cam_x = 0
@@ -529,9 +538,58 @@ class Editor:
     self._undo_before = None
     # ---- clipboard ----
     self.clipboard = []
+    # ---- snap ----
+    self.snap_enabled = True
+    self.snap_guides_x = []
+    self.snap_guides_y = []
+    # ---- cursor ----
     self.cursor = None
     self._lock_cursor = self._make_lock_cursor()
     self.panel = TopPanel(self)
+
+  # =========================================================
+  # Bounds helpers
+  # =========================================================
+  def _obj_bounds(self, obj):
+    if isinstance(obj, EditorPeg):
+      return (obj.x - obj.r, obj.x + obj.r, obj.y - obj.r, obj.y + obj.r)
+    l, r, b, t = obj.world_rect()
+    return (l, r, b, t)
+
+  def _gather_x_refs(self, exclude=()):
+    refs = []
+    for obj in self.objects:
+      if obj in exclude:
+        continue
+      l, r, b, t = self._obj_bounds(obj)
+      refs.append(l)
+      refs.append((l + r) / 2)
+      refs.append(r)
+    return refs
+
+  def _gather_y_refs(self, exclude=()):
+    refs = []
+    for obj in self.objects:
+      if obj in exclude:
+        continue
+      l, r, b, t = self._obj_bounds(obj)
+      refs.append(b)
+      refs.append((b + t) / 2)
+      refs.append(t)
+    return refs
+
+  @staticmethod
+  def _snap_value(value, refs):
+    best = value
+    best_d = SNAP_DIST + 1
+    for r in refs:
+      d = abs(r - value)
+      if d < best_d:
+        best_d = d
+        best = r
+    if best_d <= SNAP_DIST:
+      return best, True
+    return value, False
 
   # =========================================================
   # Selection helpers
@@ -622,7 +680,11 @@ class Editor:
     self.select_start = None
     self.select_now = None
     self._move_data = []
+    self._move_start = None
+    self._move_anchor = None
     self._resize_data = []
+    self.snap_guides_x = []
+    self.snap_guides_y = []
     self._undo_before = None
 
   def undo(self):
@@ -715,6 +777,8 @@ class Editor:
     self.zone_now = None
     self.select_start = None
     self.select_now = None
+    self.snap_guides_x = []
+    self.snap_guides_y = []
     self._undo_before = None
     if hasattr(self, "panel"):
       self.panel.sync_tool(name)
@@ -796,9 +860,14 @@ class Editor:
   # =========================================================
   # Drag initiators
   # =========================================================
-  def _begin_move(self, wx, wy):
-    self._move_data = [(obj, obj.x, obj.y) for obj in self.selection if not obj.locked]
+  def _begin_move(self, wx, wy, anchor):
+    self._move_data = []
+    for obj in self.selection:
+      if obj.locked:
+        continue
+      self._move_data.append((obj, obj.x, obj.y, self._obj_bounds(obj)))
     self._move_start = (wx, wy)
+    self._move_anchor = anchor
     self.drag = ("move", None)
 
   def _begin_resize(self, edge):
@@ -881,6 +950,8 @@ class Editor:
     elif e.type == pygame.MOUSEBUTTONUP and e.button in (2, 3):
       self.panning = False
     elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+      self.snap_guides_x = []
+      self.snap_guides_y = []
       self.begin_undo()
       self.on_mouse_down(e.pos)
     elif e.type == pygame.MOUSEBUTTONUP and e.button == 1:
@@ -905,7 +976,10 @@ class Editor:
       self.select_now = None
       self._move_data = []
       self._move_start = None
+      self._move_anchor = None
       self._resize_data = []
+      self.snap_guides_x = []
+      self.snap_guides_y = []
       self.commit_undo()
     elif e.type == pygame.MOUSEMOTION:
       if self.panning:
@@ -1029,7 +1103,7 @@ class Editor:
           return
       return
 
-    # --- resize on selected object's edge (any tool, including select) ---
+    # --- resize on selected object's edge ---
     if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
        and not self.selected.locked:
       edge = self.selected.edge_hit(wx, wy)
@@ -1052,7 +1126,7 @@ class Editor:
         return
       if hit not in self.selection:
         self._set_selection([hit])
-      self._begin_move(wx, wy)
+      self._begin_move(wx, wy, hit)
       return
 
     # --- select tool: rubber band on empty space ---
@@ -1074,7 +1148,7 @@ class Editor:
       obj = EditorPeg(wx, wy)
       self.objects.append(obj)
       self._set_selection([obj])
-      self._begin_move(wx, wy)
+      self._begin_move(wx, wy, obj)
     elif self.tool in ("platform", "background"):
       if self.tool == "background":
         obj = EditorBackground(wx, wy, 1, 1)
@@ -1093,78 +1167,177 @@ class Editor:
       return
     mode, data = self.drag
 
-    if mode == "move":
-      if not self._move_data or self._move_start is None:
-        return
-      sx, sy = self._move_start
-      dx = wx - sx
-      dy = wy - sy
-      for obj, ox, oy in self._move_data:
-        if obj.locked:
-          continue
-        obj.x = ox + dx
-        obj.y = oy + dy
-      return
+    self.snap_guides_x = []
+    self.snap_guides_y = []
+    alt = bool(pygame.key.get_mods() & pygame.KMOD_ALT)
+    snap = self.snap_enabled and not alt
 
-    if mode == "ghost":
+    if mode == "move":
+      self._apply_move(wx, wy, snap)
+    elif mode == "ghost":
       dx, dy = data
       self.ghost[0] = wx - dx
       self.ghost[1] = wy - dy
       self.ghost_target = [self.ghost[0], self.ghost[1]]
-      return
-
-    if mode == "create":
+    elif mode == "create":
       ox, oy = data
-      l = min(ox, wx); r = max(ox, wx)
-      b = min(oy, wy); t = max(oy, wy)
-      obj = self.selected
-      if obj is None:
-        return
-      obj.w = max(r - l, 1)
-      obj.h = max(t - b, 1)
-      obj.x = (l + r) / 2
-      obj.y = (b + t) / 2
-      return
+      self._apply_create(wx, wy, ox, oy, snap)
+    elif mode == "resize":
+      self._apply_resize(wx, wy, data, snap)
 
-    if mode == "resize":
-      edge = data
-      if not self._resize_data:
-        return
-      # find primary's original rect
-      primary_orig = None
-      for obj, r in self._resize_data:
-        if obj is self.selected:
-          primary_orig = r
+  def _apply_move(self, wx, wy, snap):
+    if not self._move_data or self._move_start is None:
+      return
+    sx, sy = self._move_start
+    raw_dx = wx - sx
+    raw_dy = wy - sy
+
+    anchor = self._move_anchor
+    primary_orig = None
+    if anchor is not None:
+      for obj, _, _, b in self._move_data:
+        if obj is anchor:
+          primary_orig = b
           break
-      if primary_orig is None:
-        primary_orig = self._resize_data[0][1]
-      pl, pr, pb, pt = primary_orig
+    if primary_orig is None and self._move_data:
+      primary_orig = self._move_data[0][3]
 
-      if edge == "right":
-        delta = max(wx, pl + MIN_SIZE) - pr
-        for obj, (l, r, b, t) in self._resize_data:
-          nr = max(r + delta, l + MIN_SIZE)
-          obj.w = nr - l
-          obj.x = l + obj.w / 2
-      elif edge == "left":
-        delta = min(wx, pr - MIN_SIZE) - pl
-        for obj, (l, r, b, t) in self._resize_data:
-          nl = min(l + delta, r - MIN_SIZE)
-          obj.w = r - nl
-          obj.x = nl + obj.w / 2
-      elif edge == "top":
-        delta = max(wy, pb + MIN_SIZE) - pt
-        for obj, (l, r, b, t) in self._resize_data:
-          nt = max(t + delta, b + MIN_SIZE)
-          obj.h = nt - b
-          obj.y = b + obj.h / 2
-      elif edge == "bottom":
-        delta = min(wy, pt - MIN_SIZE) - pb
-        for obj, (l, r, b, t) in self._resize_data:
-          nb = min(b + delta, t - MIN_SIZE)
-          obj.h = t - nb
-          obj.y = nb + obj.h / 2
+    snap_dx = raw_dx
+    snap_dy = raw_dy
+    guide_x = None
+    guide_y = None
+
+    if snap and primary_orig is not None:
+      pl, pr, pb, pt = primary_orig
+      moved_x = [pl + raw_dx, (pl + pr) / 2 + raw_dx, pr + raw_dx]
+      moved_y = [pb + raw_dy, (pb + pt) / 2 + raw_dy, pt + raw_dy]
+
+      x_refs = self._gather_x_refs(exclude=self.selection)
+      y_refs = self._gather_y_refs(exclude=self.selection)
+
+      best_x_diff = 0
+      best_x_dist = SNAP_DIST + 1
+      best_x_guide = None
+      for mx in moved_x:
+        for rx in x_refs:
+          d = abs(rx - mx)
+          if d < best_x_dist:
+            best_x_dist = d
+            best_x_diff = rx - mx
+            best_x_guide = rx
+      if best_x_guide is not None:
+        snap_dx = raw_dx + best_x_diff
+        guide_x = best_x_guide
+
+      best_y_diff = 0
+      best_y_dist = SNAP_DIST + 1
+      best_y_guide = None
+      for my in moved_y:
+        for ry in y_refs:
+          d = abs(ry - my)
+          if d < best_y_dist:
+            best_y_dist = d
+            best_y_diff = ry - my
+            best_y_guide = ry
+      if best_y_guide is not None:
+        snap_dy = raw_dy + best_y_diff
+        guide_y = best_y_guide
+
+    for obj, ox, oy, _ in self._move_data:
+      if obj.locked:
+        continue
+      obj.x = ox + snap_dx
+      obj.y = oy + snap_dy
+
+    if guide_x is not None:
+      self.snap_guides_x.append(guide_x)
+    if guide_y is not None:
+      self.snap_guides_y.append(guide_y)
+
+  def _apply_create(self, wx, wy, ox, oy, snap):
+    guide_x = None
+    guide_y = None
+    if snap:
+      x_refs = self._gather_x_refs(exclude=self.selection)
+      y_refs = self._gather_y_refs(exclude=self.selection)
+      wx, hit_x = self._snap_value(wx, x_refs)
+      if hit_x:
+        guide_x = wx
+      wy, hit_y = self._snap_value(wy, y_refs)
+      if hit_y:
+        guide_y = wy
+
+    l = min(ox, wx); r = max(ox, wx)
+    b = min(oy, wy); t = max(oy, wy)
+    obj = self.selected
+    if obj is None:
       return
+    obj.w = max(r - l, 1)
+    obj.h = max(t - b, 1)
+    obj.x = (l + r) / 2
+    obj.y = (b + t) / 2
+
+    if guide_x is not None:
+      self.snap_guides_x.append(guide_x)
+    if guide_y is not None:
+      self.snap_guides_y.append(guide_y)
+
+  def _apply_resize(self, wx, wy, edge, snap):
+    if not self._resize_data:
+      return
+    primary_orig = None
+    for obj, r in self._resize_data:
+      if obj is self.selected:
+        primary_orig = r
+        break
+    if primary_orig is None:
+      primary_orig = self._resize_data[0][1]
+    pl, pr, pb, pt = primary_orig
+
+    guide_x = None
+    guide_y = None
+
+    if snap:
+      x_refs = self._gather_x_refs(exclude=self.selection)
+      y_refs = self._gather_y_refs(exclude=self.selection)
+      if edge in ("left", "right"):
+        wx, hit = self._snap_value(wx, x_refs)
+        if hit:
+          guide_x = wx
+      elif edge in ("top", "bottom"):
+        wy, hit = self._snap_value(wy, y_refs)
+        if hit:
+          guide_y = wy
+
+    if edge == "right":
+      delta = max(wx, pl + MIN_SIZE) - pr
+      for obj, (l, r, b, t) in self._resize_data:
+        nr = max(r + delta, l + MIN_SIZE)
+        obj.w = nr - l
+        obj.x = l + obj.w / 2
+    elif edge == "left":
+      delta = min(wx, pr - MIN_SIZE) - pl
+      for obj, (l, r, b, t) in self._resize_data:
+        nl = min(l + delta, r - MIN_SIZE)
+        obj.w = r - nl
+        obj.x = nl + obj.w / 2
+    elif edge == "top":
+      delta = max(wy, pb + MIN_SIZE) - pt
+      for obj, (l, r, b, t) in self._resize_data:
+        nt = max(t + delta, b + MIN_SIZE)
+        obj.h = nt - b
+        obj.y = b + obj.h / 2
+    elif edge == "bottom":
+      delta = min(wy, pt - MIN_SIZE) - pb
+      for obj, (l, r, b, t) in self._resize_data:
+        nb = min(b + delta, t - MIN_SIZE)
+        obj.h = t - nb
+        obj.y = nb + obj.h / 2
+
+    if guide_x is not None:
+      self.snap_guides_x.append(guide_x)
+    if guide_y is not None:
+      self.snap_guides_y.append(guide_y)
 
   # =========================================================
   # Cursor
@@ -1217,15 +1390,24 @@ class Editor:
       if not isinstance(obj, EditorBackground):
         obj.draw(self.screen, self)
 
-    # selection markers
     for obj in self.selection:
       sx, sy = self.to_screen(obj.x, obj.y)
       pygame.draw.circle(self.screen, GREEN, (int(sx), int(sy)), 6)
 
     self.draw_zone_preview()
     self.draw_select_rect_preview()
+    self.draw_snap_guides()
     self.draw_bottom_bar()
     self.panel.draw(self.screen)
+
+  def draw_snap_guides(self):
+    sw, sh = self.screen.get_size()
+    for gx in self.snap_guides_x:
+      sx, _ = self.to_screen(gx, 0)
+      pygame.draw.line(self.screen, SNAP_COLOR, (int(sx), 0), (int(sx), sh), 1)
+    for gy in self.snap_guides_y:
+      _, sy = self.to_screen(0, gy)
+      pygame.draw.line(self.screen, SNAP_COLOR, (0, int(sy)), (sw, int(sy)), 1)
 
   def draw_zone_preview(self):
     rect = self._zone_rect()
@@ -1347,7 +1529,7 @@ class Editor:
       pygame.draw.rect(self.screen, PLAT_EDGE, rr, PLAT_EDGE_W)
 
   # =========================================================
-  # Bottom tabs (select, ghost, eraser, peg, platform, background)
+  # Bottom tabs
   # =========================================================
   def tab_select_rect(self):
     h = self.screen.get_height()
