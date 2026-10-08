@@ -40,7 +40,19 @@ class Level:
     self.items.append(it)
 
   def grabbables(self):
-    return self.pegs + self.platforms
+    # <STRANGE>#523 stuck rebars join the peg list so the player's existing grab loop handles them
+    stuck = [it for it in self.items if getattr(it, "stuck", False)]
+    return self.pegs + self.platforms + stuck
+
+  def post_step(self, player):
+    # <STRANGE>#524 runs after space.step; shape_query on each flying rebar finds overlaps with floor/platform
+    for it in self.items:
+      if not getattr(it, "flying", False):
+        continue
+      # <STRANGE>#527 rebar mask is 0b10 while flying, so shape_query returns only floor/platform touches
+      hits = self.space.shape_query(it.shape)
+      if hits:
+        it.stick()
 
   def update(self, player, dt=1/60):
     pass

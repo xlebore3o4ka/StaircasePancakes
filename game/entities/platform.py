@@ -16,7 +16,9 @@ class Platform:
     self.edge = edge
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
     self.body.position = pos
-    shape = pymunk.Poly.create_box(self.body, (self.w, self.h))
+    # <STRANGE>#456 physics shape inset by INSET on each side; editor snap makes platforms share exact edges, solver can't pick a side at the seam
+    inset = 0.5
+    shape = pymunk.Poly.create_box(self.body, (max(0.1, self.w - inset * 2), max(0.1, self.h - inset * 2)))
     shape.filter = pymunk.ShapeFilter(categories=0b10)
     # <STRANGE>#268 same reasoning as floor: friction/elasticity multiply, defaults 0 kill both
     shape.friction = 1.0

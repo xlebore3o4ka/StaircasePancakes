@@ -111,6 +111,14 @@ class Player:
     if item is None:
       return
     self.hud_flash[i] = 1.0
+    # <STRANGE>#522 on_use can consume the action entirely (rebar shoot); "release" also drops it from the hand
+    r = item.on_use(self, i)
+    if r == "release":
+      self.held[i] = None
+      self.grab_lock[i] = True
+      return
+    if r:
+      return
     consumed, spawn_type, stamina_gain = item.use()
     if consumed:
       # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
@@ -262,6 +270,9 @@ class Player:
         if self.held[i] is None and self.grabbed[i] is None and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN:
           item_hit = None
           for it in items:
+            # <STRANGE>#539 stuck rebar is a grapplable, not a carryable; skip it here so it goes to the peg-style path
+            if getattr(it, "stuck", False):
+              continue
             if it.held_by is None and arm.position.get_distance(it.body.position) <= it.grab_dist():
               item_hit = it
               break
@@ -328,7 +339,17 @@ class Player:
 
     for i, arm in enumerate(self.arms):
       if self.grabbed[i] is None:
-        target_pos = self.body.position + self.arm_dir[i] * ARM_DX
+        # <STRANGE>#499 rebar offsets the free-hand rest position by ±90deg (left -90, right +90)
+        held_item = self.held[i]
+        if held_item is not None and held_item.hand_angle is not None:
+          # <STRANGE>#541 rebar hand must never sit below the body; pick the perpendicular with positive Y from the two options
+          d = self.arm_dir[i]
+          a1 = d.rotated(math.pi / 2)
+          a2 = d.rotated(-math.pi / 2)
+          rest_dir = a1 if a1.y >= a2.y else a2
+        else:
+          rest_dir = self.arm_dir[i]
+        target_pos = self.body.position + rest_dir * ARM_DX
         pressed = self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN
         l = self.arm_lerp if pressed else self.arm_lerp_return
         self.arm_pos[i] += (target_pos - self.arm_pos[i]) * smooth(l, dt)
@@ -349,22 +370,41 @@ class Player:
       arm = self.arms[i]
       prev = pymunk.Vec2d(item.body.position.x, item.body.position.y)
       side = -1 if i == 0 else 1
-      tx = arm.position.x + ITEM_OFFSET * side
-      ty = arm.position.y
-      r = item.radius()
-      if ty < r:
-        ty = r
-      item.body.position = pymunk.Vec2d(tx, ty)
-      item.body.velocity = (0, 0)
-      # <STRANGE>#349 while held, angle lerps to 0 (upright); smooth() keeps this fps-independent
-      # <STRANGE>#449 wrap delta to [-pi, pi]: raw angle may be 12+ rad after spinning, lerp would unwind all turns
+      # <NOTE>#463 offset so the item's hold point lands under the hand, not its center
+      # <STRANGE>#484 angle must be resolved first; hold_offset is local so it rotates with the item
       k = smooth(0.25, dt)
+      # <STRANGE>#493 rebar angle follows arm direction plus per-hand offset; arm_dir already points at cursor
+      # <STRANGE>#510 rebar tip points at the cursor: angle from hand position to mouse, +pi/2 because local +Y is the far end
+      if item.hand_angle is not None:
+        hx = arm.position.x + ITEM_OFFSET * side
+        hy = arm.position.y
+        ddx = mx - hx
+        ddy = wy - hy
+        if ddx * ddx + ddy * ddy < 1:
+          target_a = item.body.angle
+        else:
+          target_a = math.atan2(ddy, ddx) + math.pi / 2
+      else:
+        target_a = 0.0
       a = item.body.angle
-      if abs(a) > 1e-3:
-        da = (-a + math.pi) % (2 * math.pi) - math.pi
+      da = (target_a - a + math.pi) % (2 * math.pi) - math.pi
+      if abs(da) > 1e-3:
         item.body.angle = a + da * k
       else:
-        item.body.angle = 0.0
+        item.body.angle = target_a
+      hox, hoy = item.hold_offset
+      c, sn = math.cos(item.body.angle), math.sin(item.body.angle)
+      rx = hox * c - hoy * sn
+      ry = hox * sn + hoy * c
+      tx = arm.position.x + ITEM_OFFSET * side - rx
+      ty = arm.position.y - ry
+      # <STRANGE>#506 rebar is allowed to visually sink below the floor while held; clamp only round items so they don't fall through
+      if item.hand_angle is None:
+        r = item.radius()
+        if ty < r:
+          ty = r
+      item.body.position = pymunk.Vec2d(tx, ty)
+      item.body.velocity = (0, 0)
       # <STRANGE>#343 dt-correct instantaneous throw velocity: screen px per second
       inst = (pymunk.Vec2d(tx, ty) - prev) / dt
       hist = self.throw_hist[i]

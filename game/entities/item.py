@@ -6,6 +6,8 @@ from shared.const import (
   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
   CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
+  REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_HOLD_DIST, REBAR_GRAB_R,
+  REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
 
 
@@ -48,6 +50,16 @@ def _blit_bands(screen, cam, bands):
 class Item:
   layer = LAYER_ITEM
 
+  def on_use(self, player, hand):
+    # <STRANGE>#521 default: return False to fall through to use() (consume/shake)
+    return False
+  # <NOTE>#461 local-space offset from body center to the grab point; when held, body.position = arm.pos - R(angle) * hold_offset
+  hold_offset = (0, 0)
+  # <NOTE>#462 override when max(w,h) is a bad reach metric (long thin items); None means use max/2
+  grab_radius = None
+  # <NOTE>#481 per-hand target angle while held; None means 0 (upright) for both hands
+  hand_angle = None
+
   def __init__(self, space, pos, w, h):
     self.space = space
     self.w = w
@@ -77,7 +89,8 @@ class Item:
     return max(self.w, self.h) / 2
 
   def grab_dist(self):
-    return ARM_R + self.radius() + ITEM_GRAB_DIST
+    r = self.grab_radius if self.grab_radius is not None else self.radius()
+    return ARM_R + r + ITEM_GRAB_DIST
 
   def hold(self, hand):
     self.held_by = hand
@@ -149,9 +162,82 @@ class SodaItem(Item):
     _blit_bands(screen, cam, bands)
 
 
+class RebarItem(Item):
+  # <STRANGE>#513 hold offset toward the near end: local -Y is the end facing away from cursor
+  hold_offset = (0, REBAR_H / 6)
+  grab_radius = REBAR_GRAB_R
+  # <STRANGE>#480 base angle per hand: -pi/2 for left (index 0), +pi/2 for right (index 1); item's local +Y ends up horizontal
+  # <STRANGE>#491 per-hand hold angle: left hand rotates +90deg, right -90deg
+  hand_angle = (-math.pi / 2, math.pi / 2)
+
+  def __init__(self, space, pos):
+    super().__init__(space, pos, REBAR_W, REBAR_H)
+    self.stuck = False
+    self.flying = False
+    # <STRANGE>#535 player grab loop increments obj.grab_count for peg-style targets; stuck rebar joins that list
+    self.grab_count = 0
+
+  def on_use(self, player, hand):
+    # <STRANGE>#516 "release" tells Player to drop it and lock the hand; False falls through to normal use()
+    if self.stuck or self.flying:
+      return False
+    # <STRANGE>#534 shot direction is local -Y in world space (opposite of hold_offset axis) so it aligns with the cursor
+    a = self.body.angle
+    dx = math.sin(a)
+    dy = -math.cos(a)
+    recoil = REBAR_RECOIL_AIR if not player._is_grounded() else REBAR_RECOIL_GROUND
+    vx, vy = player.body.velocity
+    player.body.velocity = (vx - dx * JUMP_V * recoil, vy - dy * JUMP_V * recoil)
+    self.body.body_type = pymunk.Body.DYNAMIC
+    self.body.mass = self.mass
+    self.body.moment = self.moment
+    self.body.velocity = (dx * REBAR_SHOOT_V, dy * REBAR_SHOOT_V)
+    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0b10)
+    self.flying = True
+    # <STRANGE>#530 release from hand: Level.drawables filters held_by; forgetting this hides the flying rebar
+    self.held_by = None
+    return "release"
+
+  def grab_points(self):
+    # <STRANGE>#519 stuck rebar exposes anchors along its length; free one uses its center
+    if not self.stuck:
+      return [(self.body.position, pymunk.Vec2d(0, 0))]
+    a = self.body.angle
+    c, sn = math.cos(a), math.sin(a)
+    n = REBAR_STUCK_POINTS
+    half = self.h / 2 - REBAR_W
+    pts = []
+    for k in range(n):
+      t = (k / (n - 1)) * 2 - 1
+      ly = t * half
+      wx = self.body.position.x - ly * sn
+      wy = self.body.position.y + ly * c
+      pts.append((pymunk.Vec2d(wx, wy), pymunk.Vec2d(0, ly)))
+    return pts
+
+  def stick(self):
+    # <STRANGE>#520 freeze in place; mask=0 stops all collisions
+    self.flying = False
+    self.stuck = True
+    self.body.body_type = pymunk.Body.STATIC
+    self.body.velocity = (0, 0)
+    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
+
+  def draw_at(self, screen, cam, pos, angle, alpha, scale):
+    sc = cam.scale * scale
+    hw, hh = self.w / 2 * scale, self.h / 2 * scale
+    pts = _corners(pos, angle, hw, hh)
+    fill = (*REBAR_FILL, alpha) if alpha < 255 else REBAR_FILL
+    edge = (*REBAR_EDGE, alpha) if alpha < 255 else REBAR_EDGE
+    w_edge = max(1, int(REBAR_EDGE_W * sc))
+    _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
+
+
 def make_item(space, spec):
   t = spec.get("type", "cube")
   pos = (spec["x"], spec["y"])
   if t == "soda":
     return SodaItem(space, pos)
+  if t == "rebar":
+    return RebarItem(space, pos)
   return CubeItem(space, pos)

@@ -47,6 +47,19 @@ SODA_CX_SPINS = 0.5
 SODA_CX_SCALE = 0.3
 SODA_CX_ALPHA = 255
 SPAWN_BOUNCE_V = 300
+
+REBAR_W = 7
+REBAR_H = 87
+REBAR_FILL = (220, 40, 40)
+REBAR_EDGE = (255, 255, 255)
+REBAR_EDGE_W = 1
+# <NOTE>#460 grab point 8 px from the near end; hold_offset in local (angle=0) coords is then (0, -H/2 + 8)
+REBAR_HOLD_DIST = 10
+REBAR_GRAB_R = 13
+REBAR_SHOOT_V = 2000
+REBAR_RECOIL_AIR = 1.3
+REBAR_RECOIL_GROUND = 0.5
+REBAR_STUCK_POINTS = 5
 REEL_MAX_FORCE = 60000
 
 HUD_BASE_ALPHA = 35
@@ -65,7 +78,7 @@ CONSUME_FX_OFFSET = 30
 CONSUME_FX_SCALE = 0.8
 CONSUME_FX_ALPHA = 220
 # <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
-ITEM_TYPES = ["cube", "soda"]
+ITEM_TYPES = ["cube", "soda", "rebar"]
 CUBE_ELASTICITY = 0.08
 CUBE_LINEAR_DAMPING = 0.2
 THROW_MAX_SPEED = 1400

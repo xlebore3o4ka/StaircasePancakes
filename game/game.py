@@ -10,8 +10,9 @@ LOGICAL_W = 1920
 LOGICAL_H = 1080
 
 class Game:
-  def __init__(self, cheats=False):
+  def __init__(self, cheats=False, map_path="levels/test.json"):
     self.cheats = cheats
+    self.map_path = map_path
 
   def run(self):
     with Window() as w:
@@ -20,7 +21,7 @@ class Game:
       player = Player(space, (0, BODY_R), cheats=self.cheats)
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
-      level = Level(space, "levels/test.json")
+      level = Level(space, self.map_path)
       floor_fill = FloorFill()
       clock = pygame.time.Clock()
       running = True
@@ -46,6 +47,8 @@ class Game:
           player.spawn_queue.clear()
         for _ in range(substeps):
           space.step(dt / substeps)
+        # <STRANGE>#525 rebar sticking is checked after physics so arbiter list is fresh
+        level.post_step(player)
         cam.follow(player.body.position, dt)
         w.screen.fill((89, 95, 102))
         # <NOTE>#445 single sorted pass: backgrounds -> floor -> platforms/pegs -> items -> player
