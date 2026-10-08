@@ -28,6 +28,11 @@ class Game:
           player.handle_event(e)
         level.update(player)
         player.update(cam, level.grabbables(), level.items)
+        # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
+        if player.spawn_queue:
+          for pos, type_name in player.spawn_queue:
+            level.spawn_item(pos, type_name)
+          player.spawn_queue.clear()
         space.step(1 / 60)
         cam.follow(player.body.position)
         w.screen.fill((89, 95, 102))

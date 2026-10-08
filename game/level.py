@@ -3,6 +3,7 @@ from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
+import pymunk
 
 class Level:
   def __init__(self, space, path):
@@ -29,6 +30,11 @@ class Level:
       for bd in data.get("backgrounds", [])
     ]
     self.items = [make_item(space, it) for it in data.get("items", [])]
+
+  def spawn_item(self, pos, type_name):
+    # <STRANGE>#299 wraps pos into a spec dict so make_item stays the single entry point for item creation
+    spec = {"x": pos[0], "y": pos[1], "type": type_name}
+    self.items.append(make_item(self.space, spec))
 
   def grabbables(self):
     return self.pegs + self.platforms

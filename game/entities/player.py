@@ -77,6 +77,8 @@ class Player:
     self.shake_t = [0.0, 0.0]
     # <STRANGE>#288 rolling history of instant throw velocities to smooth lerp spikes
     self.throw_hist = [[], []]
+    # <STRANGE>#298 (world_pos, type) queue; game.py drains it into the level
+    self.spawn_queue = []
 
   def _is_grounded(self):
     # <STRANGE>#124 query mask 0b10 hits floor/platform only; body is 0b01, arms 0b100, so no self-hits
@@ -89,10 +91,17 @@ class Player:
     item = self.held[i]
     if item is None:
       return
-    if item.use():
-      # <STRANGE>#253 consumed: for now just drop it; real removal from world later
-      item.release((0, 0))
+    consumed, spawn_type, stamina_gain = item.use()
+    if consumed:
+      pos = item.body.position
+      item.destroy()
       self.held[i] = None
+      if stamina_gain:
+        # <STRANGE>#309 soda restores both arms, not just the one holding it
+        for j in range(2):
+          self.stamina[j] = min(STAMINA_MAX, self.stamina[j] + stamina_gain)
+      if spawn_type is not None:
+        self.spawn_queue.append((pos, spawn_type))
     else:
       self.shake_t[i] = ITEM_USE_SHAKE_TIME
 
