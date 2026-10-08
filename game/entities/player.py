@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER
 from shared.smooth import smooth, per_sec
 from .consume_fx import SodaConsumeFx
 
@@ -29,8 +29,12 @@ STAMINA_GRAB_MIN = 15
 SHAKE_MAX = 2
 
 class Player:
-  def __init__(self, space, pos):
+  layer = LAYER_PLAYER
+
+  def __init__(self, space, pos, cheats=False):
     self.space = space
+    # <STRANGE>#429 cheats flag bypasses stamina accounting and air-jump gating
+    self.cheats = cheats
     self.body = pymunk.Body(1, pymunk.moment_for_circle(1, 0, BODY_R))
     self.body.position = pos
     body_shape = pymunk.Circle(self.body, BODY_R)
@@ -76,6 +80,8 @@ class Player:
     # <STRANGE>#390 HUD feedback state: per-hand flash (0..1) on use, lazy-cached Q/E surfaces
     self.hud_flash = [0.0, 0.0]
     self._hud_labels = None
+    # <STRANGE>#434 pending stamina from soda; drips into stamina[] at STAMINA_BOOST_RATE per second
+    self.stamina_boost = [0.0, 0.0]
 
   def _velocity_func(self, body, gravity, damping, dt):
     # <STRANGE>#366 default pymunk integrator first, then post-filter micro-bounces
@@ -184,10 +190,25 @@ class Player:
       elif e.scancode == 44:
         self.jump = False
         self.jump_queued = False
+        # <STRANGE>#432 on space release, unlock arms that are still held down so they re-clench and can re-grab
+        for i in range(2):
+          if self.pressed[i]:
+            self.grab_lock[i] = False
 
   def update(self, cam, pegs, items, dt):
     num_grabbed = sum(1 for g in self.grabbed if g is not None)
     for i in range(2):
+      if self.cheats:
+        self.stamina[i] = STAMINA_MAX
+        self.stamina_boost[i] = 0.0
+        continue
+      # <STRANGE>#434 boost drains into stamina at a capped rate; leftover kept for next frame
+      if self.stamina_boost[i] > 0:
+        step = per_sec(STAMINA_BOOST_RATE, dt)
+        if step > self.stamina_boost[i]:
+          step = self.stamina_boost[i]
+        self.stamina_boost[i] -= step
+        self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + step)
       if self.grabbed[i] is not None:
         self.stamina[i] -= per_sec(STAMINA_HOLD_DRAIN, dt) / max(num_grabbed, 1)
         if self.stamina[i] <= 0:
@@ -208,7 +229,10 @@ class Player:
       print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
     pitoned = any(g is not None for g in self.grabbed)
     drag = GROUND_DRAG if grounded else AIR_DRAG
-    if self.jump_queued and (grounded or pitoned):
+    # <STRANGE>#430 cheats re-queue every frame while space is held, so air-jump becomes flight
+    if self.cheats and self.jump:
+      self.jump_queued = True
+    if self.jump_queued and (grounded or pitoned or self.cheats):
       self.body.velocity = (self.body.velocity.x, JUMP_V)
       self.jump_queued = False
       n = sum(1 for g in self.grabbed if g is not None)
@@ -256,16 +280,18 @@ class Player:
               self.grabbed[i] = (obj, anchor, world_pt)
               obj.grab_count += 1
               cur = self.body.position.get_distance(world_pt)
-              self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, cur, cur)
-              # <STRANGE>#382 max_force caps how hard the rope can yank; stops the joint from slamming body through floor
+              # <STRANGE>#438 min = ARM_DX always; if grabbed while arm is inside body, joint pushes body out so arm renders outside
+              max_len = max(cur, ARM_DX)
+              self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, ARM_DX, max_len)
               self.joints[i].max_force = REEL_MAX_FORCE
-              self.rope_len[i] = cur
+              self.rope_len[i] = max_len
               self.space.add(self.joints[i])
               break
         if self.grabbed[i] is not None:
           if self.rope_len[i] > ARM_DX:
             self.rope_len[i] = max(ARM_DX, self.rope_len[i] - per_sec(REEL_SPEED, dt))
-            self.joints[i].min = self.rope_len[i]
+            # <STRANGE>#439 keep min = ARM_DX on every reel tick; max reels in, min never drops below the natural reach
+            self.joints[i].min = ARM_DX
             self.joints[i].max = self.rope_len[i]
           world_pt = self.grabbed[i][2]
           d = world_pt - self.body.position
@@ -331,9 +357,12 @@ class Player:
       item.body.position = pymunk.Vec2d(tx, ty)
       item.body.velocity = (0, 0)
       # <STRANGE>#349 while held, angle lerps to 0 (upright); smooth() keeps this fps-independent
+      # <STRANGE>#449 wrap delta to [-pi, pi]: raw angle may be 12+ rad after spinning, lerp would unwind all turns
       k = smooth(0.25, dt)
-      if abs(item.body.angle) > 1e-3:
-        item.body.angle += (0 - item.body.angle) * k
+      a = item.body.angle
+      if abs(a) > 1e-3:
+        da = (-a + math.pi) % (2 * math.pi) - math.pi
+        item.body.angle = a + da * k
       else:
         item.body.angle = 0.0
       # <STRANGE>#343 dt-correct instantaneous throw velocity: screen px per second

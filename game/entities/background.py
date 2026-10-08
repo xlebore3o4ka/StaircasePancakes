@@ -1,7 +1,9 @@
 import pygame
-from shared.const import BG_FILL
+from shared.const import BG_FILL, LAYER_BG
 
 class Background:
+  layer = LAYER_BG
+
   def __init__(self, pos, w, h, color=BG_FILL):
     self.x, self.y = pos
     self.w, self.h = w, h

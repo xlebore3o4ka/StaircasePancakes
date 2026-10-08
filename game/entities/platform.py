@@ -1,11 +1,13 @@
 import pygame
 import pymunk
-from shared.const import BODY_R, PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W
+from shared.const import BODY_R, PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W, LAYER_PLATFORM
 
 PLAT_W = 5 * BODY_R
 PLAT_H = 2 * BODY_R
 
 class Platform:
+  layer = LAYER_PLATFORM
+
   def __init__(self, space, pos, w=PLAT_W, h=PLAT_H, fill=PLAT_FILL, edge=PLAT_EDGE):
     self.grab_count = 0
     self.w = w

@@ -44,18 +44,7 @@ class Level:
 
   def update(self, player, dt=1/60):
     pass
-  def draw_backgrounds(self, screen, cam):
-    for b in self.backgrounds:
-      b.draw(screen, cam)
-
-  def draw_items(self, screen, cam):
-    # <STRANGE>#250 held items drawn by Player; skip held and consuming to avoid double draw
-    for it in self.items:
-      if it.held_by is None:
-        it.draw(screen, cam)
-
-  def draw(self, screen, cam):
-    for peg in self.pegs:
-      peg.draw(screen, cam)
-    for plat in self.platforms:
-      plat.draw(screen, cam)
+  def drawables(self):
+    # <NOTE>#444 single source for the render list; held items are drawn by Player, not here
+    free_items = [it for it in self.items if it.held_by is None]
+    return self.backgrounds + self.platforms + self.pegs + free_items

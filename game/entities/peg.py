@@ -1,10 +1,12 @@
 import pygame
 import pymunk
 from shared.const import (
-  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W,
+  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W, LAYER_PEG,
 )
 
 class Peg:
+  layer = LAYER_PEG
+
   def __init__(self, space, pos):
     self.grab_count = 0
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)

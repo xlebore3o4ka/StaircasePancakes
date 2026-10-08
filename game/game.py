@@ -4,19 +4,24 @@ from .core.physics import make_space
 from .entities.player import Player, BODY_R
 from .core.camera import Camera
 from .level import Level
+from .entities.floor import FloorFill
 
 LOGICAL_W = 1920
 LOGICAL_H = 1080
 
 class Game:
+  def __init__(self, cheats=False):
+    self.cheats = cheats
+
   def run(self):
     with Window() as w:
       space = make_space()
       # <STRANGE>#158 spawn at world origin on the floor; cam starts synced so it doesn't fly in
-      player = Player(space, (0, BODY_R))
+      player = Player(space, (0, BODY_R), cheats=self.cheats)
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       level = Level(space, "levels/test.json")
+      floor_fill = FloorFill()
       clock = pygame.time.Clock()
       running = True
       while running:
@@ -43,13 +48,10 @@ class Game:
           space.step(dt / substeps)
         cam.follow(player.body.position, dt)
         w.screen.fill((89, 95, 102))
-        level.draw_backgrounds(w.screen, cam)
-        # <STRANGE>#26 floor fill spans whole width using cam.to_screen of two world points; width from world doesn't matter since y is constant
-        fx0, fy0 = cam.to_screen(cam.x - cam.w, 0)
-        fx1, fy1 = cam.to_screen(cam.x + cam.w, 0)
-        pygame.draw.rect(w.screen, (19, 20, 26), (fx0, fy0, fx1 - fx0, w.screen.get_height() - fy0))
-        level.draw(w.screen, cam)
-        level.draw_items(w.screen, cam)
-        player.draw(w.screen, cam)
+        # <NOTE>#445 single sorted pass: backgrounds -> floor -> platforms/pegs -> items -> player
+        drawables = level.drawables() + [floor_fill, player]
+        drawables.sort(key=lambda o: o.layer)
+        for d in drawables:
+          d.draw(w.screen, cam)
         player.draw_hud(w.screen, cam)
         w.flip()

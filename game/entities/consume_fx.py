@@ -22,17 +22,18 @@ class SodaConsumeFx:
   def update(self, dt):
     if self.dead:
       return
+    # <STRANGE>#434 drip stamina across the animation; min() at STAMINA_MAX clamps the last tiny over-application
+    if self.stamina_gain and not self.applied:
+      from .player import STAMINA_MAX
+      step = min(1.0, dt / SODA_CX_DURATION)
+      gain = self.stamina_gain * step
+      for j in range(2):
+        self.player.stamina[j] = min(STAMINA_MAX, self.player.stamina[j] + gain)
     self.t += dt
     if self.t >= SODA_CX_DURATION:
       self.t = SODA_CX_DURATION
       self.dead = True
-      if not self.applied:
-        self.applied = True
-        if self.stamina_gain:
-          # <STRANGE>#419 STAMINA_MAX lives in player module; import inside to avoid circular import at module level
-          from .player import STAMINA_MAX
-          for j in range(2):
-            self.player.stamina[j] = min(STAMINA_MAX, self.player.stamina[j] + self.stamina_gain)
+      self.applied = True
 
   def draw(self, screen, cam):
     k = self.t / SODA_CX_DURATION

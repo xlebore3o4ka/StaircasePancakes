@@ -5,7 +5,7 @@ import pymunk
 from shared.const import (
   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
   CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
-  SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA,
+  SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
 )
 
 
@@ -46,6 +46,8 @@ def _blit_bands(screen, cam, bands):
 
 
 class Item:
+  layer = LAYER_ITEM
+
   def __init__(self, space, pos, w, h):
     self.space = space
     self.w = w
