@@ -325,7 +325,7 @@ class EditorItem:
         screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
       return
 
-    self._game.draw_at(screen, ed, (self.x, self.y), 0.0, 255, ed.zoom)
+    self._game.draw_at(screen, ed, (self.x, self.y), 0.0, 255, 1.0)
 
     if self.locked:
       l, r, b, t = self.world_rect()
