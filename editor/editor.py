@@ -1,793 +1,52 @@
+"""Главный класс редактора уровней."""
 import json
 import math
 import pygame
 import tkinter as tk
 from tkinter import filedialog
-from shared.const import (
-  BODY_R, ARM_R, ARM_DX, JUMP_V, GRAVITY,
-  PEG_R, PEG_FILL, PEG_EDGE,
-  PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W,
-  BG_FILL,
+
+from .const import (
+  BODY_R, ARM_R, ARM_DX, JUMP_H,
+  PLAYER_R, GHOST_ALPHA, ARM_ALPHA, JUMP_ALPHA,
+  GHOST_LERP, GHOST_SNAP, GHOST_RETURN_DELAY,
+  BOT_H, BG, GOLD, GREEN, SEL_BLUE, SNAP_COLOR,
+  RESIZE_ZONE, MIN_SIZE,
+  PLAT_DEFAULT_W, PLAT_DEFAULT_H, PLAT_FILL, PLAT_EDGE,
+  BG_DEFAULT_COLOR, BG_FILL,
+  UNDO_LIMIT, PASTE_OFFSET, CLICK_THRESHOLD, SNAP_DIST,
+  ZOOM_MIN, ZOOM_MAX, ZOOM_STEP,
+  LAYER_FLOOR, GHOST_LAYER,
+  DEFAULT_ITEM_TYPE,
   ITEM_TYPES,
-  SODA_W, SODA_H, SODA_BLUE, SODA_WHITE,
+  PEG_FILL, PEG_EDGE, PEG_R,
+  PLAT_EDGE_W,
   CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W,
-  LAYER_BG, LAYER_FLOOR, LAYER_PLATFORM, LAYER_PEG, LAYER_ITEM, LAYER_PLAYER,
+  SODA_BLUE, SODA_WHITE,
+  UI_BG, GREY, PANEL_HEADER_H,
 )
+from .helpers import (
+  render_text, draw_lock_badge,
+)
+from .objects import (
+  EditorPeg, EditorPlatform, EditorBackground, EditorItem,
+  default_layer_for, make_fake_item,
+)
+from .widgets import ContextMenu
+from .panel import TopPanel
 
-# ---- layout ----
-BOT_H = 70
-BG = (50, 55, 65)
-UI_BG = (30, 33, 40)
-GOLD = (255, 215, 0)
-GREY = (110, 110, 110)
-GREEN = (60, 220, 100)
-SEL_BLUE = (100, 200, 255)
-SNAP_COLOR = (255, 90, 200)
-PLAT_DEFAULT_W = 180
-PLAT_DEFAULT_H = 72
-RESIZE_ZONE = 8
-MIN_SIZE = 20
-PLAYER_R = BODY_R
-GHOST_ALPHA = 110
-JUMP_H = JUMP_V * JUMP_V / (2 * GRAVITY)
-ARM_ALPHA = 90
-JUMP_ALPHA = 70
-BG_DEFAULT_COLOR = BG_FILL
-GHOST_LERP = 0.15
-GHOST_SNAP = 0.5
-GHOST_RETURN_DELAY = 2.0
-UNDO_LIMIT = 200
-PASTE_OFFSET = 20
-CLICK_THRESHOLD = 4
-SNAP_DIST = 6.0
 
-# ghost рисуется чуть выше пола и всегда под платформами, если у объектов дефолтные слои
-GHOST_LAYER = LAYER_FLOOR + 1
+class _IconCam:
+  """Мини-cam для отрисовки предмета в прямоугольнике иконки."""
 
-# ---- zoom ----
-ZOOM_MIN = 0.25
-ZOOM_MAX = 4.0
-ZOOM_STEP = 1.15
+  def __init__(self, center, scale):
+    self._cx, self._cy = center
+    self.scale = scale
 
-# ---- lock overlays ----
-STRIPE_COLOR = (255, 215, 0, 60)
-STRIPE_STEP = 16
-STRIPE_WIDTH = 3
+  def to_screen(self, wx, wy):
+    return (self._cx + wx * self.scale,
+            self._cy - wy * self.scale)
 
-# ---- items ----
-ITEM_SIZE_MAP = {
-  "cube": (30, 30),
-  "soda": (SODA_W, SODA_H),
-}
-DEFAULT_ITEM_SIZE = (30, 30)
-DEFAULT_ITEM_TYPE = ITEM_TYPES[0] if ITEM_TYPES else "cube"
 
-
-def item_size(t):
-  return ITEM_SIZE_MAP.get(t, DEFAULT_ITEM_SIZE)
-
-
-def default_layer_for(obj):
-  if isinstance(obj, EditorBackground):
-    return LAYER_BG
-  if isinstance(obj, EditorPlatform):
-    return LAYER_PLATFORM
-  if isinstance(obj, EditorPeg):
-    return LAYER_PEG
-  if isinstance(obj, EditorItem):
-    return LAYER_ITEM
-  return 0
-
-
-# ---- panel styling ----
-PANEL_HEADER_H = 36
-PANEL_BODY_H = 62
-PANEL_WIDGET_H = 34
-PANEL_BG = (24, 27, 33)
-PANEL_BORDER = (60, 66, 78)
-PANEL_TITLE = (205, 210, 220)
-BTN_BG = (60, 66, 78)
-BTN_BG_HOVER = (80, 88, 102)
-BTN_BG_PRESS = (46, 52, 62)
-BTN_BG_ACTIVE = (58, 128, 92)
-BTN_BORDER = (105, 112, 126)
-BTN_TEXT = (225, 230, 240)
-BTN_TEXT_DIM = (130, 135, 145)
-INPUT_BG = (16, 18, 22)
-INPUT_BORDER = (85, 92, 106)
-INPUT_BORDER_FOCUS = GOLD
-INPUT_TEXT = (235, 238, 245)
-INPUT_PLACEHOLDER = (110, 116, 128)
-
-# ---- context menu ----
-MENU_BG = (35, 38, 45)
-MENU_BORDER = (90, 96, 110)
-MENU_HOVER = (60, 66, 78)
-MENU_TITLE_FG = (180, 185, 195)
-MENU_SEP = (70, 76, 88)
-
-
-# =========================================================
-# Text cache
-# =========================================================
-_TEXT_CACHE = {}
-
-
-def render_text(font, text, color):
-  key = (id(font), text, color)
-  surf = _TEXT_CACHE.get(key)
-  if surf is None:
-    surf = font.render(text, True, color)
-    _TEXT_CACHE[key] = surf
-  return surf
-
-
-# =========================================================
-# Lock overlay helpers
-# =========================================================
-def draw_lock_badge(screen, cx, cy, size=14):
-  cx, cy = int(cx), int(cy)
-  pygame.draw.circle(screen, (25, 28, 35), (cx, cy), size // 2 + 3)
-  x = cx - size // 2
-  y = cy - size // 2
-  body = pygame.Rect(x, y + 4, size, size - 4)
-  pygame.draw.arc(screen, GOLD, (x + 2, y - 1, size - 4, size - 1), 0, math.pi, 2)
-  pygame.draw.rect(screen, GOLD, body, border_radius=2)
-  pygame.draw.rect(screen, (20, 20, 20), body, 1, border_radius=2)
-  pygame.draw.circle(screen, (20, 20, 20), (cx, body.y + body.h // 2 - 1), 2)
-
-
-_STRIPE_RECT_CACHE = {}
-_STRIPE_CIRCLE_CACHE = {}
-_CACHE_LIMIT = 64
-
-
-def make_stripe_surface(w, h):
-  w = max(1, int(w))
-  h = max(1, int(h))
-  key = (w, h)
-  surf = _STRIPE_RECT_CACHE.get(key)
-  if surf is not None:
-    return surf
-  surf = pygame.Surface((w, h), pygame.SRCALPHA)
-  for offset in range(-h, w + 1, STRIPE_STEP):
-    pygame.draw.line(surf, STRIPE_COLOR,
-                     (offset, h), (offset + h, 0), STRIPE_WIDTH)
-  if len(_STRIPE_RECT_CACHE) > _CACHE_LIMIT:
-    _STRIPE_RECT_CACHE.clear()
-  _STRIPE_RECT_CACHE[key] = surf
-  return surf
-
-
-def make_circle_stripe_surface(r):
-  r = max(1, int(r))
-  key = r
-  surf = _STRIPE_CIRCLE_CACHE.get(key)
-  if surf is not None:
-    return surf
-  d = r * 2
-  surf = pygame.Surface((d, d), pygame.SRCALPHA)
-  for offset in range(-d, d + 1, STRIPE_STEP):
-    pygame.draw.line(surf, STRIPE_COLOR,
-                     (offset, d), (offset + d, 0), STRIPE_WIDTH)
-  mask = pygame.Surface((d, d), pygame.SRCALPHA)
-  pygame.draw.circle(mask, (255, 255, 255, 255), (r, r), r)
-  surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-  if len(_STRIPE_CIRCLE_CACHE) > _CACHE_LIMIT:
-    _STRIPE_CIRCLE_CACHE.clear()
-  _STRIPE_CIRCLE_CACHE[key] = surf
-  return surf
-
-
-# =========================================================
-# Scene objects
-# =========================================================
-class EditorPeg:
-  def __init__(self, x, y):
-    self.x, self.y = x, y
-    self.r = PEG_R
-    self.locked = False
-    self.layer = None
-
-  def hit(self, wx, wy):
-    return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
-
-  def intersects_rect(self, l, r, b, t):
-    nx = max(l, min(self.x, r))
-    ny = max(b, min(self.y, t))
-    return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
-
-  def to_json(self):
-    return [int(self.x), int(self.y)]
-
-  def badge_screen_pos(self, ed):
-    sx, sy = ed.to_screen(self.x, self.y)
-    r = self.r * ed.zoom
-    return sx + r + 2, sy - r - 2
-
-  def draw(self, screen, ed):
-    sx, sy = ed.to_screen(self.x, self.y)
-    r = max(1, int(self.r * ed.zoom))
-    pygame.draw.circle(screen, PEG_FILL, (int(sx), int(sy)), r)
-    edge_w = max(1, int(4 * ed.zoom))
-    pygame.draw.circle(screen, PEG_EDGE, (int(sx), int(sy)), r, edge_w)
-    if self.locked:
-      screen.blit(make_circle_stripe_surface(r),
-                  (int(sx) - r, int(sy) - r))
-
-
-class EditorPlatform:
-  def __init__(self, x, y, w=PLAT_DEFAULT_W, h=PLAT_DEFAULT_H):
-    self.x, self.y = x, y
-    self.w, self.h = w, h
-    self.fill = PLAT_FILL
-    self.edge = PLAT_EDGE
-    self.locked = False
-    self.layer = None
-
-  def world_rect(self):
-    return (self.x - self.w / 2, self.x + self.w / 2,
-            self.y - self.h / 2, self.y + self.h / 2)
-
-  def hit(self, wx, wy):
-    l, r, b, t = self.world_rect()
-    return l <= wx <= r and b <= wy <= t
-
-  def intersects_rect(self, l, r, b, t):
-    ol, orr, ob, ot = self.world_rect()
-    return not (orr < l or ol > r or ot < b or ob > t)
-
-  def edge_hit(self, wx, wy, zone=RESIZE_ZONE):
-    l, r, b, t = self.world_rect()
-    in_x = l - zone <= wx <= r + zone
-    in_y = b - zone <= wy <= t + zone
-    if not (in_x and in_y):
-      return None
-    if abs(wx - l) <= zone:
-      return "left"
-    if abs(wx - r) <= zone:
-      return "right"
-    if abs(wy - t) <= zone:
-      return "top"
-    if abs(wy - b) <= zone:
-      return "bottom"
-    return None
-
-  def to_json(self):
-    d = {
-      "x": int(self.x), "y": int(self.y),
-      "w": int(self.w), "h": int(self.h),
-      "fill": list(self.fill), "edge": list(self.edge),
-      "locked": bool(self.locked),
-    }
-    if self.layer is not None:
-      d["layer"] = int(self.layer)
-    return d
-
-  def badge_screen_pos(self, ed):
-    l, r, b, t = self.world_rect()
-    x0, y0 = ed.to_screen(l, t)
-    x1, _ = ed.to_screen(r, t)
-    return x1 - 12, y0 + 12
-
-  def draw(self, screen, ed):
-    l, r, b, t = self.world_rect()
-    x0, y0 = ed.to_screen(l, t)
-    x1, y1 = ed.to_screen(r, b)
-    rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
-                       int(abs(x1 - x0)), int(abs(y1 - y0)))
-    pygame.draw.rect(screen, self.fill, rect)
-    pygame.draw.rect(screen, self.edge, rect, PLAT_EDGE_W)
-    if self.locked:
-      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
-
-
-class EditorBackground:
-  def __init__(self, x, y, w=PLAT_DEFAULT_W, h=PLAT_DEFAULT_H):
-    self.x, self.y = x, y
-    self.w, self.h = w, h
-    self.fill = BG_DEFAULT_COLOR
-    self.locked = False
-    self.layer = None
-
-  def world_rect(self):
-    return (self.x - self.w / 2, self.x + self.w / 2,
-            self.y - self.h / 2, self.y + self.h / 2)
-
-  def hit(self, wx, wy):
-    l, r, b, t = self.world_rect()
-    return l <= wx <= r and b <= wy <= t
-
-  def intersects_rect(self, l, r, b, t):
-    ol, orr, ob, ot = self.world_rect()
-    return not (orr < l or ol > r or ot < b or ob > t)
-
-  def edge_hit(self, wx, wy, zone=RESIZE_ZONE):
-    l, r, b, t = self.world_rect()
-    in_x = l - zone <= wx <= r + zone
-    in_y = b - zone <= wy <= t + zone
-    if not (in_x and in_y):
-      return None
-    if abs(wx - l) <= zone:
-      return "left"
-    if abs(wx - r) <= zone:
-      return "right"
-    if abs(wy - t) <= zone:
-      return "top"
-    if abs(wy - b) <= zone:
-      return "bottom"
-    return None
-
-  def to_json(self):
-    d = {
-      "x": int(self.x), "y": int(self.y),
-      "w": int(self.w), "h": int(self.h),
-      "color": list(self.fill),
-      "locked": bool(self.locked),
-    }
-    if self.layer is not None:
-      d["layer"] = int(self.layer)
-    return d
-
-  def badge_screen_pos(self, ed):
-    l, r, b, t = self.world_rect()
-    x0, y0 = ed.to_screen(l, t)
-    x1, _ = ed.to_screen(r, t)
-    return x1 - 12, y0 + 12
-
-  def draw(self, screen, ed):
-    l, r, b, t = self.world_rect()
-    x0, y0 = ed.to_screen(l, t)
-    x1, y1 = ed.to_screen(r, b)
-    rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
-                       int(abs(x1 - x0)), int(abs(y1 - y0)))
-    pygame.draw.rect(screen, self.fill, rect)
-    if self.locked:
-      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
-
-
-class EditorItem:
-  def __init__(self, x, y, item_type=DEFAULT_ITEM_TYPE):
-    self.x, self.y = x, y
-    self.item_type = item_type
-    self.w, self.h = item_size(item_type)
-    self.locked = False
-    self.layer = None
-
-  def set_type(self, t):
-    self.item_type = t
-    self.w, self.h = item_size(t)
-
-  def world_rect(self):
-    return (self.x - self.w / 2, self.x + self.w / 2,
-            self.y - self.h / 2, self.y + self.h / 2)
-
-  def hit(self, wx, wy):
-    l, r, b, t = self.world_rect()
-    return l <= wx <= r and b <= wy <= t
-
-  def intersects_rect(self, l, r, b, t):
-    ol, orr, ob, ot = self.world_rect()
-    return not (orr < l or ol > r or ot < b or ob > t)
-
-  def badge_screen_pos(self, ed):
-    l, r, b, t = self.world_rect()
-    _, y0 = ed.to_screen(l, t)
-    x1, _ = ed.to_screen(r, t)
-    return x1 - 12, y0 + 12
-
-  def to_json(self):
-    d = {
-      "x": int(self.x), "y": int(self.y),
-      "type": self.item_type,
-      "locked": bool(self.locked),
-    }
-    if self.layer is not None:
-      d["layer"] = int(self.layer)
-    return d
-
-  def draw(self, screen, ed):
-    l, r, b, t = self.world_rect()
-    x0, y0 = ed.to_screen(l, t)
-    x1, y1 = ed.to_screen(r, b)
-    rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
-                       int(abs(x1 - x0)), int(abs(y1 - y0)))
-
-    if self.item_type == "cube":
-      pygame.draw.rect(screen, CUBE_FILL, rect)
-      pygame.draw.rect(screen, CUBE_EDGE, rect, CUBE_EDGE_W)
-    elif self.item_type == "soda":
-      q = max(1, rect.h // 4)
-      top = pygame.Rect(rect.x, rect.y, rect.w, q)
-      mid = pygame.Rect(rect.x, rect.y + q, rect.w, rect.h - 2 * q)
-      bot = pygame.Rect(rect.x, rect.y + q + (rect.h - 2 * q), rect.w, q)
-      pygame.draw.rect(screen, SODA_BLUE, top)
-      pygame.draw.rect(screen, SODA_WHITE, mid)
-      pygame.draw.rect(screen, SODA_BLUE, bot)
-      pygame.draw.rect(screen, (20, 20, 20), rect, 2)
-    else:
-      pygame.draw.rect(screen, (200, 180, 120), rect)
-      pygame.draw.rect(screen, (80, 70, 50), rect, 2)
-
-    if self.locked:
-      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
-
-
-# =========================================================
-# UI widgets
-# =========================================================
-class Widget:
-  def __init__(self, x, y, w, h):
-    self.rect = pygame.Rect(int(x), int(y), int(w), int(h))
-    self.visible = True
-    self.enabled = True
-
-  def draw(self, screen, font, origin=(0, 0)):
-    pass
-
-  def on_event(self, e, origin=(0, 0)):
-    return False
-
-  def update(self, dt):
-    pass
-
-  def screen_rect(self, origin=(0, 0)):
-    return self.rect.move(origin)
-
-
-class UIButton(Widget):
-  def __init__(self, x, y, w, h, label, on_click=None):
-    super().__init__(x, y, w, h)
-    self.label = label
-    self.on_click = on_click
-    self.hover = False
-    self.pressed = False
-
-  def _colors(self):
-    if not self.enabled:
-      return (45, 48, 55), BTN_TEXT_DIM, BTN_BORDER
-    if self.pressed:
-      return BTN_BG_PRESS, BTN_TEXT, BTN_BORDER
-    if self.hover:
-      return BTN_BG_HOVER, BTN_TEXT, BTN_BORDER
-    return BTN_BG, BTN_TEXT, BTN_BORDER
-
-  def draw(self, screen, font, origin=(0, 0)):
-    if not self.visible:
-      return
-    r = self.screen_rect(origin)
-    bg, fg, border = self._colors()
-    pygame.draw.rect(screen, bg, r, border_radius=4)
-    pygame.draw.rect(screen, border, r, 1, border_radius=4)
-    surf = render_text(font, self.label, fg)
-    screen.blit(surf, surf.get_rect(center=r.center))
-
-  def on_event(self, e, origin=(0, 0)):
-    if not (self.visible and self.enabled):
-      return False
-    r = self.screen_rect(origin)
-    if e.type == pygame.MOUSEMOTION:
-      self.hover = r.collidepoint(e.pos)
-    elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
-      if r.collidepoint(e.pos):
-        self.pressed = True
-        return True
-    elif e.type == pygame.MOUSEBUTTONUP and e.button == 1:
-      was = self.pressed
-      self.pressed = False
-      if was:
-        if r.collidepoint(e.pos) and self.on_click:
-          self.on_click()
-        return True
-    return False
-
-
-class UIToggleButton(UIButton):
-  def __init__(self, x, y, w, h, label, on_toggle=None):
-    super().__init__(x, y, w, h, label)
-    self.active = False
-    self.on_toggle = on_toggle
-
-  def _colors(self):
-    if not self.enabled:
-      return (45, 48, 55), BTN_TEXT_DIM, BTN_BORDER
-    if self.pressed:
-      return BTN_BG_PRESS, BTN_TEXT, GOLD if self.active else BTN_BORDER
-    if self.active:
-      return BTN_BG_ACTIVE, BTN_TEXT, GOLD
-    if self.hover:
-      return BTN_BG_HOVER, BTN_TEXT, BTN_BORDER
-    return BTN_BG, BTN_TEXT, BTN_BORDER
-
-  def draw(self, screen, font, origin=(0, 0)):
-    if not self.visible:
-      return
-    r = self.screen_rect(origin)
-    bg, fg, border = self._colors()
-    pygame.draw.rect(screen, bg, r, border_radius=4)
-    pygame.draw.rect(screen, border, r, 2 if self.active else 1, border_radius=4)
-    surf = render_text(font, self.label, fg)
-    screen.blit(surf, surf.get_rect(center=r.center))
-
-  def on_event(self, e, origin=(0, 0)):
-    if not (self.visible and self.enabled):
-      return False
-    r = self.screen_rect(origin)
-    if e.type == pygame.MOUSEMOTION:
-      self.hover = r.collidepoint(e.pos)
-    elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
-      if r.collidepoint(e.pos):
-        self.pressed = True
-        return True
-    elif e.type == pygame.MOUSEBUTTONUP and e.button == 1:
-      was = self.pressed
-      self.pressed = False
-      if was and r.collidepoint(e.pos):
-        self.active = not self.active
-        if self.on_toggle:
-          self.on_toggle(self.active)
-        return True
-    return False
-
-
-class UITextInput(Widget):
-  def __init__(self, x, y, w, h, placeholder="", text=""):
-    super().__init__(x, y, w, h)
-    self.text = text
-    self.placeholder = placeholder
-    self.focused = False
-    self.cursor_blink = 0.0
-
-  def update(self, dt):
-    self.cursor_blink = (self.cursor_blink + dt) % 1.0
-
-  def draw(self, screen, font, origin=(0, 0)):
-    if not self.visible:
-      return
-    r = self.screen_rect(origin)
-    pygame.draw.rect(screen, INPUT_BG, r, border_radius=4)
-    border = INPUT_BORDER_FOCUS if self.focused else INPUT_BORDER
-    pygame.draw.rect(screen, border, r, 1, border_radius=4)
-    pad = 8
-    if self.text:
-      surf = render_text(font, self.text, INPUT_TEXT)
-    else:
-      surf = render_text(font, self.placeholder, INPUT_PLACEHOLDER)
-    screen.blit(surf, (r.x + pad, r.centery - surf.get_height() // 2))
-    if self.focused and self.cursor_blink < 0.5:
-      cx = r.x + pad + font.size(self.text)[0]
-      pygame.draw.line(screen, INPUT_TEXT, (cx, r.y + 6), (cx, r.bottom - 6))
-
-  def on_event(self, e, origin=(0, 0)):
-    if not (self.visible and self.enabled):
-      return False
-    r = self.screen_rect(origin)
-    if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
-      if r.collidepoint(e.pos):
-        self.focused = True
-        self.cursor_blink = 0.0
-        return True
-      if self.focused:
-        self.focused = False
-      return False
-    if self.focused and e.type == pygame.KEYDOWN:
-      if e.key == pygame.K_BACKSPACE:
-        self.text = self.text[:-1]
-        return True
-      if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
-        self.focused = False
-        return True
-      if e.unicode and e.unicode.isprintable():
-        self.text += e.unicode
-        return True
-      return True
-    return False
-
-
-class ContextMenu:
-  ITEM_H = 26
-  HEADER_H = 24
-  SEP_H = 8
-  PAD_X = 12
-
-  def __init__(self, screen_size, options, pos, on_select, title=None):
-    # options: list of (label, value) tuples; None entries are separators
-    self.options = list(options)
-    self.on_select = on_select
-    self.title = title
-    self.font = pygame.font.SysFont(None, 22)
-    self.font_small = pygame.font.SysFont(None, 18)
-
-    max_w = 80
-    for opt in self.options:
-      if opt is None:
-        continue
-      label, _ = opt
-      w = self.font.size(label)[0]
-      if w > max_w:
-        max_w = w
-    if title:
-      tw = self.font_small.size(title)[0]
-      if tw + self.PAD_X * 2 > max_w:
-        max_w = tw + self.PAD_X * 2
-    self.width = max_w + self.PAD_X * 2
-    self.header_h = self.HEADER_H if title else 0
-
-    h = self.header_h
-    for opt in self.options:
-      h += self.SEP_H if opt is None else self.ITEM_H
-    self.height = h
-
-    sw, sh = screen_size
-    x = max(0, min(pos[0], sw - self.width))
-    y = max(0, min(pos[1], sh - self.height))
-    self.rect = pygame.Rect(x, y, self.width, self.height)
-    self.hover = -1
-
-  def hover_index(self, pos):
-    if not self.rect.collidepoint(pos):
-      self.hover = -1
-      return -1
-    if pos[1] < self.rect.y + self.header_h:
-      self.hover = -1
-      return -1
-    y = self.rect.y + self.header_h
-    for i, opt in enumerate(self.options):
-      h = self.SEP_H if opt is None else self.ITEM_H
-      r = pygame.Rect(self.rect.x, y, self.rect.width, h)
-      if r.collidepoint(pos):
-        if opt is None:
-          self.hover = -1
-          return -1
-        self.hover = i
-        return i
-      y += h
-    self.hover = -1
-    return -1
-
-  def draw(self, screen):
-    pygame.draw.rect(screen, MENU_BG, self.rect)
-    pygame.draw.rect(screen, MENU_BORDER, self.rect, 1)
-    if self.title:
-      surf = render_text(self.font_small, self.title, MENU_TITLE_FG)
-      screen.blit(surf, (self.rect.x + self.PAD_X,
-                         self.rect.y + (self.header_h - surf.get_height()) // 2))
-      sep_y = self.rect.y + self.header_h - 1
-      pygame.draw.line(screen, MENU_SEP,
-                       (self.rect.x + 4, sep_y),
-                       (self.rect.right - 4, sep_y), 1)
-
-    y = self.rect.y + self.header_h
-    for i, opt in enumerate(self.options):
-      if opt is None:
-        my = y + self.SEP_H // 2
-        pygame.draw.line(screen, MENU_SEP,
-                         (self.rect.x + 6, my),
-                         (self.rect.right - 6, my), 1)
-        y += self.SEP_H
-        continue
-      label, _ = opt
-      r = pygame.Rect(self.rect.x, y, self.rect.width, self.ITEM_H)
-      if i == self.hover:
-        pygame.draw.rect(screen, MENU_HOVER, r)
-      color = GOLD if i == self.hover else BTN_TEXT
-      surf = render_text(self.font, label, color)
-      screen.blit(surf, (r.x + self.PAD_X,
-                         r.y + (r.height - surf.get_height()) // 2))
-      y += self.ITEM_H
-
-
-# =========================================================
-# Top panel
-# =========================================================
-class TopPanel:
-  def __init__(self, editor):
-    self.editor = editor
-    self.font_small = pygame.font.SysFont(None, 20)
-    self.font_body = pygame.font.SysFont(None, 22)
-    self.expanded = True
-
-    self.header_widgets = []
-    self.body_widgets = []
-
-    self.toggle_btn = UIButton(0, 0, 84, PANEL_HEADER_H - 10,
-                               "Hide", self._toggle)
-    self.header_widgets.append(self.toggle_btn)
-
-    self.lock_btn = UIToggleButton(0, 0, 120, PANEL_WIDGET_H,
-                                   "Lock tool", self._on_lock_toggle)
-    self.zone_unlock_btn = UIToggleButton(0, 0, 140, PANEL_WIDGET_H,
-                                          "Zone unlock", self._on_zone_toggle)
-    self.snap_btn = UIToggleButton(0, 0, 80, PANEL_WIDGET_H,
-                                   "Snap", self._on_snap_toggle)
-    self.snap_btn.active = editor.snap_enabled
-    self.undo_btn = UIButton(0, 0, 80, PANEL_WIDGET_H, "Undo", editor.undo)
-    self.redo_btn = UIButton(0, 0, 80, PANEL_WIDGET_H, "Redo", editor.redo)
-    self.save_btn = UIButton(0, 0, 88, PANEL_WIDGET_H, "Save", editor.save)
-    self.load_btn = UIButton(0, 0, 88, PANEL_WIDGET_H, "Load", editor.load)
-    self.body_widgets.extend([self.lock_btn, self.zone_unlock_btn,
-                              self.snap_btn, self.undo_btn, self.redo_btn,
-                              self.save_btn, self.load_btn])
-
-    self.layout(editor.screen.get_width())
-
-  def height(self):
-    return PANEL_HEADER_H + (PANEL_BODY_H if self.expanded else 0)
-
-  def layout(self, screen_w):
-    pad = 10
-    tw, th = self.toggle_btn.rect.size
-    self.toggle_btn.rect.topleft = (screen_w - pad - tw,
-                                    (PANEL_HEADER_H - th) // 2)
-    x = pad
-    y = PANEL_HEADER_H + (PANEL_BODY_H - PANEL_WIDGET_H) // 2
-    for w in self.body_widgets:
-      w.rect.x = x
-      w.rect.y = y
-      x += w.rect.width + pad
-
-  def _toggle(self):
-    self.expanded = not self.expanded
-    self.toggle_btn.label = "Hide" if self.expanded else "Show"
-    self.layout(self.editor.screen.get_width())
-
-  def _on_lock_toggle(self, active):
-    if active:
-      self.editor.set_tool("lock")
-    else:
-      if self.editor.tool == "lock":
-        self.editor.set_tool("peg")
-
-  def _on_zone_toggle(self, active):
-    if active:
-      self.editor.set_tool("unlock_zone")
-    else:
-      if self.editor.tool == "unlock_zone":
-        self.editor.set_tool("peg")
-
-  def _on_snap_toggle(self, active):
-    self.editor.snap_enabled = active
-
-  def sync_tool(self, name):
-    self.lock_btn.active = (name == "lock")
-    self.zone_unlock_btn.active = (name == "unlock_zone")
-
-  def _active_widgets(self):
-    return list(self.header_widgets) + (list(self.body_widgets) if self.expanded else [])
-
-  def wants_keyboard(self):
-    return any(getattr(w, "focused", False) for w in self._active_widgets())
-
-  def on_event(self, e):
-    consumed = False
-    for w in self._active_widgets():
-      if w.on_event(e, (0, 0)):
-        consumed = True
-    if e.type == pygame.MOUSEBUTTONDOWN and e.pos[1] < self.height():
-      return True
-    return consumed
-
-  def update(self, dt):
-    for w in self._active_widgets():
-      w.update(dt)
-
-  def draw(self, screen):
-    h = self.height()
-    pygame.draw.rect(screen, PANEL_BG, (0, 0, screen.get_width(), h))
-    pygame.draw.line(screen, PANEL_BORDER,
-                     (0, h - 1), (screen.get_width(), h - 1))
-    title = render_text(self.font_small, "Level editor", PANEL_TITLE)
-    screen.blit(title, (10, (PANEL_HEADER_H - title.get_height()) // 2))
-    for w in self.header_widgets:
-      w.draw(screen, self.font_small, (0, 0))
-    if self.expanded:
-      for w in self.body_widgets:
-        w.draw(screen, self.font_body, (0, 0))
-
-
-# =========================================================
-# Editor
-# =========================================================
 class Editor:
   def __init__(self):
     pygame.init()
@@ -952,7 +211,7 @@ class Editor:
     return refs
 
   def _gather_y_refs(self, exclude=()):
-    refs = []
+    refs = [0.0]  # пол — всегда доступная цель снэпа
     for obj in self.objects:
       if obj in exclude:
         continue
@@ -1377,7 +636,6 @@ class Editor:
       self.running = False
       return
 
-    # Context menu is modal
     if self.context_menu is not None:
       menu = self.context_menu
       if e.type == pygame.MOUSEMOTION:
@@ -1512,7 +770,6 @@ class Editor:
       elif e.key == pygame.K_a:
         self._set_selection(list(self.objects))
       elif e.key == pygame.K_0:
-        # reset zoom
         self.zoom = 1.0
         self._rebuild_ghost_assets()
       elif e.key == pygame.K_l:
@@ -1585,7 +842,7 @@ class Editor:
     options.append(("Layer  -5", ("layer", -5)))
     if is_group or obj.layer is not None:
       options.append(("Reset layer to default", ("layer_reset", None)))
-    options.append(None)  # separator
+    options.append(None)
     options.append(("Delete", ("delete", None)))
     options.append(("Lock", ("lock", None)))
     if is_group:
@@ -1678,9 +935,7 @@ class Editor:
     shift = bool(mods & pygame.KMOD_SHIFT)
     zone = self._resize_zone_world()
 
-    # ---- Shift: selection mode ----
     if shift:
-      # allow resize on selected edges
       if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
          and not self.selected.locked:
         edge = self.selected.edge_hit(wx, wy, zone)
@@ -1708,7 +963,6 @@ class Editor:
       self._begin_select_rect(wx, wy)
       return
 
-    # ---- normal tools ----
     if self.tool == "unlock_zone":
       self.drag = ("zone_unlock", None)
       self.zone_start = (wx, wy)
@@ -2092,7 +1346,6 @@ class Editor:
     gx, gy = self.ghost
     sx, sy = self.to_screen(gx, gy)
 
-    # jump line
     _, ey = self.to_screen(gx, gy + JUMP_H)
     line_h = max(1, int(sy - ey))
     line = pygame.Surface((2, line_h), pygame.SRCALPHA)
@@ -2120,7 +1373,6 @@ class Editor:
     self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
     self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
 
-    # zoom indicator
     z = f"{int(self.zoom * 100)}%"
     surf = render_text(self.font, z, GOLD)
     self.screen.blit(surf, (self.screen.get_width() - surf.get_width() - 14,
@@ -2160,27 +1412,24 @@ class Editor:
       pygame.draw.rect(self.screen, PLAT_EDGE, rr, PLAT_EDGE_W)
 
   def _draw_item_icon(self, screen, r, item_type):
-    iw, ih = 60, 32
-    ir = pygame.Rect(0, 0, iw, ih)
-    ir.center = r.center
-    if item_type == "cube":
-      pygame.draw.rect(screen, CUBE_FILL, ir)
-      pygame.draw.rect(screen, CUBE_EDGE, ir, CUBE_EDGE_W)
-    elif item_type == "soda":
-      q = ir.h // 4
-      pygame.draw.rect(screen, SODA_BLUE,
-                       pygame.Rect(ir.x, ir.y, ir.w, q))
-      pygame.draw.rect(screen, SODA_WHITE,
-                       pygame.Rect(ir.x, ir.y + q, ir.w, ir.h - 2 * q))
-      pygame.draw.rect(screen, SODA_BLUE,
-                       pygame.Rect(ir.x, ir.y + q + (ir.h - 2 * q), ir.w, q))
-      pygame.draw.rect(screen, (20, 20, 20), ir, 2)
-    else:
+    game = make_fake_item(item_type)
+    if game is None:
+      ir = pygame.Rect(0, 0, 60, 32)
+      ir.center = r.center
       pygame.draw.rect(screen, (200, 180, 120), ir)
       pygame.draw.rect(screen, (80, 70, 50), ir, 2)
+      return
+
+    box_w, box_h = 60, 40
+    sx = box_w / max(1, game.w)
+    sy = box_h / max(1, game.h)
+    scale = min(sx, sy)
+
+    cam = _IconCam(r.center, scale)
+    game.draw_at(screen, cam, (0, 0), 0.0, 255, 1.0)
 
   # =========================================================
-  # Bottom tabs (ghost, eraser, peg, platform, background, item)
+  # Bottom tabs
   # =========================================================
   def tab_ghost_rect(self):
     h = self.screen.get_height()
