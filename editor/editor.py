@@ -11,6 +11,7 @@ from shared.const import (
   ITEM_TYPES,
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE,
   CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W,
+  LAYER_BG, LAYER_FLOOR, LAYER_PLATFORM, LAYER_PEG, LAYER_ITEM, LAYER_PLAYER,
 )
 
 # ---- layout ----
@@ -40,6 +41,14 @@ PASTE_OFFSET = 20
 CLICK_THRESHOLD = 4
 SNAP_DIST = 6.0
 
+# ghost рисуется чуть выше пола и всегда под платформами, если у объектов дефолтные слои
+GHOST_LAYER = LAYER_FLOOR + 1
+
+# ---- zoom ----
+ZOOM_MIN = 0.25
+ZOOM_MAX = 4.0
+ZOOM_STEP = 1.15
+
 # ---- lock overlays ----
 STRIPE_COLOR = (255, 215, 0, 60)
 STRIPE_STEP = 16
@@ -56,6 +65,18 @@ DEFAULT_ITEM_TYPE = ITEM_TYPES[0] if ITEM_TYPES else "cube"
 
 def item_size(t):
   return ITEM_SIZE_MAP.get(t, DEFAULT_ITEM_SIZE)
+
+
+def default_layer_for(obj):
+  if isinstance(obj, EditorBackground):
+    return LAYER_BG
+  if isinstance(obj, EditorPlatform):
+    return LAYER_PLATFORM
+  if isinstance(obj, EditorPeg):
+    return LAYER_PEG
+  if isinstance(obj, EditorItem):
+    return LAYER_ITEM
+  return 0
 
 
 # ---- panel styling ----
@@ -78,9 +99,16 @@ INPUT_BORDER_FOCUS = GOLD
 INPUT_TEXT = (235, 238, 245)
 INPUT_PLACEHOLDER = (110, 116, 128)
 
+# ---- context menu ----
+MENU_BG = (35, 38, 45)
+MENU_BORDER = (90, 96, 110)
+MENU_HOVER = (60, 66, 78)
+MENU_TITLE_FG = (180, 185, 195)
+MENU_SEP = (70, 76, 88)
+
 
 # =========================================================
-# opt-1: shared text surface cache (id(font), text, color) -> Surface
+# Text cache
 # =========================================================
 _TEXT_CACHE = {}
 
@@ -109,7 +137,6 @@ def draw_lock_badge(screen, cx, cy, size=14):
   pygame.draw.circle(screen, (20, 20, 20), (cx, body.y + body.h // 2 - 1), 2)
 
 
-# opt-2: cache stripe overlays so we don't rebuild lines every frame
 _STRIPE_RECT_CACHE = {}
 _STRIPE_CIRCLE_CACHE = {}
 _CACHE_LIMIT = 64
@@ -160,6 +187,7 @@ class EditorPeg:
     self.x, self.y = x, y
     self.r = PEG_R
     self.locked = False
+    self.layer = None
 
   def hit(self, wx, wy):
     return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
@@ -174,15 +202,18 @@ class EditorPeg:
 
   def badge_screen_pos(self, ed):
     sx, sy = ed.to_screen(self.x, self.y)
-    return sx + self.r + 2, sy - self.r - 2
+    r = self.r * ed.zoom
+    return sx + r + 2, sy - r - 2
 
   def draw(self, screen, ed):
     sx, sy = ed.to_screen(self.x, self.y)
-    pygame.draw.circle(screen, PEG_FILL, (int(sx), int(sy)), self.r)
-    pygame.draw.circle(screen, PEG_EDGE, (int(sx), int(sy)), self.r, 4)
+    r = max(1, int(self.r * ed.zoom))
+    pygame.draw.circle(screen, PEG_FILL, (int(sx), int(sy)), r)
+    edge_w = max(1, int(4 * ed.zoom))
+    pygame.draw.circle(screen, PEG_EDGE, (int(sx), int(sy)), r, edge_w)
     if self.locked:
-      screen.blit(make_circle_stripe_surface(self.r),
-                  (int(sx) - self.r, int(sy) - self.r))
+      screen.blit(make_circle_stripe_surface(r),
+                  (int(sx) - r, int(sy) - r))
 
 
 class EditorPlatform:
@@ -192,6 +223,7 @@ class EditorPlatform:
     self.fill = PLAT_FILL
     self.edge = PLAT_EDGE
     self.locked = False
+    self.layer = None
 
   def world_rect(self):
     return (self.x - self.w / 2, self.x + self.w / 2,
@@ -205,29 +237,32 @@ class EditorPlatform:
     ol, orr, ob, ot = self.world_rect()
     return not (orr < l or ol > r or ot < b or ob > t)
 
-  def edge_hit(self, wx, wy):
+  def edge_hit(self, wx, wy, zone=RESIZE_ZONE):
     l, r, b, t = self.world_rect()
-    in_x = l - RESIZE_ZONE <= wx <= r + RESIZE_ZONE
-    in_y = b - RESIZE_ZONE <= wy <= t + RESIZE_ZONE
+    in_x = l - zone <= wx <= r + zone
+    in_y = b - zone <= wy <= t + zone
     if not (in_x and in_y):
       return None
-    if abs(wx - l) <= RESIZE_ZONE:
+    if abs(wx - l) <= zone:
       return "left"
-    if abs(wx - r) <= RESIZE_ZONE:
+    if abs(wx - r) <= zone:
       return "right"
-    if abs(wy - t) <= RESIZE_ZONE:
+    if abs(wy - t) <= zone:
       return "top"
-    if abs(wy - b) <= RESIZE_ZONE:
+    if abs(wy - b) <= zone:
       return "bottom"
     return None
 
   def to_json(self):
-    return {
+    d = {
       "x": int(self.x), "y": int(self.y),
       "w": int(self.w), "h": int(self.h),
       "fill": list(self.fill), "edge": list(self.edge),
       "locked": bool(self.locked),
     }
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    return d
 
   def badge_screen_pos(self, ed):
     l, r, b, t = self.world_rect()
@@ -239,7 +274,8 @@ class EditorPlatform:
     l, r, b, t = self.world_rect()
     x0, y0 = ed.to_screen(l, t)
     x1, y1 = ed.to_screen(r, b)
-    rect = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
+    rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                       int(abs(x1 - x0)), int(abs(y1 - y0)))
     pygame.draw.rect(screen, self.fill, rect)
     pygame.draw.rect(screen, self.edge, rect, PLAT_EDGE_W)
     if self.locked:
@@ -252,6 +288,7 @@ class EditorBackground:
     self.w, self.h = w, h
     self.fill = BG_DEFAULT_COLOR
     self.locked = False
+    self.layer = None
 
   def world_rect(self):
     return (self.x - self.w / 2, self.x + self.w / 2,
@@ -265,29 +302,32 @@ class EditorBackground:
     ol, orr, ob, ot = self.world_rect()
     return not (orr < l or ol > r or ot < b or ob > t)
 
-  def edge_hit(self, wx, wy):
+  def edge_hit(self, wx, wy, zone=RESIZE_ZONE):
     l, r, b, t = self.world_rect()
-    in_x = l - RESIZE_ZONE <= wx <= r + RESIZE_ZONE
-    in_y = b - RESIZE_ZONE <= wy <= t + RESIZE_ZONE
+    in_x = l - zone <= wx <= r + zone
+    in_y = b - zone <= wy <= t + zone
     if not (in_x and in_y):
       return None
-    if abs(wx - l) <= RESIZE_ZONE:
+    if abs(wx - l) <= zone:
       return "left"
-    if abs(wx - r) <= RESIZE_ZONE:
+    if abs(wx - r) <= zone:
       return "right"
-    if abs(wy - t) <= RESIZE_ZONE:
+    if abs(wy - t) <= zone:
       return "top"
-    if abs(wy - b) <= RESIZE_ZONE:
+    if abs(wy - b) <= zone:
       return "bottom"
     return None
 
   def to_json(self):
-    return {
+    d = {
       "x": int(self.x), "y": int(self.y),
       "w": int(self.w), "h": int(self.h),
       "color": list(self.fill),
       "locked": bool(self.locked),
     }
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    return d
 
   def badge_screen_pos(self, ed):
     l, r, b, t = self.world_rect()
@@ -299,7 +339,8 @@ class EditorBackground:
     l, r, b, t = self.world_rect()
     x0, y0 = ed.to_screen(l, t)
     x1, y1 = ed.to_screen(r, b)
-    rect = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
+    rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                       int(abs(x1 - x0)), int(abs(y1 - y0)))
     pygame.draw.rect(screen, self.fill, rect)
     if self.locked:
       screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
@@ -311,6 +352,7 @@ class EditorItem:
     self.item_type = item_type
     self.w, self.h = item_size(item_type)
     self.locked = False
+    self.layer = None
 
   def set_type(self, t):
     self.item_type = t
@@ -335,17 +377,21 @@ class EditorItem:
     return x1 - 12, y0 + 12
 
   def to_json(self):
-    return {
+    d = {
       "x": int(self.x), "y": int(self.y),
       "type": self.item_type,
       "locked": bool(self.locked),
     }
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    return d
 
   def draw(self, screen, ed):
     l, r, b, t = self.world_rect()
     x0, y0 = ed.to_screen(l, t)
     x1, y1 = ed.to_screen(r, b)
-    rect = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
+    rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                       int(abs(x1 - x0)), int(abs(y1 - y0)))
 
     if self.item_type == "cube":
       pygame.draw.rect(screen, CUBE_FILL, rect)
@@ -413,7 +459,7 @@ class UIButton(Widget):
     bg, fg, border = self._colors()
     pygame.draw.rect(screen, bg, r, border_radius=4)
     pygame.draw.rect(screen, border, r, 1, border_radius=4)
-    surf = render_text(font, self.label, fg)  # opt-1
+    surf = render_text(font, self.label, fg)
     screen.blit(surf, surf.get_rect(center=r.center))
 
   def on_event(self, e, origin=(0, 0)):
@@ -460,7 +506,7 @@ class UIToggleButton(UIButton):
     bg, fg, border = self._colors()
     pygame.draw.rect(screen, bg, r, border_radius=4)
     pygame.draw.rect(screen, border, r, 2 if self.active else 1, border_radius=4)
-    surf = render_text(font, self.label, fg)  # opt-1
+    surf = render_text(font, self.label, fg)
     screen.blit(surf, surf.get_rect(center=r.center))
 
   def on_event(self, e, origin=(0, 0)):
@@ -540,19 +586,38 @@ class UITextInput(Widget):
 
 class ContextMenu:
   ITEM_H = 26
+  HEADER_H = 24
+  SEP_H = 8
   PAD_X = 12
 
-  def __init__(self, screen_size, options, pos, on_select):
+  def __init__(self, screen_size, options, pos, on_select, title=None):
+    # options: list of (label, value) tuples; None entries are separators
     self.options = list(options)
     self.on_select = on_select
+    self.title = title
     self.font = pygame.font.SysFont(None, 22)
+    self.font_small = pygame.font.SysFont(None, 18)
+
     max_w = 80
-    for label, _ in self.options:
+    for opt in self.options:
+      if opt is None:
+        continue
+      label, _ = opt
       w = self.font.size(label)[0]
       if w > max_w:
         max_w = w
+    if title:
+      tw = self.font_small.size(title)[0]
+      if tw + self.PAD_X * 2 > max_w:
+        max_w = tw + self.PAD_X * 2
     self.width = max_w + self.PAD_X * 2
-    self.height = self.ITEM_H * len(self.options)
+    self.header_h = self.HEADER_H if title else 0
+
+    h = self.header_h
+    for opt in self.options:
+      h += self.SEP_H if opt is None else self.ITEM_H
+    self.height = h
+
     sw, sh = screen_size
     x = max(0, min(pos[0], sw - self.width))
     y = max(0, min(pos[1], sh - self.height))
@@ -563,25 +628,53 @@ class ContextMenu:
     if not self.rect.collidepoint(pos):
       self.hover = -1
       return -1
-    i = (pos[1] - self.rect.y) // self.ITEM_H
-    if 0 <= i < len(self.options):
-      self.hover = i
-      return i
+    if pos[1] < self.rect.y + self.header_h:
+      self.hover = -1
+      return -1
+    y = self.rect.y + self.header_h
+    for i, opt in enumerate(self.options):
+      h = self.SEP_H if opt is None else self.ITEM_H
+      r = pygame.Rect(self.rect.x, y, self.rect.width, h)
+      if r.collidepoint(pos):
+        if opt is None:
+          self.hover = -1
+          return -1
+        self.hover = i
+        return i
+      y += h
     self.hover = -1
     return -1
 
   def draw(self, screen):
-    pygame.draw.rect(screen, (35, 38, 45), self.rect)
-    pygame.draw.rect(screen, (90, 96, 110), self.rect, 1)
-    for i, (label, _) in enumerate(self.options):
-      r = pygame.Rect(self.rect.x, self.rect.y + i * self.ITEM_H,
-                      self.rect.width, self.ITEM_H)
+    pygame.draw.rect(screen, MENU_BG, self.rect)
+    pygame.draw.rect(screen, MENU_BORDER, self.rect, 1)
+    if self.title:
+      surf = render_text(self.font_small, self.title, MENU_TITLE_FG)
+      screen.blit(surf, (self.rect.x + self.PAD_X,
+                         self.rect.y + (self.header_h - surf.get_height()) // 2))
+      sep_y = self.rect.y + self.header_h - 1
+      pygame.draw.line(screen, MENU_SEP,
+                       (self.rect.x + 4, sep_y),
+                       (self.rect.right - 4, sep_y), 1)
+
+    y = self.rect.y + self.header_h
+    for i, opt in enumerate(self.options):
+      if opt is None:
+        my = y + self.SEP_H // 2
+        pygame.draw.line(screen, MENU_SEP,
+                         (self.rect.x + 6, my),
+                         (self.rect.right - 6, my), 1)
+        y += self.SEP_H
+        continue
+      label, _ = opt
+      r = pygame.Rect(self.rect.x, y, self.rect.width, self.ITEM_H)
       if i == self.hover:
-        pygame.draw.rect(screen, (60, 66, 78), r)
+        pygame.draw.rect(screen, MENU_HOVER, r)
       color = GOLD if i == self.hover else BTN_TEXT
-      surf = render_text(self.font, label, color)  # opt-1
+      surf = render_text(self.font, label, color)
       screen.blit(surf, (r.x + self.PAD_X,
                          r.y + (r.height - surf.get_height()) // 2))
+      y += self.ITEM_H
 
 
 # =========================================================
@@ -643,14 +736,14 @@ class TopPanel:
       self.editor.set_tool("lock")
     else:
       if self.editor.tool == "lock":
-        self.editor.set_tool("select")
+        self.editor.set_tool("peg")
 
   def _on_zone_toggle(self, active):
     if active:
       self.editor.set_tool("unlock_zone")
     else:
       if self.editor.tool == "unlock_zone":
-        self.editor.set_tool("select")
+        self.editor.set_tool("peg")
 
   def _on_snap_toggle(self, active):
     self.editor.snap_enabled = active
@@ -683,7 +776,7 @@ class TopPanel:
     pygame.draw.rect(screen, PANEL_BG, (0, 0, screen.get_width(), h))
     pygame.draw.line(screen, PANEL_BORDER,
                      (0, h - 1), (screen.get_width(), h - 1))
-    title = render_text(self.font_small, "Level editor", PANEL_TITLE)  # opt-1
+    title = render_text(self.font_small, "Level editor", PANEL_TITLE)
     screen.blit(title, (10, (PANEL_HEADER_H - title.get_height()) // 2))
     for w in self.header_widgets:
       w.draw(screen, self.font_small, (0, 0))
@@ -703,7 +796,7 @@ class Editor:
     self.clock = pygame.time.Clock()
     self.font = pygame.font.SysFont(None, 22)
     self.running = True
-    self.tool = "select"
+    self.tool = "peg"
     self.objects = []
     # ---- selection ----
     self.selection = []
@@ -714,12 +807,12 @@ class Editor:
     self._move_start = None
     self._move_anchor = None
     self._resize_data = []
-    # opt-4: cached reference coordinates captured at drag start
     self._drag_x_refs = []
     self._drag_y_refs = []
-    # ---- camera ----
+    # ---- camera / zoom ----
     self.cam_x = 0
     self.cam_y = 0
+    self.zoom = 1.0
     self.panning = False
     self.pan_last = (0, 0)
     # ---- ghost ----
@@ -752,70 +845,82 @@ class Editor:
     self.cursor = None
     self._lock_cursor = self._make_lock_cursor()
 
-    # opt-3: build ghost surfaces once
-    self._build_ghost_assets()
-    # opt-6: scene caches (bg / fg / locked), rebuilt lazily
-    self._bg_list = []
-    self._fg_list = []
+    self._rebuild_ghost_assets()
+
+    # ---- render order cache ----
+    self._render_order = []
     self._locked_list = []
     self._scene_dirty = True
 
     self.panel = TopPanel(self)
 
   # =========================================================
-  # opt-3: prebuilt ghost sprites
+  # Ghost assets (rebuild on zoom change)
   # =========================================================
-  def _build_ghost_assets(self):
-    d = PLAYER_R * 2
+  def _rebuild_ghost_assets(self):
+    body_r = max(1, int(PLAYER_R * self.zoom))
+    d = body_r * 2
     body = pygame.Surface((d, d), pygame.SRCALPHA)
-    pygame.draw.circle(body, (255, 255, 255, GHOST_ALPHA),
-                       (PLAYER_R, PLAYER_R), PLAYER_R)
+    pygame.draw.circle(body, (255, 255, 255, GHOST_ALPHA), (body_r, body_r), body_r)
     self._ghost_body = body
+    self._ghost_body_r = body_r
 
-    arm_size = ARM_R * 2 + 4
-    arm = pygame.Surface((arm_size, arm_size), pygame.SRCALPHA)
-    pygame.draw.circle(arm, (255, 255, 255, ARM_ALPHA),
-                       (arm_size // 2, arm_size // 2), ARM_R)
+    arm_r = max(1, int(ARM_R * self.zoom))
+    ad = arm_r * 2
+    arm = pygame.Surface((ad, ad), pygame.SRCALPHA)
+    pygame.draw.circle(arm, (255, 255, 255, ARM_ALPHA), (arm_r, arm_r), arm_r)
     self._ghost_arm = arm
+    self._ghost_arm_r = arm_r
 
-    line_h = max(1, int(JUMP_H))
-    line = pygame.Surface((2, line_h), pygame.SRCALPHA)
-    line.fill((255, 255, 255, JUMP_ALPHA))
-    self._ghost_line = line
-
-    cap = pygame.Surface((10, 2), pygame.SRCALPHA)
-    cap.fill((255, 255, 255, JUMP_ALPHA))
-    self._ghost_cap = cap
+    self._ghost_arm_dx = ARM_DX * self.zoom
 
   # =========================================================
-  # opt-6: scene cache
+  # Zoom
+  # =========================================================
+  def _zoom_at(self, screen_pos, new_zoom):
+    new_zoom = max(ZOOM_MIN, min(ZOOM_MAX, new_zoom))
+    if new_zoom == self.zoom:
+      return
+    wx, wy = self.from_screen(*screen_pos)
+    self.zoom = new_zoom
+    sw, sh = self.screen.get_size()
+    sx, sy = screen_pos
+    self.cam_x = wx - (sx - sw / 2) / self.zoom
+    self.cam_y = wy + (sy - sh / 2) / self.zoom
+    self._rebuild_ghost_assets()
+
+  # =========================================================
+  # Scene cache
   # =========================================================
   def _mark_scene_dirty(self):
     self._scene_dirty = True
 
+  def _effective_layer(self, obj):
+    if getattr(obj, "layer", None) is not None:
+      return obj.layer
+    return default_layer_for(obj)
+
   def _rebuild_scene_lists(self):
-    bg = []
-    fg = []
+    items = []
     locked = []
-    for obj in self.objects:
-      if isinstance(obj, EditorBackground):
-        bg.append(obj)
-      else:
-        fg.append(obj)
+    for i, obj in enumerate(self.objects):
+      items.append((self._effective_layer(obj), i, "obj", obj))
       if obj.locked:
         locked.append(obj)
-    self._bg_list = bg
-    self._fg_list = fg
+    items.append((LAYER_FLOOR, -1, "floor", None))
+    items.append((GHOST_LAYER, -1, "ghost", None))
+    items.sort(key=lambda t: (t[0], t[1]))
+    self._render_order = items
     self._locked_list = locked
     self._scene_dirty = False
 
   # =========================================================
-  # opt-5: visibility test in screen space
+  # Visibility culling
   # =========================================================
   def _visible(self, obj, sw, sh):
     if isinstance(obj, EditorPeg):
       sx, sy = self.to_screen(obj.x, obj.y)
-      r = obj.r + 6
+      r = obj.r * self.zoom + 6
       return (sx + r >= 0 and sx - r <= sw and
               sy + r >= 0 and sy - r <= sh)
     l, r, b, t = obj.world_rect()
@@ -901,16 +1006,18 @@ class Editor:
   # =========================================================
   def _obj_to_state(self, o):
     if isinstance(o, EditorPeg):
-      return {"t": "peg", "x": o.x, "y": o.y, "locked": o.locked}
+      return {"t": "peg", "x": o.x, "y": o.y,
+              "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorPlatform):
       return {"t": "plat", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
-              "fill": tuple(o.fill), "edge": tuple(o.edge), "locked": o.locked}
+              "fill": tuple(o.fill), "edge": tuple(o.edge),
+              "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorBackground):
       return {"t": "bg", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
-              "fill": tuple(o.fill), "locked": o.locked}
+              "fill": tuple(o.fill), "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorItem):
-      return {"t": "item", "x": o.x, "y": o.y,
-              "item_type": o.item_type, "locked": o.locked}
+      return {"t": "item", "x": o.x, "y": o.y, "item_type": o.item_type,
+              "locked": o.locked, "layer": o.layer}
     return None
 
   def _make_from_state(self, s):
@@ -927,7 +1034,8 @@ class Editor:
       o = EditorItem(s["x"], s["y"], s.get("item_type", DEFAULT_ITEM_TYPE))
     else:
       return None
-    o.locked = s["locked"]
+    o.locked = s.get("locked", False)
+    o.layer = s.get("layer", None)
     return o
 
   def _snapshot(self):
@@ -1046,6 +1154,28 @@ class Editor:
     self._clear_selection()
     self._push_undo_now(before)
     self._mark_scene_dirty()
+
+  def _delete_objects(self, objs):
+    for o in list(objs):
+      if not o.locked and o in self.objects:
+        self.objects.remove(o)
+    self._clear_selection()
+    self._mark_scene_dirty()
+
+  def _flip_objects(self, objs, horizontal):
+    objs = [o for o in objs if not o.locked]
+    if not objs:
+      return
+    if horizontal:
+      xs = [o.x for o in objs]
+      c = (min(xs) + max(xs)) / 2
+      for o in objs:
+        o.x = 2 * c - o.x
+    else:
+      ys = [o.y for o in objs]
+      c = (min(ys) + max(ys)) / 2
+      for o in objs:
+        o.y = 2 * c - o.y
 
   # =========================================================
   # Cursors
@@ -1172,7 +1302,6 @@ class Editor:
     self._move_start = (wx, wy)
     self._move_anchor = anchor
     self.drag = ("move", None)
-    # opt-4: snapshot reference coordinates for snapping during the drag
     self._drag_x_refs = self._gather_x_refs(exclude=self.selection)
     self._drag_y_refs = self._gather_y_refs(exclude=self.selection)
 
@@ -1182,7 +1311,6 @@ class Editor:
       if isinstance(obj, (EditorPlatform, EditorBackground)) and not obj.locked:
         self._resize_data.append((obj, obj.world_rect()))
     self.drag = ("resize", edge)
-    # opt-4
     self._drag_x_refs = self._gather_x_refs(exclude=self.selection)
     self._drag_y_refs = self._gather_y_refs(exclude=self.selection)
 
@@ -1196,11 +1324,16 @@ class Editor:
   # =========================================================
   def to_screen(self, wx, wy):
     sw, sh = self.screen.get_size()
-    return wx - self.cam_x + sw / 2, sh / 2 - (wy - self.cam_y)
+    return ((wx - self.cam_x) * self.zoom + sw / 2,
+            sh / 2 - (wy - self.cam_y) * self.zoom)
 
   def from_screen(self, sx, sy):
     sw, sh = self.screen.get_size()
-    return sx - sw / 2 + self.cam_x, sh / 2 - sy + self.cam_y
+    return ((sx - sw / 2) / self.zoom + self.cam_x,
+            (sh / 2 - sy) / self.zoom + self.cam_y)
+
+  def _resize_zone_world(self):
+    return RESIZE_ZONE / max(0.01, self.zoom)
 
   # =========================================================
   # Main loop
@@ -1244,17 +1377,26 @@ class Editor:
       self.running = False
       return
 
+    # Context menu is modal
     if self.context_menu is not None:
+      menu = self.context_menu
       if e.type == pygame.MOUSEMOTION:
-        self.context_menu.hover_index(e.pos)
+        menu.hover_index(e.pos)
         return
       if e.type == pygame.MOUSEBUTTONDOWN:
         if e.button == 1:
-          idx = self.context_menu.hover_index(e.pos)
+          idx = menu.hover_index(e.pos)
           if idx >= 0:
-            _, value = self.context_menu.options[idx]
-            self.context_menu.on_select(value)
-        self.context_menu = None
+            opt = menu.options[idx]
+            if opt is not None:
+              _, value = opt
+              menu.on_select(value)
+              if self.context_menu is menu:
+                self.context_menu = None
+          else:
+            self.context_menu = None
+        else:
+          self.context_menu = None
         return
       if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
         self.context_menu = None
@@ -1269,6 +1411,14 @@ class Editor:
 
     if e.type == pygame.KEYDOWN:
       self._on_keydown(e)
+      return
+
+    if e.type == pygame.MOUSEWHEEL:
+      mx, my = pygame.mouse.get_pos()
+      if e.y > 0:
+        self._zoom_at((mx, my), self.zoom * ZOOM_STEP)
+      elif e.y < 0:
+        self._zoom_at((mx, my), self.zoom / ZOOM_STEP)
       return
 
     if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:
@@ -1319,8 +1469,8 @@ class Editor:
       if self.panning:
         dx = e.pos[0] - self.pan_last[0]
         dy = e.pos[1] - self.pan_last[1]
-        self.cam_x -= dx
-        self.cam_y += dy
+        self.cam_x -= dx / self.zoom
+        self.cam_y += dy / self.zoom
         self.pan_last = e.pos
       elif self.drag is not None and self.drag[0] == "select_rect":
         self.select_now = self.from_screen(*e.pos)
@@ -1361,8 +1511,12 @@ class Editor:
         self.load()
       elif e.key == pygame.K_a:
         self._set_selection(list(self.objects))
+      elif e.key == pygame.K_0:
+        # reset zoom
+        self.zoom = 1.0
+        self._rebuild_ghost_assets()
       elif e.key == pygame.K_l:
-        self.set_tool("select" if self.tool == "lock" else "lock")
+        self.set_tool("peg" if self.tool == "lock" else "lock")
       return
 
     if e.key == pygame.K_ESCAPE:
@@ -1371,8 +1525,6 @@ class Editor:
       self.delete_selected()
     elif e.key == pygame.K_SPACE:
       self.cam_x, self.cam_y = self.ghost[0], self.ghost[1]
-    elif e.key == pygame.K_0:
-      self.set_tool("select")
     elif e.key == pygame.K_1:
       self.set_tool("ghost")
     elif e.key == pygame.K_2:
@@ -1391,7 +1543,7 @@ class Editor:
       self.set_tool("unlock_zone")
 
   # =========================================================
-  # Context menu
+  # Context menus
   # =========================================================
   def _try_open_context_menu(self, pos):
     x, y = pos
@@ -1401,14 +1553,83 @@ class Editor:
     wx, wy = self.from_screen(x, y)
 
     for obj in reversed(self.objects):
-      if isinstance(obj, EditorItem) and not obj.locked and obj.hit(wx, wy):
-        self._open_change_type_menu(obj, pos)
+      if obj.locked:
+        continue
+      if obj.hit(wx, wy):
+        self._open_object_menu(obj, pos)
         return True
 
     if self.tool == "item":
       self._open_pick_type_menu(pos)
       return True
     return False
+
+  def _open_object_menu(self, obj, pos):
+    is_group = len(self.selection) > 1 and obj in self.selection
+    targets = list(self.selection) if is_group else [obj]
+
+    if is_group:
+      title = f"{len(targets)} objects selected"
+    else:
+      cur = self._effective_layer(obj)
+      is_default = obj.layer is None
+      kind = type(obj).__name__.replace("Editor", "")
+      title = f"{kind}  ·  layer {cur}" + ("  (default)" if is_default else "")
+
+    options = []
+    if not is_group and isinstance(obj, EditorItem):
+      options.append(("Change type...", ("change_type", None)))
+    options.append(("Layer  +1", ("layer", 1)))
+    options.append(("Layer  -1", ("layer", -1)))
+    options.append(("Layer  +5", ("layer", 5)))
+    options.append(("Layer  -5", ("layer", -5)))
+    if is_group or obj.layer is not None:
+      options.append(("Reset layer to default", ("layer_reset", None)))
+    options.append(None)  # separator
+    options.append(("Delete", ("delete", None)))
+    options.append(("Lock", ("lock", None)))
+    if is_group:
+      options.append(None)
+      options.append(("Flip horizontal", ("flip_h", None)))
+      options.append(("Flip vertical", ("flip_v", None)))
+
+    before = self._snapshot()
+
+    def on_select(value):
+      act, delta = value
+      if act == "change_type":
+        self._open_change_type_menu(obj, pos)
+        return
+      if act == "layer":
+        for t in targets:
+          t.layer = self._effective_layer(t) + delta
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+      elif act == "layer_reset":
+        for t in targets:
+          t.layer = None
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+      elif act == "delete":
+        self._delete_objects(targets)
+        self._push_undo_now(before)
+      elif act == "lock":
+        for t in targets:
+          t.locked = True
+        self._clear_selection()
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+      elif act == "flip_h":
+        self._flip_objects(targets, horizontal=True)
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+      elif act == "flip_v":
+        self._flip_objects(targets, horizontal=False)
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
 
   def _open_change_type_menu(self, item, pos):
     before = self._snapshot()
@@ -1418,13 +1639,17 @@ class Editor:
       self._push_undo_now(before)
       self._mark_scene_dirty()
     options = [(t, t) for t in ITEM_TYPES]
-    self.context_menu = ContextMenu(self.screen.get_size(), options, pos, on_select)
+    title = f"Item type  ·  {item.item_type}"
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
 
   def _open_pick_type_menu(self, pos):
     def on_select(t):
       self.current_item_type = t
     options = [(t, t) for t in ITEM_TYPES]
-    self.context_menu = ContextMenu(self.screen.get_size(), options, pos, on_select)
+    title = f"Place item  ·  current: {self.current_item_type}"
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
 
   # =========================================================
   # Mouse down
@@ -1433,9 +1658,7 @@ class Editor:
     x, y = pos
     sh = self.screen.get_height()
     if y >= sh - BOT_H:
-      if self.tab_select_rect().collidepoint(pos):
-        self.set_tool("select")
-      elif self.tab_ghost_rect().collidepoint(pos):
+      if self.tab_ghost_rect().collidepoint(pos):
         self.set_tool("ghost")
       elif self.tab_eraser_rect().collidepoint(pos):
         self.set_tool("eraser")
@@ -1450,8 +1673,42 @@ class Editor:
       return
 
     wx, wy = self.from_screen(x, y)
-    ctrl = bool(pygame.key.get_mods() & pygame.KMOD_CTRL)
+    mods = pygame.key.get_mods()
+    ctrl = bool(mods & pygame.KMOD_CTRL)
+    shift = bool(mods & pygame.KMOD_SHIFT)
+    zone = self._resize_zone_world()
 
+    # ---- Shift: selection mode ----
+    if shift:
+      # allow resize on selected edges
+      if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
+         and not self.selected.locked:
+        edge = self.selected.edge_hit(wx, wy, zone)
+        if edge:
+          self._begin_resize(edge)
+          return
+
+      hit = None
+      for obj in reversed(self.objects):
+        if obj.locked:
+          continue
+        if obj.hit(wx, wy):
+          hit = obj
+          break
+
+      if hit is not None:
+        if ctrl:
+          self._toggle_selection(hit)
+          return
+        if hit not in self.selection:
+          self._set_selection([hit])
+        self._begin_move(wx, wy, hit)
+        return
+
+      self._begin_select_rect(wx, wy)
+      return
+
+    # ---- normal tools ----
     if self.tool == "unlock_zone":
       self.drag = ("zone_unlock", None)
       self.zone_start = (wx, wy)
@@ -1477,7 +1734,7 @@ class Editor:
 
     if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
        and not self.selected.locked:
-      edge = self.selected.edge_hit(wx, wy)
+      edge = self.selected.edge_hit(wx, wy, zone)
       if edge:
         self._begin_resize(edge)
         return
@@ -1491,16 +1748,12 @@ class Editor:
         break
 
     if hit is not None:
-      if self.tool == "select" and ctrl:
+      if ctrl:
         self._toggle_selection(hit)
         return
       if hit not in self.selection:
         self._set_selection([hit])
       self._begin_move(wx, wy, hit)
-      return
-
-    if self.tool == "select":
-      self._begin_select_rect(wx, wy)
       return
 
     gx, gy = self.ghost
@@ -1582,7 +1835,6 @@ class Editor:
     guide_x = None
     guide_y = None
 
-    # opt-4: use cached references captured at drag start
     if snap and primary_orig is not None:
       pl, pr, pb, pt = primary_orig
       moved_x = [pl + raw_dx, (pl + pr) / 2 + raw_dx, pr + raw_dx]
@@ -1634,7 +1886,6 @@ class Editor:
     guide_x = None
     guide_y = None
     if snap:
-      # opt-4: build refs on the fly here, creation drag is short-lived
       x_refs = self._drag_x_refs if self._drag_x_refs else self._gather_x_refs(exclude=self.selection)
       y_refs = self._drag_y_refs if self._drag_y_refs else self._gather_y_refs(exclude=self.selection)
       wx, hit_x = self._snap_value(wx, x_refs)
@@ -1675,7 +1926,6 @@ class Editor:
     guide_y = None
 
     if snap:
-      # opt-4: use cached refs
       x_refs = self._drag_x_refs
       y_refs = self._drag_y_refs
       if edge in ("left", "right"):
@@ -1745,7 +1995,7 @@ class Editor:
        and not self.selected.locked:
       mx, my = pygame.mouse.get_pos()
       wx, wy = self.from_screen(mx, my)
-      edge = self.selected.edge_hit(wx, wy)
+      edge = self.selected.edge_hit(wx, wy, self._resize_zone_world())
       if edge in ("left", "right"):
         want = pygame.SYSTEM_CURSOR_SIZEWE
       elif edge in ("top", "bottom"):
@@ -1758,23 +2008,20 @@ class Editor:
   # Draw
   # =========================================================
   def draw(self):
-    if self._scene_dirty:      # opt-6
+    if self._scene_dirty:
       self._rebuild_scene_lists()
     sw, sh = self.screen.get_size()
 
     self.screen.fill(BG)
 
-    # opt-5: culling per object
-    for obj in self._bg_list:
-      if self._visible(obj, sw, sh):
-        obj.draw(self.screen, self)
-
-    self.draw_floor_line()
-    self.draw_ghost()
-
-    for obj in self._fg_list:
-      if self._visible(obj, sw, sh):
-        obj.draw(self.screen, self)
+    for _layer, _order, kind, obj in self._render_order:
+      if kind == "floor":
+        self.draw_floor_line()
+      elif kind == "ghost":
+        self.draw_ghost()
+      else:
+        if self._visible(obj, sw, sh):
+          obj.draw(self.screen, self)
 
     for obj in self.selection:
       sx, sy = self.to_screen(obj.x, obj.y)
@@ -1784,7 +2031,6 @@ class Editor:
     self.draw_select_rect_preview()
     self.draw_snap_guides()
 
-    # Lock badges above everything else (uses cached locked list)
     for obj in self._locked_list:
       bx, by = obj.badge_screen_pos(self)
       draw_lock_badge(self.screen, bx, by)
@@ -1843,23 +2089,30 @@ class Editor:
     self.screen.blit(surf, (0, y - 1))
 
   def draw_ghost(self):
-    # opt-3: prebuilt surfaces, only blits here
     gx, gy = self.ghost
     sx, sy = self.to_screen(gx, gy)
-    _, ey = self.to_screen(gx, gy + JUMP_H)
-    self.screen.blit(self._ghost_line, (int(sx) - 1, int(ey)))
-    self.screen.blit(self._ghost_cap, (int(sx) - 5, int(ey) - 1))
 
+    # jump line
+    _, ey = self.to_screen(gx, gy + JUMP_H)
+    line_h = max(1, int(sy - ey))
+    line = pygame.Surface((2, line_h), pygame.SRCALPHA)
+    line.fill((255, 255, 255, JUMP_ALPHA))
+    self.screen.blit(line, (int(sx) - 1, int(ey)))
+    cap = pygame.Surface((10, 2), pygame.SRCALPHA)
+    cap.fill((255, 255, 255, JUMP_ALPHA))
+    self.screen.blit(cap, (int(sx) - 5, int(ey) - 1))
+
+    arm_dx = self._ghost_arm_dx
     aw = self._ghost_arm.get_width()
     ah = self._ghost_arm.get_height()
-    self.screen.blit(self._ghost_arm, (int(sx - ARM_DX) - aw // 2, int(sy) - ah // 2))
-    self.screen.blit(self._ghost_arm, (int(sx + ARM_DX) - aw // 2, int(sy) - ah // 2))
-    self.screen.blit(self._ghost_body, (int(sx - PLAYER_R), int(sy - PLAYER_R)))
+    self.screen.blit(self._ghost_arm, (int(sx - arm_dx) - aw // 2, int(sy) - ah // 2))
+    self.screen.blit(self._ghost_arm, (int(sx + arm_dx) - aw // 2, int(sy) - ah // 2))
+    body_r = self._ghost_body_r
+    self.screen.blit(self._ghost_body, (int(sx) - body_r, int(sy) - body_r))
 
   def draw_bottom_bar(self):
     h = self.screen.get_height()
     pygame.draw.rect(self.screen, UI_BG, (0, h - BOT_H, self.screen.get_width(), BOT_H))
-    self.draw_tab(self.tab_select_rect(), "select", self.tool == "select")
     self.draw_tab(self.tab_ghost_rect(), "ghost", self.tool == "ghost")
     self.draw_tab(self.tab_eraser_rect(), "eraser", self.tool == "eraser")
     self.draw_tab(self.tab_peg_rect(), "peg", self.tool == "peg")
@@ -1867,25 +2120,18 @@ class Editor:
     self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
     self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
 
+    # zoom indicator
+    z = f"{int(self.zoom * 100)}%"
+    surf = render_text(self.font, z, GOLD)
+    self.screen.blit(surf, (self.screen.get_width() - surf.get_width() - 14,
+                            h - BOT_H + (BOT_H - surf.get_height()) // 2))
+
   def draw_tab(self, r, name, active):
     pygame.draw.rect(self.screen, (45, 50, 60), r)
     color = GOLD if active else GREY
     pygame.draw.rect(self.screen, color, r, 3 if active else 2)
     cx, cy = r.center
-    if name == "select":
-      rr = pygame.Rect(0, 0, 88, 32)
-      rr.center = r.center
-      for i in range(0, rr.w, 8):
-        pygame.draw.line(self.screen, SEL_BLUE, (rr.x + i, rr.y),
-                         (rr.x + min(i + 4, rr.w), rr.y), 2)
-        pygame.draw.line(self.screen, SEL_BLUE, (rr.x + i, rr.bottom - 1),
-                         (rr.x + min(i + 4, rr.w), rr.bottom - 1), 2)
-      for i in range(0, rr.h, 8):
-        pygame.draw.line(self.screen, SEL_BLUE, (rr.x, rr.y + i),
-                         (rr.x, rr.y + min(i + 4, rr.h)), 2)
-        pygame.draw.line(self.screen, SEL_BLUE, (rr.right - 1, rr.y + i),
-                         (rr.right - 1, rr.y + min(i + 4, rr.h)), 2)
-    elif name == "peg":
+    if name == "peg":
       pygame.draw.circle(self.screen, PEG_FILL, (cx, cy), PEG_R)
       pygame.draw.circle(self.screen, PEG_EDGE, (cx, cy), PEG_R, 4)
     elif name == "background":
@@ -1934,35 +2180,31 @@ class Editor:
       pygame.draw.rect(screen, (80, 70, 50), ir, 2)
 
   # =========================================================
-  # Bottom tabs
+  # Bottom tabs (ghost, eraser, peg, platform, background, item)
   # =========================================================
-  def tab_select_rect(self):
+  def tab_ghost_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(10, h - BOT_H + 6, 120, BOT_H - 12)
 
-  def tab_ghost_rect(self):
+  def tab_eraser_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(140, h - BOT_H + 6, 120, BOT_H - 12)
 
-  def tab_eraser_rect(self):
+  def tab_peg_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(270, h - BOT_H + 6, 120, BOT_H - 12)
 
-  def tab_peg_rect(self):
+  def tab_plat_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(400, h - BOT_H + 6, 120, BOT_H - 12)
 
-  def tab_plat_rect(self):
+  def tab_bg_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(530, h - BOT_H + 6, 120, BOT_H - 12)
 
-  def tab_bg_rect(self):
-    h = self.screen.get_height()
-    return pygame.Rect(660, h - BOT_H + 6, 120, BOT_H - 12)
-
   def tab_item_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(790, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(660, h - BOT_H + 6, 120, BOT_H - 12)
 
   # =========================================================
   # Save / Load
@@ -2013,15 +2255,21 @@ class Editor:
       obj.fill = tuple(pd.get("fill", PLAT_FILL))
       obj.edge = tuple(pd.get("edge", PLAT_EDGE))
       obj.locked = bool(pd.get("locked", False))
+      if "layer" in pd:
+        obj.layer = int(pd["layer"])
       self.objects.append(obj)
     for bd in data.get("backgrounds", []):
       obj = EditorBackground(bd["x"], bd["y"], bd.get("w", PLAT_DEFAULT_W), bd.get("h", PLAT_DEFAULT_H))
       obj.fill = tuple(bd.get("color", BG_DEFAULT_COLOR))
       obj.locked = bool(bd.get("locked", False))
+      if "layer" in bd:
+        obj.layer = int(bd["layer"])
       self.objects.append(obj)
     for it in data.get("items", []):
       obj = EditorItem(it["x"], it["y"], it.get("type", DEFAULT_ITEM_TYPE))
       obj.locked = bool(it.get("locked", False))
+      if "layer" in it:
+        obj.layer = int(it["layer"])
       self.objects.append(obj)
     self._clear_selection()
     self._mark_scene_dirty()
