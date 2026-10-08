@@ -31,23 +31,25 @@ class Level:
     ]
     self.items = [make_item(space, it) for it in data.get("items", [])]
 
-  def spawn_item(self, pos, type_name):
+  def spawn_item(self, pos, type_name, vel=(0, 0)):
     # <STRANGE>#299 wraps pos into a spec dict so make_item stays the single entry point for item creation
     spec = {"x": pos[0], "y": pos[1], "type": type_name}
-    self.items.append(make_item(self.space, spec))
+    it = make_item(self.space, spec)
+    # <STRANGE>#370 initial velocity set after make_item so the body is already dynamic at spawn
+    it.body.velocity = vel
+    self.items.append(it)
 
   def grabbables(self):
     return self.pegs + self.platforms
 
-  def update(self, player):
+  def update(self, player, dt=1/60):
     pass
-
   def draw_backgrounds(self, screen, cam):
     for b in self.backgrounds:
       b.draw(screen, cam)
 
   def draw_items(self, screen, cam):
-    # <STRANGE>#250 held items are drawn by Player (under the arm); skip them here to avoid double draw
+    # <STRANGE>#250 held items drawn by Player; skip held and consuming to avoid double draw
     for it in self.items:
       if it.held_by is None:
         it.draw(screen, cam)
