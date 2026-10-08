@@ -85,6 +85,36 @@ class Item:
     # <STRANGE>#295 destroy only removes physics; caller clears held_by on player side
     self.space.remove(self.body, self.shape)
 
+  def post_step(self):
+    # <STRANGE>#596 ignore kinematic items (held, stuck) — their vy is set by gameplay, not physics
+    if self.body.body_type != pymunk.Body.DYNAMIC:
+      return
+    # <STRANGE>#597 any upward vy at ground contact is solver bias or bounce; clamp flat
+    if self.body.velocity.y > 0 and self._has_ground_contact():
+      self.body.velocity = (self.body.velocity.x, 0.0)
+
+  def _has_ground_contact(self):
+    # <STRANGE>#598 mirrors Player._has_ground_contact; category check 0b10 keeps it floor/platform only
+    result = [False]
+    def cb(arb, data):
+      a, b = arb.shapes
+      if a.body is self.body:
+        other = b
+        ny = -arb.contact_point_set.normal.y
+      elif b.body is self.body:
+        other = a
+        ny = arb.contact_point_set.normal.y
+      else:
+        return True
+      if not (other.filter.categories & 0b10):
+        return True
+      if ny > 0.5:
+        result[0] = True
+        return False
+      return True
+    self.body.each_arbiter(cb, None)
+    return result[0]
+
   def radius(self):
     return max(self.w, self.h) / 2
 
@@ -125,16 +155,36 @@ class Item:
 
 
 class CubeItem(Item):
-  def __init__(self, space, pos):
+  def __init__(self, space, pos, contents=None):
     # <STRANGE>#292 cube size fixed; no JSON override
     super().__init__(space, pos, 30, 30)
+    # <NOTE>#566 contents is a list of {"type", "count"}; None means fall back to "any other type"
+    self.contents = contents
 
   def use(self):
-    # <STRANGE>#297 spawn a random different type; if none exists yet, just consume
-    others = [t for t in ITEM_TYPES if t != "cube"]
-    if not others:
-      return (True, None, 0)
-    return (True, random.choice(others), 0)
+    # <STRANGE>#567 weighted roll if contents provided; entry spec carries contents so nested cubes work
+    if self.contents:
+      total = sum(e.get("count", 0) for e in self.contents)
+      if total > 0:
+        r = random.uniform(0, total)
+        acc = 0.0
+        for e in self.contents:
+          acc += e.get("count", 0)
+          if r <= acc:
+            t = e.get("type")
+            if t is None or t == "nothing":
+              return (True, None, 0)
+            spec = {"type": t}
+            for k, v in e.items():
+              if k not in ("type", "count"):
+                spec[k] = v
+            return (True, spec, 0)
+    # <STRANGE>#571 default loot: soda weight 2, nothing weight 1 -> ~2/3 soda, 1/3 empty
+    total = 3
+    r = random.uniform(0, total)
+    if r <= 2:
+      return (True, {"type": "soda"}, 0)
+    return (True, None, 0)
 
   def draw_at(self, screen, cam, pos, angle, alpha, scale):
     sc = cam.scale * scale
@@ -245,4 +295,6 @@ def make_item(space, spec):
     return SodaItem(space, pos)
   if t == "rebar":
     return RebarItem(space, pos)
+  if t == "cube":
+    return CubeItem(space, pos, contents=spec.get("contents"))
   return CubeItem(space, pos)

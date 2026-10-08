@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W
 from shared.smooth import smooth, per_sec
 from .consume_fx import SodaConsumeFx
 
@@ -42,9 +42,6 @@ class Player:
     # <STRANGE>#364 player is perfectly inelastic; without this a 0.5 platform elasticity multiplied by player default could still bounce
     body_shape.elasticity = 0.0
     space.add(self.body, body_shape)
-    # <STRANGE>#365 custom velocity_func: small vertical jitter near ground gets snapped to zero to kill micro-bounces
-    self.body.velocity_func = self._velocity_func
-
     self.arms = []
     for dx in (-ARM_DX, ARM_DX):
       a = pymunk.Body(ARM_MASS, pymunk.moment_for_circle(ARM_MASS, 0, ARM_R))
@@ -68,6 +65,10 @@ class Player:
     self.move = [False, False]
     self.jump = False
     self.jump_queued = False
+    # <STRANGE>#591 set in the frame a jump is committed; post_step skips clamping then
+    self.jumped_this_frame = False
+    # <STRANGE>#551 f-mode: hands grab items only, pegs are ignored; toggle on KEYDOWN F
+    self.items_only = False
     self.grab_lock = [False, False]
     self.joints = [None, None]
     self.stamina = [float(STAMINA_MAX), float(STAMINA_MAX)]
@@ -84,29 +85,42 @@ class Player:
     # <STRANGE>#434 pending stamina from soda; drips into stamina[] at STAMINA_BOOST_RATE per second
     self.stamina_boost = [0.0, 0.0]
 
-  def _velocity_func(self, body, gravity, damping, dt):
-    # <STRANGE>#366 default pymunk integrator first, then post-filter micro-bounces
-    pre_vy = body.velocity.y
-    pymunk.Body.update_velocity(body, gravity, damping, dt)
-    grounded = self._is_grounded()
-    self._grounded_cache = grounded
-    # <TODO>#385 diagnostic: any positive velocity jump > 300 in one step is anomalous; skip deliberate jump / reel
-    if (body.velocity.y - pre_vy > 300
-        and not self.jump
-        and not any(g is not None for g in self.grabbed)):
-      print(f"BUMP pre={pre_vy:.0f} post={body.velocity.y:.0f} dvy={body.velocity.y - pre_vy:.0f} vx={body.velocity.x:.0f} pos=({body.position.x:.1f},{body.position.y:.1f}) grounded={grounded} move={self.move}")
-    if grounded:
-      # <STRANGE>#549 clamp any upward spike above jump speed regardless of held keys; jump itself is exactly JUMP_V so unaffected
-      if body.velocity.y > JUMP_V * 1.05:
-        body.velocity = (body.velocity.x, 0.0)
-      elif abs(body.velocity.y) < 30:
-        body.velocity = (body.velocity.x, 0.0)
-
   def _is_grounded(self):
     b = self.body.position
     pt = (b.x, b.y - BODY_R - 2)
     hits = self.space.point_query(pt, 6, pymunk.ShapeFilter(mask=0b10))
     return len(hits) > 0
+
+  def _has_ground_contact(self):
+    # <STRANGE>#587 real arbiters this step, with normals; point_query can lie right after a bias kick
+    result = [False]
+    def cb(arb, data):
+      a, b = arb.shapes
+      if a.body is self.body:
+        other = b
+        n = arb.contact_point_set.normal
+        ny = -n.y
+      elif b.body is self.body:
+        other = a
+        ny = arb.contact_point_set.normal.y
+      else:
+        return True
+      if not (other.filter.categories & 0b10):
+        return True
+      # <STRANGE>#588 normal from surface to body must point up; .y > 0.5 rejects walls and ceilings
+      if ny > 0.5:
+        result[0] = True
+        return False
+      return True
+    self.body.each_arbiter(cb, None)
+    return result[0]
+
+  def post_step(self, dt):
+    # <STRANGE>#583 runs after space.step: solver bias impulses are applied by then
+    # <STRANGE>#593 any upward vy while touching ground and not jumping this frame is bias; clamp unconditionally
+    if self._has_ground_contact() and not self.jumped_this_frame:
+      if self.body.velocity.y > 0:
+        self.body.velocity = (self.body.velocity.x, 0.0)
 
   def _use(self, i):
     item = self.held[i]
@@ -121,7 +135,7 @@ class Player:
       return
     if r:
       return
-    consumed, spawn_type, stamina_gain = item.use()
+    consumed, spawn_spec, stamina_gain = item.use()
     if consumed:
       # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
       pos = item.body.position
@@ -140,8 +154,9 @@ class Player:
         if stamina_gain:
           for j in range(2):
             self.stamina[j] = min(STAMINA_MAX, self.stamina[j] + stamina_gain)
-      if spawn_type is not None:
-        self.spawn_queue.append((pos, spawn_type, (vx, vy)))
+      # <STRANGE>#574 spawn_spec dict carries type + extras like contents; nested cubes keep their loot table
+      if spawn_spec is not None:
+        self.spawn_queue.append((pos, spawn_spec, (vx, vy)))
     else:
       self.shake_t[i] = ITEM_USE_SHAKE_TIME
 
@@ -192,6 +207,9 @@ class Player:
         self._use(0)
       elif e.scancode == 8:
         self._use(1)
+      # <STRANGE>#552 SDL scancode F=9; hold F for items-only grabbing
+      elif e.scancode == 9:
+        self.items_only = True
     elif e.type == pygame.KEYUP:
       if e.scancode == 4:
         self.move[0] = False
@@ -204,8 +222,13 @@ class Player:
         for i in range(2):
           if self.pressed[i]:
             self.grab_lock[i] = False
+      # <STRANGE>#558 F release clears items-only mode
+      elif e.scancode == 9:
+        self.items_only = False
 
   def update(self, cam, pegs, items, dt):
+    # <STRANGE>#592 new frame: clear the jump flag so post_step can clamp again unless we jump this frame
+    self.jumped_this_frame = False
     num_grabbed = sum(1 for g in self.grabbed if g is not None)
     for i in range(2):
       if self.cheats:
@@ -245,6 +268,7 @@ class Player:
     if self.jump_queued and (grounded or pitoned or self.cheats):
       self.body.velocity = (self.body.velocity.x, JUMP_V)
       self.jump_queued = False
+      self.jumped_this_frame = True
       n = sum(1 for g in self.grabbed if g is not None)
       if n > 0:
         cost = STAMINA_JUMP_COST / n
@@ -281,7 +305,8 @@ class Player:
           if item_hit is not None:
             self.held[i] = item_hit
             item_hit.hold(i)
-        if self.held[i] is None and self.grabbed[i] is None and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN:
+        if (not self.items_only and self.held[i] is None and self.grabbed[i] is None
+            and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN):
           for obj in pegs:
             hit = None
             for world_pt, anchor in obj.grab_points():
@@ -502,6 +527,10 @@ class Player:
       surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
       # <STRANGE>#357 fill-only HUD circle, low alpha; alpha rises briefly on use then decays
       pygame.draw.circle(surf, (*arm_color, alpha), (r, r), r)
+      # <STRANGE>#555 f-mode indicator: semi-transparent white ring around each hud circle
+      if self.items_only:
+        ring_w = max(1, int(HUD_ITEMSMODE_RING_W * sc))
+        pygame.draw.circle(surf, (255, 255, 255, HUD_ITEMSMODE_RING_ALPHA), (r, r), r - ring_w // 2, ring_w)
       screen.blit(surf, (int(hx) - r, int(hy) - r))
       # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
       lbl = self._hud_labels[i]

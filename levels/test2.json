@@ -5,6 +5,35 @@
       168
     ]
   ],
+  "itemSpawners": [
+    {"x": 200, "y": 100, "items": [
+      {"type": "soda", "count": 3},
+      {"type": "cube", "count": 1},
+      {"type": "rebar", "count": 1}
+    ]},
+    {"x": 150, "y": 100, "items": [
+      {"type": "soda", "count": 3},
+      {"type": "cube", "count": 1},
+      {"type": "rebar", "count": 1}
+    ]},
+    {"x": 100, "y": 100, "items": [
+      {"type": "soda", "count": 3},
+      {"type": "cube", "count": 1},
+      {"type": "rebar", "count": 1}
+    ]},
+    {"x": 50, "y": 100, "items": [
+      {"type": "soda", "count": 3},
+      {"type": "cube", "count": 1},
+      {"type": "rebar", "count": 1}
+    ]},
+    {"x": 0, "y": 100, "items": [
+    {"type": "cube", "count": 2, "contents": [
+      {"type": "soda", "count": 1},
+      {"type": "nothing", "count": 1}
+    ]},
+    {"type": "soda", "count": 5}
+  ]}
+  ],
   "platforms": [
     {
       "x": -73,
@@ -97,6 +126,11 @@
     }
   ],
   "items": [
+    {"x": 100, "y": 200, "type": "cube", "contents": [
+      {"type": "soda", "count": 3},
+      {"type": "rebar", "count": 1},
+      {"type": "nothing", "count": 2}
+    ]},
     {
       "x": -101,
       "y": 372,

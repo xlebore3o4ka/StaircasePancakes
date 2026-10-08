@@ -10,9 +10,10 @@ LOGICAL_W = 1920
 LOGICAL_H = 1080
 
 class Game:
-  def __init__(self, cheats=False, map_path="levels/test.json"):
+  def __init__(self, cheats=False, map_path="levels/test.json", spawninfo=False):
     self.cheats = cheats
     self.map_path = map_path
+    self.spawninfo = spawninfo
 
   def run(self):
     with Window() as w:
@@ -42,13 +43,14 @@ class Game:
         player.update(cam, level.grabbables(), level.items, dt)
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:
-          for pos, type_name, vel in player.spawn_queue:
-            level.spawn_item(pos, type_name, vel)
+          for pos, spec, vel in player.spawn_queue:
+            level.spawn_item(pos, spec, vel)
           player.spawn_queue.clear()
         for _ in range(substeps):
           space.step(dt / substeps)
-        # <STRANGE>#525 rebar sticking is checked after physics so arbiter list is fresh
-        level.post_step(player)
+          # <STRANGE>#525 rebar sticking is checked after physics so arbiter list is fresh
+          level.post_step(player)
+          player.post_step(dt)
         cam.follow(player.body.position, dt)
         w.screen.fill((89, 95, 102))
         # <NOTE>#445 single sorted pass: backgrounds -> floor -> platforms/pegs -> items -> player
@@ -56,5 +58,7 @@ class Game:
         drawables.sort(key=lambda o: o.layer)
         for d in drawables:
           d.draw(w.screen, cam)
+        if self.spawninfo:
+          level.draw_spawners(w.screen, cam, player.body.position)
         player.draw_hud(w.screen, cam)
         w.flip()
