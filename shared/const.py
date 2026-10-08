@@ -32,6 +32,12 @@ SODA_H = 36
 SODA_BLUE = (55, 55, 175)
 SODA_WHITE = (245, 245, 245)
 SODA_STAMINA = 90
+SPAWN_BOUNCE_V = 300
+CONSUME_FX_DURATION = 1.0
+CONSUME_FX_RISE = 80
+CONSUME_FX_OFFSET = 30
+CONSUME_FX_SCALE = 0.8
+CONSUME_FX_ALPHA = 220
 # <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
 ITEM_TYPES = ["cube", "soda"]
 CUBE_ELASTICITY = 0.35

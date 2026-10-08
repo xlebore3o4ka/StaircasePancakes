@@ -20,21 +20,25 @@ class Game:
       clock = pygame.time.Clock()
       running = True
       while running:
+        # <STRANGE>#341 dt clamped to 1/30 so a lag spike doesn't explode pymunk with one huge step
+        dt = min(clock.tick() / 1000.0, 1 / 30)
+        if dt <= 0:
+          dt = 1 / 60
         for e in pygame.event.get():
           if e.type == pygame.QUIT:
             running = False
           elif e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
             running = False
           player.handle_event(e)
-        level.update(player)
-        player.update(cam, level.grabbables(), level.items)
+        level.update(player, dt)
+        player.update(cam, level.grabbables(), level.items, dt)
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:
-          for pos, type_name in player.spawn_queue:
-            level.spawn_item(pos, type_name)
+          for pos, type_name, vel in player.spawn_queue:
+            level.spawn_item(pos, type_name, vel)
           player.spawn_queue.clear()
-        space.step(1 / 60)
-        cam.follow(player.body.position)
+        space.step(dt)
+        cam.follow(player.body.position, dt)
         w.screen.fill((89, 95, 102))
         level.draw_backgrounds(w.screen, cam)
         # <STRANGE>#26 floor fill spans whole width using cam.to_screen of two world points; width from world doesn't matter since y is constant
@@ -44,5 +48,5 @@ class Game:
         level.draw(w.screen, cam)
         level.draw_items(w.screen, cam)
         player.draw(w.screen, cam)
+        player.draw_hud(w.screen, cam)
         w.flip()
-        clock.tick(60)
