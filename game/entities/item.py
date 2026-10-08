@@ -4,7 +4,7 @@ import pygame
 import pymunk
 from shared.const import (
   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
-  CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY,
+  CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA,
 )
 
@@ -63,6 +63,8 @@ class Item:
     shape.friction = CUBE_FRICTION
     shape.elasticity = CUBE_ELASTICITY
     self.shape = shape
+    # <STRANGE>#376 linear damping bleeds off energy so items settle instead of drifting; does not affect held (kinematic) state
+    self.body.linear_damping = CUBE_LINEAR_DAMPING
     space.add(self.body, shape)
 
   def destroy(self):
@@ -87,6 +89,9 @@ class Item:
     self.body.mass = self.mass
     self.body.moment = self.moment
     self.body.velocity = vel
+
+  # <STRANGE>#412 center_anim items play the "fly to player center" fx on consume; base off
+  center_anim = False
 
   def use(self):
     # <STRANGE>#303 returns (consumed, spawn_type, stamina_gain); None spawn just vanishes
@@ -122,6 +127,8 @@ class CubeItem(Item):
 
 
 class SodaItem(Item):
+  center_anim = True
+
   def __init__(self, space, pos):
     super().__init__(space, pos, SODA_W, SODA_H)
 

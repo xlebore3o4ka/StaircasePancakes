@@ -24,6 +24,8 @@ class Game:
         dt = min(clock.tick() / 1000.0, 1 / 30)
         if dt <= 0:
           dt = 1 / 60
+        # <STRANGE>#377 sub-step long frames: 1/30 broken into two 1/60 steps reduces penetration and phantom bounces
+        substeps = 2 if dt > 1/45 else 1
         for e in pygame.event.get():
           if e.type == pygame.QUIT:
             running = False
@@ -37,7 +39,8 @@ class Game:
           for pos, type_name, vel in player.spawn_queue:
             level.spawn_item(pos, type_name, vel)
           player.spawn_queue.clear()
-        space.step(dt)
+        for _ in range(substeps):
+          space.step(dt / substeps)
         cam.follow(player.body.position, dt)
         w.screen.fill((89, 95, 102))
         level.draw_backgrounds(w.screen, cam)

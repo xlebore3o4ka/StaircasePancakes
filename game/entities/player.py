@@ -2,8 +2,9 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION
 from shared.smooth import smooth, per_sec
+from .consume_fx import SodaConsumeFx
 
 ARM_MASS = 0.1
 ARM_MIN_ANG = math.radians(15)
@@ -70,12 +71,28 @@ class Player:
     self.shake_t = [0.0, 0.0]
     self.throw_hist = [[], []]
     self.spawn_queue = []
+    # <STRANGE>#413 visual fx from consumed items; player-owned, ticked in update
+    self.consume_fx = []
+    # <STRANGE>#390 HUD feedback state: per-hand flash (0..1) on use, lazy-cached Q/E surfaces
+    self.hud_flash = [0.0, 0.0]
+    self._hud_labels = None
 
   def _velocity_func(self, body, gravity, damping, dt):
     # <STRANGE>#366 default pymunk integrator first, then post-filter micro-bounces
+    pre_vy = body.velocity.y
     pymunk.Body.update_velocity(body, gravity, damping, dt)
-    if abs(body.velocity.y) < 30 and self._is_grounded():
-      body.velocity = (body.velocity.x, 0.0)
+    grounded = self._is_grounded()
+    self._grounded_cache = grounded
+    # <TODO>#385 diagnostic: any positive velocity jump > 300 in one step is anomalous; skip deliberate jump / reel
+    if (body.velocity.y - pre_vy > 300
+        and not self.jump
+        and not any(g is not None for g in self.grabbed)):
+      print(f"BUMP pre={pre_vy:.0f} post={body.velocity.y:.0f} dvy={body.velocity.y - pre_vy:.0f} vx={body.velocity.x:.0f} pos=({body.position.x:.1f},{body.position.y:.1f}) grounded={grounded} move={self.move}")
+    if grounded:
+      if body.velocity.y > JUMP_V * 1.05:
+        body.velocity = (body.velocity.x, 0.0)
+      elif abs(body.velocity.y) < 30:
+        body.velocity = (body.velocity.x, 0.0)
 
   def _is_grounded(self):
     b = self.body.position
@@ -87,20 +104,26 @@ class Player:
     item = self.held[i]
     if item is None:
       return
+    self.hud_flash[i] = 1.0
     consumed, spawn_type, stamina_gain = item.use()
     if consumed:
       # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
       pos = item.body.position
+      angle = item.body.angle
       # <STRANGE>#369 spawn inherits the throw velocity the item would have had; a bouncy +Y gives the "pop out" feel
       vx, vy = item.throw_vel
       vy += SPAWN_BOUNCE_V
-      item.destroy()
       self.held[i] = None
       # <STRANGE>#362 lock this hand until mouse is released; otherwise the freshly spawned item lands in the arm and gets grabbed next frame
       self.grab_lock[i] = True
-      if stamina_gain:
-        for j in range(2):
-          self.stamina[j] = min(STAMINA_MAX, self.stamina[j] + stamina_gain)
+      if item.center_anim:
+        # <STRANGE>#414 defer stamina to fx completion; item must be alive for draw_at during the anim
+        self.consume_fx.append(SodaConsumeFx(self, item, angle, stamina_gain))
+      else:
+        item.destroy()
+        if stamina_gain:
+          for j in range(2):
+            self.stamina[j] = min(STAMINA_MAX, self.stamina[j] + stamina_gain)
       if spawn_type is not None:
         self.spawn_queue.append((pos, spawn_type, (vx, vy)))
     else:
@@ -174,6 +197,15 @@ class Player:
         mul = STAMINA_LOW_MUL if self.stamina[i] > STAMINA_LOW_THRESH else 1.0
         self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + per_sec(STAMINA_REGEN * mul, dt))
     grounded = self._is_grounded()
+    # <TODO>#385 diagnostic: only fire on a truly anomalous spike; legit swings exceed JUMP_V all the time
+    if (self.body.velocity.y > JUMP_V * 1.6
+        and not any(g is not None for g in self.grabbed)
+        and not self.move[0] and not self.move[1]
+        and self.body.position.y < BODY_R * 4):
+      print(f"BOUNCE v.y={self.body.velocity.y:.0f} v.x={self.body.velocity.x:.0f} pos=({self.body.position.x:.1f},{self.body.position.y:.1f}) grounded={grounded}")
+    # <STRANGE>#385 diagnostic: catch the phantom bounce moment; remove once root cause is confirmed
+    if self.body.velocity.y > 550 and self.body.position.y < BODY_R * 3:
+      print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
     pitoned = any(g is not None for g in self.grabbed)
     drag = GROUND_DRAG if grounded else AIR_DRAG
     if self.jump_queued and (grounded or pitoned):
@@ -225,6 +257,8 @@ class Player:
               obj.grab_count += 1
               cur = self.body.position.get_distance(world_pt)
               self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, cur, cur)
+              # <STRANGE>#382 max_force caps how hard the rope can yank; stops the joint from slamming body through floor
+              self.joints[i].max_force = REEL_MAX_FORCE
               self.rope_len[i] = cur
               self.space.add(self.joints[i])
               break
@@ -318,11 +352,27 @@ class Player:
         if self.shake_t[i] < 0:
           self.shake_t[i] = 0.0
 
+    # <STRANGE>#391 HUD decay per frame: flash fades linearly on use
+    for i in range(2):
+      if self.hud_flash[i] > 0:
+        self.hud_flash[i] = max(0.0, self.hud_flash[i] - dt / HUD_FLASH_DURATION)
+
+    # <STRANGE>#415 fx tick: soda completion applies stamina; dead fx also destroy their item ref
+    for fx in self.consume_fx:
+      fx.update(dt)
+      if fx.dead and fx.item is not None:
+        fx.item.destroy()
+        fx.item = None
+    self.consume_fx = [fx for fx in self.consume_fx if not fx.dead]
+
 
   def draw(self, screen, cam):
     sc = cam.scale
     bx, by = cam.to_screen(*self.body.position)
     pygame.draw.circle(screen, (255, 255, 255), (int(bx), int(by)), int(BODY_R * sc))
+    # <STRANGE>#416 consume fx draws on top of the body so the fly-in reads clearly
+    for fx in self.consume_fx:
+      fx.draw(screen, cam)
     for i, arm in enumerate(self.arms):
       ax, ay = cam.to_screen(*arm.position)
       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
@@ -354,6 +404,13 @@ class Player:
           t = max(2, r // 4)
           pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, t)
 
+  def _ensure_hud_labels(self):
+    # <STRANGE>#392 lazy cache; Q/E rendered once with white, alpha applied per blit via set_alpha
+    if self._hud_labels is not None:
+      return
+    font = pygame.font.SysFont(None, 64)
+    self._hud_labels = [font.render("Q", True, (255, 255, 255)), font.render("E", True, (255, 255, 255))]
+
   def draw_hud(self, screen, cam):
     # <STRANGE>#351 HUD is screen-space; identity cam trick reuses item.draw_at without touching world logic
     sc = cam.scale
@@ -362,20 +419,35 @@ class Player:
     # <STRANGE>#352 offset = 4 player diameters / 2 = 4*BODY_R; distance between circle centers is 8*BODY_R
     offset = 4 * BODY_R * sc
     r = int(BODY_R * sc)
+    self._ensure_hud_labels()
     for i in range(2):
       hx = cx + (-offset if i == 0 else offset)
       hy = cy
       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
       arm_color = (223, int(223 * s_t), int(223 * s_t))
-      surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-      # <STRANGE>#357 fill-only HUD circle, low alpha so it reads as an overlay, not a solid disc
-      pygame.draw.circle(surf, (*arm_color, 35), (r, r), r)
-      screen.blit(surf, (int(hx) - r, int(hy) - r))
       it = self.held[i]
-      if it is not None:
+      base_a = HUD_BASE_ALPHA if it is not None else HUD_BASE_ALPHA_EMPTY
+      alpha = int(base_a + HUD_FLASH_ALPHA * self.hud_flash[i])
+      surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+      # <STRANGE>#357 fill-only HUD circle, low alpha; alpha rises briefly on use then decays
+      pygame.draw.circle(surf, (*arm_color, alpha), (r, r), r)
+      screen.blit(surf, (int(hx) - r, int(hy) - r))
+      # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
+      lbl = self._hud_labels[i]
+      if it is None:
+        lbl.set_alpha(HUD_LABEL_ALPHA_EMPTY)
+        screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
+      else:
         # <STRANGE>#353 identity cam: to_screen returns coords unchanged so item renders in HUD space; scale 1.0
         it.draw_at(screen, _HUDScreenCam(sc), (hx, hy), 0.0, 160, 1.0)
-
+        # <STRANGE>#403 small label at bottom of the circle outline, alpha slightly higher than the empty variant
+        sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
+        sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))
+        small = pygame.transform.smoothscale(lbl, (sw2, sh2))
+        small.set_alpha(HUD_LABEL_ALPHA_HELD)
+        # <STRANGE>#405 small text sits slightly inside the circle outline near the bottom
+        ly = int(hy + r - sh2 * 0.35)
+        screen.blit(small, small.get_rect(center=(int(hx), ly)))
 
 class _HUDScreenCam:
   # <STRANGE>#354 minimal stand-in for Camera; item.draw_at only needs .scale and .to_screen
