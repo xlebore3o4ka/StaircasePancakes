@@ -37,6 +37,11 @@ PASTE_OFFSET = 20
 CLICK_THRESHOLD = 4
 SNAP_DIST = 6.0
 
+# ---- lock overlays ----
+STRIPE_COLOR = (255, 215, 0, 60)
+STRIPE_STEP = 16
+STRIPE_WIDTH = 3
+
 # ---- panel styling ----
 PANEL_HEADER_H = 36
 PANEL_BODY_H = 62
@@ -59,7 +64,7 @@ INPUT_PLACEHOLDER = (110, 116, 128)
 
 
 # =========================================================
-# Lock badge helper
+# Lock overlay helpers
 # =========================================================
 def draw_lock_badge(screen, cx, cy, size=14):
   cx, cy = int(cx), int(cy)
@@ -71,6 +76,31 @@ def draw_lock_badge(screen, cx, cy, size=14):
   pygame.draw.rect(screen, GOLD, body, border_radius=2)
   pygame.draw.rect(screen, (20, 20, 20), body, 1, border_radius=2)
   pygame.draw.circle(screen, (20, 20, 20), (cx, body.y + body.h // 2 - 1), 2)
+
+
+def make_stripe_surface(w, h):
+  """Diagonal barrier-style stripes clipped to a w x h rectangle."""
+  w = max(1, int(w))
+  h = max(1, int(h))
+  surf = pygame.Surface((w, h), pygame.SRCALPHA)
+  for offset in range(-h, w + 1, STRIPE_STEP):
+    pygame.draw.line(surf, STRIPE_COLOR,
+                     (offset, h), (offset + h, 0), STRIPE_WIDTH)
+  return surf
+
+
+def make_circle_stripe_surface(r):
+  """Diagonal barrier-style stripes clipped to a circle of radius r."""
+  r = max(1, int(r))
+  d = r * 2
+  surf = pygame.Surface((d, d), pygame.SRCALPHA)
+  for offset in range(-d, d + 1, STRIPE_STEP):
+    pygame.draw.line(surf, STRIPE_COLOR,
+                     (offset, d), (offset + d, 0), STRIPE_WIDTH)
+  mask = pygame.Surface((d, d), pygame.SRCALPHA)
+  pygame.draw.circle(mask, (255, 255, 255, 255), (r, r), r)
+  surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+  return surf
 
 
 # =========================================================
@@ -91,16 +121,20 @@ class EditorPeg:
     return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
 
   def to_json(self):
-    # NOTE: игровой загрузчик ждёт ровно [x, y] — флаг locked здесь не пишем,
-    # иначе pymunk.Body.position падает на len(pos) != 2.
+    # NOTE: игровой загрузчик ждёт ровно [x, y].
     return [int(self.x), int(self.y)]
+
+  def badge_screen_pos(self, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    return sx + self.r + 2, sy - self.r - 2
 
   def draw(self, screen, ed):
     sx, sy = ed.to_screen(self.x, self.y)
     pygame.draw.circle(screen, PEG_FILL, (int(sx), int(sy)), self.r)
     pygame.draw.circle(screen, PEG_EDGE, (int(sx), int(sy)), self.r, 4)
     if self.locked:
-      draw_lock_badge(screen, sx + self.r + 2, sy - self.r - 2)
+      stripes = make_circle_stripe_surface(self.r)
+      screen.blit(stripes, (int(sx) - self.r, int(sy) - self.r))
 
 
 class EditorPlatform:
@@ -147,6 +181,12 @@ class EditorPlatform:
       "locked": bool(self.locked),
     }
 
+  def badge_screen_pos(self, ed):
+    l, r, b, t = self.world_rect()
+    x0, y0 = ed.to_screen(l, t)
+    x1, _ = ed.to_screen(r, t)
+    return x1 - 12, y0 + 12
+
   def draw(self, screen, ed):
     l, r, b, t = self.world_rect()
     x0, y0 = ed.to_screen(l, t)
@@ -155,7 +195,8 @@ class EditorPlatform:
     pygame.draw.rect(screen, self.fill, rect)
     pygame.draw.rect(screen, self.edge, rect, PLAT_EDGE_W)
     if self.locked:
-      draw_lock_badge(screen, rect.right - 12, rect.top + 12)
+      stripes = make_stripe_surface(rect.w, rect.h)
+      screen.blit(stripes, rect.topleft)
 
 
 class EditorBackground:
@@ -201,6 +242,12 @@ class EditorBackground:
       "locked": bool(self.locked),
     }
 
+  def badge_screen_pos(self, ed):
+    l, r, b, t = self.world_rect()
+    x0, y0 = ed.to_screen(l, t)
+    x1, _ = ed.to_screen(r, t)
+    return x1 - 12, y0 + 12
+
   def draw(self, screen, ed):
     l, r, b, t = self.world_rect()
     x0, y0 = ed.to_screen(l, t)
@@ -208,7 +255,8 @@ class EditorBackground:
     rect = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
     pygame.draw.rect(screen, self.fill, rect)
     if self.locked:
-      draw_lock_badge(screen, rect.right - 12, rect.top + 12)
+      stripes = make_stripe_surface(rect.w, rect.h)
+      screen.blit(stripes, rect.topleft)
 
 
 # =========================================================
@@ -1397,6 +1445,13 @@ class Editor:
     self.draw_zone_preview()
     self.draw_select_rect_preview()
     self.draw_snap_guides()
+
+    # Lock badges last so they read above world, selection, previews and guides.
+    for obj in self.objects:
+      if obj.locked:
+        bx, by = obj.badge_screen_pos(self)
+        draw_lock_badge(self.screen, bx, by)
+
     self.draw_bottom_bar()
     self.panel.draw(self.screen)
 
