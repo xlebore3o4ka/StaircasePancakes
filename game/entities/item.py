@@ -96,6 +96,9 @@ class Item:
     self.held_by = hand
     self.body.body_type = pymunk.Body.KINEMATIC
     self.body.velocity = (0, 0)
+    # <STRANGE>#544 while held, mask=0: kinematic position is set every frame and may end up inside static geometry;
+    # <STRANGE>#544 solver would register deep penetration contacts and later release impulse spikes
+    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
     # <STRANGE>#261 kinematic bodies reject mass/moment assignment; ignored anyway
 
   def release(self, vel):
@@ -104,6 +107,8 @@ class Item:
     self.body.mass = self.mass
     self.body.moment = self.moment
     self.body.velocity = vel
+    # <STRANGE>#545 restore collision mask on release; item becomes physical again
+    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0b10 | 0b1000)
 
   # <STRANGE>#412 center_anim items play the "fly to player center" fx on consume; base off
   center_anim = False

@@ -50,7 +50,8 @@ class Player:
       a = pymunk.Body(ARM_MASS, pymunk.moment_for_circle(ARM_MASS, 0, ARM_R))
       a.position = (pos[0] + dx, pos[1])
       a_shape = pymunk.Circle(a, ARM_R)
-      a_shape.filter = pymunk.ShapeFilter(group=1, categories=0b100)
+      # <STRANGE>#546 arms are pure visuals: kinematic, position set every frame, mask=0 so deep penetrations don't generate solver bias
+      a_shape.filter = pymunk.ShapeFilter(group=1, categories=0b100, mask=0)
       space.add(a, a_shape)
       self.arms.append(a)
 
@@ -95,6 +96,7 @@ class Player:
         and not any(g is not None for g in self.grabbed)):
       print(f"BUMP pre={pre_vy:.0f} post={body.velocity.y:.0f} dvy={body.velocity.y - pre_vy:.0f} vx={body.velocity.x:.0f} pos=({body.position.x:.1f},{body.position.y:.1f}) grounded={grounded} move={self.move}")
     if grounded:
+      # <STRANGE>#549 clamp any upward spike above jump speed regardless of held keys; jump itself is exactly JUMP_V so unaffected
       if body.velocity.y > JUMP_V * 1.05:
         body.velocity = (body.velocity.x, 0.0)
       elif abs(body.velocity.y) < 30:
