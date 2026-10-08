@@ -91,8 +91,8 @@ class EditorPeg:
     return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
 
   def to_json(self):
-    if self.locked:
-      return [int(self.x), int(self.y), 1]
+    # NOTE: игровой загрузчик ждёт ровно [x, y] — флаг locked здесь не пишем,
+    # иначе pymunk.Body.position падает на len(pos) != 2.
     return [int(self.x), int(self.y)]
 
   def draw(self, screen, ed):
