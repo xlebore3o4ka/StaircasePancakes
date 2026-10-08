@@ -27,6 +27,13 @@ CUBE_FILL = (200, 180, 100)
 CUBE_EDGE = (255, 255, 255)
 CUBE_EDGE_W = 2
 CUBE_FRICTION = 0.95
+SODA_W = 18
+SODA_H = 36
+SODA_BLUE = (55, 55, 175)
+SODA_WHITE = (245, 245, 245)
+SODA_STAMINA = 90
+# <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
+ITEM_TYPES = ["cube", "soda"]
 CUBE_ELASTICITY = 0.35
 THROW_MAX_SPEED = 1400
 THROW_SMOOTH_FRAMES = 4
