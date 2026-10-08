@@ -223,3 +223,5 @@ __marimo__/
 diff.txt 
 /editor/__pycache__
 /game/__pycache__
+/editor/__pycache__
+/game/entities/__pycache__
