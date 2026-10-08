@@ -8,6 +8,9 @@ from shared.const import (
   PEG_R, PEG_FILL, PEG_EDGE,
   PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W,
   BG_FILL,
+  ITEM_TYPES,
+  SODA_W, SODA_H, SODA_BLUE, SODA_WHITE,
+  CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W,
 )
 
 # ---- layout ----
@@ -41,6 +44,19 @@ SNAP_DIST = 6.0
 STRIPE_COLOR = (255, 215, 0, 60)
 STRIPE_STEP = 16
 STRIPE_WIDTH = 3
+
+# ---- items ----
+ITEM_SIZE_MAP = {
+  "cube": (30, 30),
+  "soda": (SODA_W, SODA_H),
+}
+DEFAULT_ITEM_SIZE = (30, 30)
+DEFAULT_ITEM_TYPE = ITEM_TYPES[0] if ITEM_TYPES else "cube"
+
+
+def item_size(t):
+  return ITEM_SIZE_MAP.get(t, DEFAULT_ITEM_SIZE)
+
 
 # ---- panel styling ----
 PANEL_HEADER_H = 36
@@ -79,7 +95,6 @@ def draw_lock_badge(screen, cx, cy, size=14):
 
 
 def make_stripe_surface(w, h):
-  """Diagonal barrier-style stripes clipped to a w x h rectangle."""
   w = max(1, int(w))
   h = max(1, int(h))
   surf = pygame.Surface((w, h), pygame.SRCALPHA)
@@ -90,7 +105,6 @@ def make_stripe_surface(w, h):
 
 
 def make_circle_stripe_surface(r):
-  """Diagonal barrier-style stripes clipped to a circle of radius r."""
   r = max(1, int(r))
   d = r * 2
   surf = pygame.Surface((d, d), pygame.SRCALPHA)
@@ -121,7 +135,6 @@ class EditorPeg:
     return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
 
   def to_json(self):
-    # NOTE: игровой загрузчик ждёт ровно [x, y].
     return [int(self.x), int(self.y)]
 
   def badge_screen_pos(self, ed):
@@ -259,6 +272,71 @@ class EditorBackground:
       screen.blit(stripes, rect.topleft)
 
 
+class EditorItem:
+  """Превью игрового предмета. Тип — строка, координаты — центр."""
+
+  def __init__(self, x, y, item_type=DEFAULT_ITEM_TYPE):
+    self.x, self.y = x, y
+    self.item_type = item_type
+    self.w, self.h = item_size(item_type)
+    self.locked = False
+
+  def set_type(self, t):
+    self.item_type = t
+    self.w, self.h = item_size(t)
+
+  def world_rect(self):
+    return (self.x - self.w / 2, self.x + self.w / 2,
+            self.y - self.h / 2, self.y + self.h / 2)
+
+  def hit(self, wx, wy):
+    l, r, b, t = self.world_rect()
+    return l <= wx <= r and b <= wy <= t
+
+  def intersects_rect(self, l, r, b, t):
+    ol, orr, ob, ot = self.world_rect()
+    return not (orr < l or ol > r or ot < b or ob > t)
+
+  def badge_screen_pos(self, ed):
+    l, r, b, t = self.world_rect()
+    _, y0 = ed.to_screen(l, t)
+    x1, _ = ed.to_screen(r, t)
+    return x1 - 12, y0 + 12
+
+  def to_json(self):
+    return {
+      "x": int(self.x), "y": int(self.y),
+      "type": self.item_type,
+      "locked": bool(self.locked),
+    }
+
+  def draw(self, screen, ed):
+    l, r, b, t = self.world_rect()
+    x0, y0 = ed.to_screen(l, t)
+    x1, y1 = ed.to_screen(r, b)
+    rect = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
+
+    if self.item_type == "cube":
+      pygame.draw.rect(screen, CUBE_FILL, rect)
+      pygame.draw.rect(screen, CUBE_EDGE, rect, CUBE_EDGE_W)
+    elif self.item_type == "soda":
+      q = max(1, rect.h // 4)
+      top = pygame.Rect(rect.x, rect.y, rect.w, q)
+      mid = pygame.Rect(rect.x, rect.y + q, rect.w, rect.h - 2 * q)
+      bot = pygame.Rect(rect.x, rect.y + q + (rect.h - 2 * q), rect.w, q)
+      pygame.draw.rect(screen, SODA_BLUE, top)
+      pygame.draw.rect(screen, SODA_WHITE, mid)
+      pygame.draw.rect(screen, SODA_BLUE, bot)
+      pygame.draw.rect(screen, (20, 20, 20), rect, 2)
+    else:
+      pygame.draw.rect(screen, (200, 180, 120), rect)
+      pygame.draw.rect(screen, (80, 70, 50), rect, 2)
+
+    if self.locked:
+      stripes = make_stripe_surface(rect.w, rect.h)
+      screen.blit(stripes, rect.topleft)
+
+
 # =========================================================
 # UI widgets
 # =========================================================
@@ -377,8 +455,6 @@ class UIToggleButton(UIButton):
 
 
 class UITextInput(Widget):
-  """Kept for future use; not instantiated in the current top panel."""
-
   def __init__(self, x, y, w, h, placeholder="", text=""):
     super().__init__(x, y, w, h)
     self.text = text
@@ -430,6 +506,52 @@ class UITextInput(Widget):
         return True
       return True
     return False
+
+
+class ContextMenu:
+  ITEM_H = 26
+  PAD_X = 12
+
+  def __init__(self, screen_size, options, pos, on_select):
+    self.options = list(options)
+    self.on_select = on_select
+    self.font = pygame.font.SysFont(None, 22)
+    max_w = 80
+    for label, _ in self.options:
+      w = self.font.size(label)[0]
+      if w > max_w:
+        max_w = w
+    self.width = max_w + self.PAD_X * 2
+    self.height = self.ITEM_H * len(self.options)
+    sw, sh = screen_size
+    x = max(0, min(pos[0], sw - self.width))
+    y = max(0, min(pos[1], sh - self.height))
+    self.rect = pygame.Rect(x, y, self.width, self.height)
+    self.hover = -1
+
+  def hover_index(self, pos):
+    if not self.rect.collidepoint(pos):
+      self.hover = -1
+      return -1
+    i = (pos[1] - self.rect.y) // self.ITEM_H
+    if 0 <= i < len(self.options):
+      self.hover = i
+      return i
+    self.hover = -1
+    return -1
+
+  def draw(self, screen):
+    pygame.draw.rect(screen, (35, 38, 45), self.rect)
+    pygame.draw.rect(screen, (90, 96, 110), self.rect, 1)
+    for i, (label, _) in enumerate(self.options):
+      r = pygame.Rect(self.rect.x, self.rect.y + i * self.ITEM_H,
+                      self.rect.width, self.ITEM_H)
+      if i == self.hover:
+        pygame.draw.rect(screen, (60, 66, 78), r)
+      color = GOLD if i == self.hover else BTN_TEXT
+      surf = self.font.render(label, True, color)
+      screen.blit(surf, (r.x + self.PAD_X,
+                         r.y + (r.height - surf.get_height()) // 2))
 
 
 # =========================================================
@@ -586,6 +708,9 @@ class Editor:
     self._undo_before = None
     # ---- clipboard ----
     self.clipboard = []
+    # ---- items ----
+    self.current_item_type = DEFAULT_ITEM_TYPE
+    self.context_menu = None
     # ---- snap ----
     self.snap_enabled = True
     self.snap_guides_x = []
@@ -677,6 +802,9 @@ class Editor:
     if isinstance(o, EditorBackground):
       return {"t": "bg", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
               "fill": tuple(o.fill), "locked": o.locked}
+    if isinstance(o, EditorItem):
+      return {"t": "item", "x": o.x, "y": o.y,
+              "item_type": o.item_type, "locked": o.locked}
     return None
 
   def _make_from_state(self, s):
@@ -686,9 +814,13 @@ class Editor:
     elif t == "plat":
       o = EditorPlatform(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"]); o.edge = tuple(s["edge"])
-    else:
+    elif t == "bg":
       o = EditorBackground(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"])
+    elif t == "item":
+      o = EditorItem(s["x"], s["y"], s.get("item_type", DEFAULT_ITEM_TYPE))
+    else:
+      return None
     o.locked = s["locked"]
     return o
 
@@ -768,7 +900,9 @@ class Editor:
       s2 = dict(s)
       s2["x"] = s2["x"] + PASTE_OFFSET
       s2["y"] = s2["y"] - PASTE_OFFSET
-      new.append(self._make_from_state(s2))
+      o = self._make_from_state(s2)
+      if o is not None:
+        new.append(o)
     self.objects.extend(new)
     self._set_selection(new)
     self._push_undo_now(before)
@@ -782,7 +916,9 @@ class Editor:
       s = self._obj_to_state(obj)
       s["x"] += PASTE_OFFSET
       s["y"] -= PASTE_OFFSET
-      new.append(self._make_from_state(s))
+      o = self._make_from_state(s)
+      if o is not None:
+        new.append(o)
     self.objects.extend(new)
     self._set_selection(new)
     self._push_undo_now(before)
@@ -982,6 +1118,25 @@ class Editor:
     if e.type == pygame.QUIT:
       self.running = False
       return
+
+    # контекстное меню поглощает все события, пока открыто
+    if self.context_menu is not None:
+      if e.type == pygame.MOUSEMOTION:
+        self.context_menu.hover_index(e.pos)
+        return
+      if e.type == pygame.MOUSEBUTTONDOWN:
+        if e.button == 1:
+          idx = self.context_menu.hover_index(e.pos)
+          if idx >= 0:
+            _, value = self.context_menu.options[idx]
+            self.context_menu.on_select(value)
+        self.context_menu = None
+        return
+      if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
+        self.context_menu = None
+        return
+      return
+
     if self.panel.on_event(e):
       return
     if self.panel.wants_keyboard() and e.type == pygame.KEYDOWN \
@@ -992,7 +1147,12 @@ class Editor:
       self._on_keydown(e)
       return
 
-    if e.type == pygame.MOUSEBUTTONDOWN and e.button in (2, 3):
+    if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:
+      if self._try_open_context_menu(e.pos):
+        return
+      self.panning = True
+      self.pan_last = e.pos
+    elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 2:
       self.panning = True
       self.pan_last = e.pos
     elif e.type == pygame.MOUSEBUTTONUP and e.button in (2, 3):
@@ -1097,10 +1257,49 @@ class Editor:
       self.set_tool("platform")
     elif e.key == pygame.K_5:
       self.set_tool("background")
+    elif e.key == pygame.K_6:
+      self.set_tool("item")
     elif e.key == pygame.K_l:
       self.set_tool("lock")
     elif e.key == pygame.K_u:
       self.set_tool("unlock_zone")
+
+  # =========================================================
+  # Context menu
+  # =========================================================
+  def _try_open_context_menu(self, pos):
+    x, y = pos
+    sh = self.screen.get_height()
+    if y < self.panel.height() or y >= sh - BOT_H:
+      return False
+    wx, wy = self.from_screen(x, y)
+
+    # клик по существующему item → смена типа
+    for obj in reversed(self.objects):
+      if isinstance(obj, EditorItem) and not obj.locked and obj.hit(wx, wy):
+        self._open_change_type_menu(obj, pos)
+        return True
+
+    # клик по пустому месту с инструментом item → выбор типа для следующих
+    if self.tool == "item":
+      self._open_pick_type_menu(pos)
+      return True
+    return False
+
+  def _open_change_type_menu(self, item, pos):
+    before = self._snapshot()
+    def on_select(t):
+      item.set_type(t)
+      self.current_item_type = t
+      self._push_undo_now(before)
+    options = [(t, t) for t in ITEM_TYPES]
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos, on_select)
+
+  def _open_pick_type_menu(self, pos):
+    def on_select(t):
+      self.current_item_type = t
+    options = [(t, t) for t in ITEM_TYPES]
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos, on_select)
 
   # =========================================================
   # Mouse down
@@ -1121,6 +1320,8 @@ class Editor:
         self.set_tool("platform")
       elif self.tab_bg_rect().collidepoint(pos):
         self.set_tool("background")
+      elif self.tab_item_rect().collidepoint(pos):
+        self.set_tool("item")
       return
 
     wx, wy = self.from_screen(x, y)
@@ -1205,6 +1406,11 @@ class Editor:
       self.objects.append(obj)
       self._set_selection([obj])
       self.drag = ("create", (wx, wy))
+    elif self.tool == "item":
+      obj = EditorItem(wx, wy, self.current_item_type)
+      self.objects.append(obj)
+      self._set_selection([obj])
+      self._begin_move(wx, wy, obj)
 
   # =========================================================
   # Mouse move
@@ -1454,6 +1660,8 @@ class Editor:
 
     self.draw_bottom_bar()
     self.panel.draw(self.screen)
+    if self.context_menu is not None:
+      self.context_menu.draw(self.screen)
 
   def draw_snap_guides(self):
     sw, sh = self.screen.get_size()
@@ -1538,6 +1746,7 @@ class Editor:
     self.draw_tab(self.tab_peg_rect(), "peg", self.tool == "peg")
     self.draw_tab(self.tab_plat_rect(), "platform", self.tool == "platform")
     self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
+    self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
 
   def draw_tab(self, r, name, active):
     pygame.draw.rect(self.screen, (45, 50, 60), r)
@@ -1577,11 +1786,33 @@ class Editor:
       band = pygame.Rect(rr.x, rr.centery - 4, rr.w, 8)
       pygame.draw.rect(self.screen, (200, 90, 120), band)
       pygame.draw.rect(self.screen, (60, 60, 70), rr, 2, border_radius=4)
+    elif name == "item":
+      self._draw_item_icon(self.screen, r, self.current_item_type)
     else:
       rr = pygame.Rect(0, 0, 100, 40)
       rr.center = r.center
       pygame.draw.rect(self.screen, PLAT_FILL, rr)
       pygame.draw.rect(self.screen, PLAT_EDGE, rr, PLAT_EDGE_W)
+
+  def _draw_item_icon(self, screen, r, item_type):
+    iw, ih = 60, 32
+    ir = pygame.Rect(0, 0, iw, ih)
+    ir.center = r.center
+    if item_type == "cube":
+      pygame.draw.rect(screen, CUBE_FILL, ir)
+      pygame.draw.rect(screen, CUBE_EDGE, ir, CUBE_EDGE_W)
+    elif item_type == "soda":
+      q = ir.h // 4
+      pygame.draw.rect(screen, SODA_BLUE,
+                       pygame.Rect(ir.x, ir.y, ir.w, q))
+      pygame.draw.rect(screen, SODA_WHITE,
+                       pygame.Rect(ir.x, ir.y + q, ir.w, ir.h - 2 * q))
+      pygame.draw.rect(screen, SODA_BLUE,
+                       pygame.Rect(ir.x, ir.y + q + (ir.h - 2 * q), ir.w, q))
+      pygame.draw.rect(screen, (20, 20, 20), ir, 2)
+    else:
+      pygame.draw.rect(screen, (200, 180, 120), ir)
+      pygame.draw.rect(screen, (80, 70, 50), ir, 2)
 
   # =========================================================
   # Bottom tabs
@@ -1610,6 +1841,10 @@ class Editor:
     h = self.screen.get_height()
     return pygame.Rect(660, h - BOT_H + 6, 120, BOT_H - 12)
 
+  def tab_item_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(790, h - BOT_H + 6, 120, BOT_H - 12)
+
   # =========================================================
   # Save / Load
   # =========================================================
@@ -1627,8 +1862,14 @@ class Editor:
     pegs = [o.to_json() for o in self.objects if isinstance(o, EditorPeg)]
     platforms = [o.to_json() for o in self.objects if isinstance(o, EditorPlatform)]
     backgrounds = [o.to_json() for o in self.objects if isinstance(o, EditorBackground)]
+    items = [o.to_json() for o in self.objects if isinstance(o, EditorItem)]
     with open(path, "w") as f:
-      json.dump({"pegs": pegs, "platforms": platforms, "backgrounds": backgrounds}, f, indent=2)
+      json.dump({
+        "pegs": pegs,
+        "platforms": platforms,
+        "backgrounds": backgrounds,
+        "items": items,
+      }, f, indent=2)
 
   def load(self):
     root = tk.Tk()
@@ -1658,6 +1899,10 @@ class Editor:
       obj = EditorBackground(bd["x"], bd["y"], bd.get("w", PLAT_DEFAULT_W), bd.get("h", PLAT_DEFAULT_H))
       obj.fill = tuple(bd.get("color", BG_DEFAULT_COLOR))
       obj.locked = bool(bd.get("locked", False))
+      self.objects.append(obj)
+    for it in data.get("items", []):
+      obj = EditorItem(it["x"], it["y"], it.get("type", DEFAULT_ITEM_TYPE))
+      obj.locked = bool(it.get("locked", False))
       self.objects.append(obj)
     self._clear_selection()
     self._push_undo_now(before)
