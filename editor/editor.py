@@ -80,6 +80,21 @@ INPUT_PLACEHOLDER = (110, 116, 128)
 
 
 # =========================================================
+# opt-1: shared text surface cache (id(font), text, color) -> Surface
+# =========================================================
+_TEXT_CACHE = {}
+
+
+def render_text(font, text, color):
+  key = (id(font), text, color)
+  surf = _TEXT_CACHE.get(key)
+  if surf is None:
+    surf = font.render(text, True, color)
+    _TEXT_CACHE[key] = surf
+  return surf
+
+
+# =========================================================
 # Lock overlay helpers
 # =========================================================
 def draw_lock_badge(screen, cx, cy, size=14):
@@ -94,18 +109,35 @@ def draw_lock_badge(screen, cx, cy, size=14):
   pygame.draw.circle(screen, (20, 20, 20), (cx, body.y + body.h // 2 - 1), 2)
 
 
+# opt-2: cache stripe overlays so we don't rebuild lines every frame
+_STRIPE_RECT_CACHE = {}
+_STRIPE_CIRCLE_CACHE = {}
+_CACHE_LIMIT = 64
+
+
 def make_stripe_surface(w, h):
   w = max(1, int(w))
   h = max(1, int(h))
+  key = (w, h)
+  surf = _STRIPE_RECT_CACHE.get(key)
+  if surf is not None:
+    return surf
   surf = pygame.Surface((w, h), pygame.SRCALPHA)
   for offset in range(-h, w + 1, STRIPE_STEP):
     pygame.draw.line(surf, STRIPE_COLOR,
                      (offset, h), (offset + h, 0), STRIPE_WIDTH)
+  if len(_STRIPE_RECT_CACHE) > _CACHE_LIMIT:
+    _STRIPE_RECT_CACHE.clear()
+  _STRIPE_RECT_CACHE[key] = surf
   return surf
 
 
 def make_circle_stripe_surface(r):
   r = max(1, int(r))
+  key = r
+  surf = _STRIPE_CIRCLE_CACHE.get(key)
+  if surf is not None:
+    return surf
   d = r * 2
   surf = pygame.Surface((d, d), pygame.SRCALPHA)
   for offset in range(-d, d + 1, STRIPE_STEP):
@@ -114,6 +146,9 @@ def make_circle_stripe_surface(r):
   mask = pygame.Surface((d, d), pygame.SRCALPHA)
   pygame.draw.circle(mask, (255, 255, 255, 255), (r, r), r)
   surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+  if len(_STRIPE_CIRCLE_CACHE) > _CACHE_LIMIT:
+    _STRIPE_CIRCLE_CACHE.clear()
+  _STRIPE_CIRCLE_CACHE[key] = surf
   return surf
 
 
@@ -146,8 +181,8 @@ class EditorPeg:
     pygame.draw.circle(screen, PEG_FILL, (int(sx), int(sy)), self.r)
     pygame.draw.circle(screen, PEG_EDGE, (int(sx), int(sy)), self.r, 4)
     if self.locked:
-      stripes = make_circle_stripe_surface(self.r)
-      screen.blit(stripes, (int(sx) - self.r, int(sy) - self.r))
+      screen.blit(make_circle_stripe_surface(self.r),
+                  (int(sx) - self.r, int(sy) - self.r))
 
 
 class EditorPlatform:
@@ -208,8 +243,7 @@ class EditorPlatform:
     pygame.draw.rect(screen, self.fill, rect)
     pygame.draw.rect(screen, self.edge, rect, PLAT_EDGE_W)
     if self.locked:
-      stripes = make_stripe_surface(rect.w, rect.h)
-      screen.blit(stripes, rect.topleft)
+      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
 
 
 class EditorBackground:
@@ -268,13 +302,10 @@ class EditorBackground:
     rect = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
     pygame.draw.rect(screen, self.fill, rect)
     if self.locked:
-      stripes = make_stripe_surface(rect.w, rect.h)
-      screen.blit(stripes, rect.topleft)
+      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
 
 
 class EditorItem:
-  """Превью игрового предмета. Тип — строка, координаты — центр."""
-
   def __init__(self, x, y, item_type=DEFAULT_ITEM_TYPE):
     self.x, self.y = x, y
     self.item_type = item_type
@@ -333,8 +364,7 @@ class EditorItem:
       pygame.draw.rect(screen, (80, 70, 50), rect, 2)
 
     if self.locked:
-      stripes = make_stripe_surface(rect.w, rect.h)
-      screen.blit(stripes, rect.topleft)
+      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
 
 
 # =========================================================
@@ -383,7 +413,7 @@ class UIButton(Widget):
     bg, fg, border = self._colors()
     pygame.draw.rect(screen, bg, r, border_radius=4)
     pygame.draw.rect(screen, border, r, 1, border_radius=4)
-    surf = font.render(self.label, True, fg)
+    surf = render_text(font, self.label, fg)  # opt-1
     screen.blit(surf, surf.get_rect(center=r.center))
 
   def on_event(self, e, origin=(0, 0)):
@@ -430,7 +460,7 @@ class UIToggleButton(UIButton):
     bg, fg, border = self._colors()
     pygame.draw.rect(screen, bg, r, border_radius=4)
     pygame.draw.rect(screen, border, r, 2 if self.active else 1, border_radius=4)
-    surf = font.render(self.label, True, fg)
+    surf = render_text(font, self.label, fg)  # opt-1
     screen.blit(surf, surf.get_rect(center=r.center))
 
   def on_event(self, e, origin=(0, 0)):
@@ -474,9 +504,9 @@ class UITextInput(Widget):
     pygame.draw.rect(screen, border, r, 1, border_radius=4)
     pad = 8
     if self.text:
-      surf = font.render(self.text, True, INPUT_TEXT)
+      surf = render_text(font, self.text, INPUT_TEXT)
     else:
-      surf = font.render(self.placeholder, True, INPUT_PLACEHOLDER)
+      surf = render_text(font, self.placeholder, INPUT_PLACEHOLDER)
     screen.blit(surf, (r.x + pad, r.centery - surf.get_height() // 2))
     if self.focused and self.cursor_blink < 0.5:
       cx = r.x + pad + font.size(self.text)[0]
@@ -549,7 +579,7 @@ class ContextMenu:
       if i == self.hover:
         pygame.draw.rect(screen, (60, 66, 78), r)
       color = GOLD if i == self.hover else BTN_TEXT
-      surf = self.font.render(label, True, color)
+      surf = render_text(self.font, label, color)  # opt-1
       screen.blit(surf, (r.x + self.PAD_X,
                          r.y + (r.height - surf.get_height()) // 2))
 
@@ -653,7 +683,7 @@ class TopPanel:
     pygame.draw.rect(screen, PANEL_BG, (0, 0, screen.get_width(), h))
     pygame.draw.line(screen, PANEL_BORDER,
                      (0, h - 1), (screen.get_width(), h - 1))
-    title = self.font_small.render("Level editor", True, PANEL_TITLE)
+    title = render_text(self.font_small, "Level editor", PANEL_TITLE)  # opt-1
     screen.blit(title, (10, (PANEL_HEADER_H - title.get_height()) // 2))
     for w in self.header_widgets:
       w.draw(screen, self.font_small, (0, 0))
@@ -684,6 +714,9 @@ class Editor:
     self._move_start = None
     self._move_anchor = None
     self._resize_data = []
+    # opt-4: cached reference coordinates captured at drag start
+    self._drag_x_refs = []
+    self._drag_y_refs = []
     # ---- camera ----
     self.cam_x = 0
     self.cam_y = 0
@@ -718,7 +751,80 @@ class Editor:
     # ---- cursor ----
     self.cursor = None
     self._lock_cursor = self._make_lock_cursor()
+
+    # opt-3: build ghost surfaces once
+    self._build_ghost_assets()
+    # opt-6: scene caches (bg / fg / locked), rebuilt lazily
+    self._bg_list = []
+    self._fg_list = []
+    self._locked_list = []
+    self._scene_dirty = True
+
     self.panel = TopPanel(self)
+
+  # =========================================================
+  # opt-3: prebuilt ghost sprites
+  # =========================================================
+  def _build_ghost_assets(self):
+    d = PLAYER_R * 2
+    body = pygame.Surface((d, d), pygame.SRCALPHA)
+    pygame.draw.circle(body, (255, 255, 255, GHOST_ALPHA),
+                       (PLAYER_R, PLAYER_R), PLAYER_R)
+    self._ghost_body = body
+
+    arm_size = ARM_R * 2 + 4
+    arm = pygame.Surface((arm_size, arm_size), pygame.SRCALPHA)
+    pygame.draw.circle(arm, (255, 255, 255, ARM_ALPHA),
+                       (arm_size // 2, arm_size // 2), ARM_R)
+    self._ghost_arm = arm
+
+    line_h = max(1, int(JUMP_H))
+    line = pygame.Surface((2, line_h), pygame.SRCALPHA)
+    line.fill((255, 255, 255, JUMP_ALPHA))
+    self._ghost_line = line
+
+    cap = pygame.Surface((10, 2), pygame.SRCALPHA)
+    cap.fill((255, 255, 255, JUMP_ALPHA))
+    self._ghost_cap = cap
+
+  # =========================================================
+  # opt-6: scene cache
+  # =========================================================
+  def _mark_scene_dirty(self):
+    self._scene_dirty = True
+
+  def _rebuild_scene_lists(self):
+    bg = []
+    fg = []
+    locked = []
+    for obj in self.objects:
+      if isinstance(obj, EditorBackground):
+        bg.append(obj)
+      else:
+        fg.append(obj)
+      if obj.locked:
+        locked.append(obj)
+    self._bg_list = bg
+    self._fg_list = fg
+    self._locked_list = locked
+    self._scene_dirty = False
+
+  # =========================================================
+  # opt-5: visibility test in screen space
+  # =========================================================
+  def _visible(self, obj, sw, sh):
+    if isinstance(obj, EditorPeg):
+      sx, sy = self.to_screen(obj.x, obj.y)
+      r = obj.r + 6
+      return (sx + r >= 0 and sx - r <= sw and
+              sy + r >= 0 and sy - r <= sh)
+    l, r, b, t = obj.world_rect()
+    x0, y0 = self.to_screen(l, t)
+    x1, y1 = self.to_screen(r, b)
+    lo_x, hi_x = (x0, x1) if x0 < x1 else (x1, x0)
+    lo_y, hi_y = (y0, y1) if y0 < y1 else (y1, y0)
+    return (hi_x >= -4 and lo_x <= sw + 4 and
+            hi_y >= -4 and lo_y <= sh + 4)
 
   # =========================================================
   # Bounds helpers
@@ -830,6 +936,7 @@ class Editor:
   def _restore(self, snap):
     self.objects = [self._make_from_state(s) for s in snap]
     self._clear_selection()
+    self._mark_scene_dirty()
 
   def begin_undo(self):
     self._undo_before = self._snapshot()
@@ -863,6 +970,8 @@ class Editor:
     self._move_start = None
     self._move_anchor = None
     self._resize_data = []
+    self._drag_x_refs = []
+    self._drag_y_refs = []
     self.snap_guides_x = []
     self.snap_guides_y = []
     self._undo_before = None
@@ -906,6 +1015,7 @@ class Editor:
     self.objects.extend(new)
     self._set_selection(new)
     self._push_undo_now(before)
+    self._mark_scene_dirty()
 
   def duplicate_selected(self):
     if not self.selection:
@@ -922,6 +1032,7 @@ class Editor:
     self.objects.extend(new)
     self._set_selection(new)
     self._push_undo_now(before)
+    self._mark_scene_dirty()
 
   def delete_selected(self):
     if not self.selection:
@@ -934,6 +1045,7 @@ class Editor:
       self.objects.remove(o)
     self._clear_selection()
     self._push_undo_now(before)
+    self._mark_scene_dirty()
 
   # =========================================================
   # Cursors
@@ -980,9 +1092,10 @@ class Editor:
         removed = True
         continue
       keep.append(obj)
-    self.objects = keep
     if removed:
+      self.objects = keep
       self.selected = self.selection[-1] if self.selection else None
+      self._mark_scene_dirty()
 
   def _erase_segment(self, x0, y0, x1, y1, step=6.0):
     d = math.hypot(x1 - x0, y1 - y0)
@@ -1006,15 +1119,21 @@ class Editor:
     if rect is None:
       return
     l, r, b, t = rect
+    changed = False
     if l == r and b == t:
       for obj in reversed(self.objects):
         if obj.hit(l, b):
+          if obj.locked:
+            obj.locked = False
+            changed = True
+          break
+    else:
+      for obj in self.objects:
+        if obj.locked and obj.intersects_rect(l, r, b, t):
           obj.locked = False
-          return
-      return
-    for obj in self.objects:
-      if obj.locked and obj.intersects_rect(l, r, b, t):
-        obj.locked = False
+          changed = True
+    if changed:
+      self._mark_scene_dirty()
 
   # =========================================================
   # Rubber-band select
@@ -1053,6 +1172,9 @@ class Editor:
     self._move_start = (wx, wy)
     self._move_anchor = anchor
     self.drag = ("move", None)
+    # opt-4: snapshot reference coordinates for snapping during the drag
+    self._drag_x_refs = self._gather_x_refs(exclude=self.selection)
+    self._drag_y_refs = self._gather_y_refs(exclude=self.selection)
 
   def _begin_resize(self, edge):
     self._resize_data = []
@@ -1060,6 +1182,9 @@ class Editor:
       if isinstance(obj, (EditorPlatform, EditorBackground)) and not obj.locked:
         self._resize_data.append((obj, obj.world_rect()))
     self.drag = ("resize", edge)
+    # opt-4
+    self._drag_x_refs = self._gather_x_refs(exclude=self.selection)
+    self._drag_y_refs = self._gather_y_refs(exclude=self.selection)
 
   def _begin_select_rect(self, wx, wy):
     self.select_start = (wx, wy)
@@ -1119,7 +1244,6 @@ class Editor:
       self.running = False
       return
 
-    # контекстное меню поглощает все события, пока открыто
     if self.context_menu is not None:
       if e.type == pygame.MOUSEMOTION:
         self.context_menu.hover_index(e.pos)
@@ -1186,6 +1310,8 @@ class Editor:
       self._move_start = None
       self._move_anchor = None
       self._resize_data = []
+      self._drag_x_refs = []
+      self._drag_y_refs = []
       self.snap_guides_x = []
       self.snap_guides_y = []
       self.commit_undo()
@@ -1274,13 +1400,11 @@ class Editor:
       return False
     wx, wy = self.from_screen(x, y)
 
-    # клик по существующему item → смена типа
     for obj in reversed(self.objects):
       if isinstance(obj, EditorItem) and not obj.locked and obj.hit(wx, wy):
         self._open_change_type_menu(obj, pos)
         return True
 
-    # клик по пустому месту с инструментом item → выбор типа для следующих
     if self.tool == "item":
       self._open_pick_type_menu(pos)
       return True
@@ -1292,6 +1416,7 @@ class Editor:
       item.set_type(t)
       self.current_item_type = t
       self._push_undo_now(before)
+      self._mark_scene_dirty()
     options = [(t, t) for t in ITEM_TYPES]
     self.context_menu = ContextMenu(self.screen.get_size(), options, pos, on_select)
 
@@ -1327,21 +1452,18 @@ class Editor:
     wx, wy = self.from_screen(x, y)
     ctrl = bool(pygame.key.get_mods() & pygame.KMOD_CTRL)
 
-    # --- zone unlock ---
     if self.tool == "unlock_zone":
       self.drag = ("zone_unlock", None)
       self.zone_start = (wx, wy)
       self.zone_now = (wx, wy)
       return
 
-    # --- eraser ---
     if self.tool == "eraser":
       self.erasing = True
       self._erase_prev = (wx, wy)
       self._erase_at(wx, wy)
       return
 
-    # --- lock ---
     if self.tool == "lock":
       for obj in reversed(self.objects):
         if obj.hit(wx, wy):
@@ -1349,10 +1471,10 @@ class Editor:
           if obj.locked and obj in self.selection:
             self.selection.remove(obj)
             self.selected = self.selection[-1] if self.selection else None
+          self._mark_scene_dirty()
           return
       return
 
-    # --- resize on selected object's edge ---
     if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
        and not self.selected.locked:
       edge = self.selected.edge_hit(wx, wy)
@@ -1360,7 +1482,6 @@ class Editor:
         self._begin_resize(edge)
         return
 
-    # --- pick object ---
     hit = None
     for obj in reversed(self.objects):
       if obj.locked:
@@ -1378,12 +1499,10 @@ class Editor:
       self._begin_move(wx, wy, hit)
       return
 
-    # --- select tool: rubber band on empty space ---
     if self.tool == "select":
       self._begin_select_rect(wx, wy)
       return
 
-    # --- ghost ---
     gx, gy = self.ghost
     if (wx - gx) ** 2 + (wy - gy) ** 2 <= PLAYER_R ** 2:
       self.drag = ("ghost", (wx - gx, wy - gy))
@@ -1392,12 +1511,12 @@ class Editor:
       self.ghost_target = [wx, wy]
       return
 
-    # --- create new object ---
     if self.tool == "peg":
       obj = EditorPeg(wx, wy)
       self.objects.append(obj)
       self._set_selection([obj])
       self._begin_move(wx, wy, obj)
+      self._mark_scene_dirty()
     elif self.tool in ("platform", "background"):
       if self.tool == "background":
         obj = EditorBackground(wx, wy, 1, 1)
@@ -1406,11 +1525,13 @@ class Editor:
       self.objects.append(obj)
       self._set_selection([obj])
       self.drag = ("create", (wx, wy))
+      self._mark_scene_dirty()
     elif self.tool == "item":
       obj = EditorItem(wx, wy, self.current_item_type)
       self.objects.append(obj)
       self._set_selection([obj])
       self._begin_move(wx, wy, obj)
+      self._mark_scene_dirty()
 
   # =========================================================
   # Mouse move
@@ -1461,13 +1582,14 @@ class Editor:
     guide_x = None
     guide_y = None
 
+    # opt-4: use cached references captured at drag start
     if snap and primary_orig is not None:
       pl, pr, pb, pt = primary_orig
       moved_x = [pl + raw_dx, (pl + pr) / 2 + raw_dx, pr + raw_dx]
       moved_y = [pb + raw_dy, (pb + pt) / 2 + raw_dy, pt + raw_dy]
 
-      x_refs = self._gather_x_refs(exclude=self.selection)
-      y_refs = self._gather_y_refs(exclude=self.selection)
+      x_refs = self._drag_x_refs
+      y_refs = self._drag_y_refs
 
       best_x_diff = 0
       best_x_dist = SNAP_DIST + 1
@@ -1512,8 +1634,9 @@ class Editor:
     guide_x = None
     guide_y = None
     if snap:
-      x_refs = self._gather_x_refs(exclude=self.selection)
-      y_refs = self._gather_y_refs(exclude=self.selection)
+      # opt-4: build refs on the fly here, creation drag is short-lived
+      x_refs = self._drag_x_refs if self._drag_x_refs else self._gather_x_refs(exclude=self.selection)
+      y_refs = self._drag_y_refs if self._drag_y_refs else self._gather_y_refs(exclude=self.selection)
       wx, hit_x = self._snap_value(wx, x_refs)
       if hit_x:
         guide_x = wx
@@ -1552,8 +1675,9 @@ class Editor:
     guide_y = None
 
     if snap:
-      x_refs = self._gather_x_refs(exclude=self.selection)
-      y_refs = self._gather_y_refs(exclude=self.selection)
+      # opt-4: use cached refs
+      x_refs = self._drag_x_refs
+      y_refs = self._drag_y_refs
       if edge in ("left", "right"):
         wx, hit = self._snap_value(wx, x_refs)
         if hit:
@@ -1634,14 +1758,22 @@ class Editor:
   # Draw
   # =========================================================
   def draw(self):
+    if self._scene_dirty:      # opt-6
+      self._rebuild_scene_lists()
+    sw, sh = self.screen.get_size()
+
     self.screen.fill(BG)
-    for obj in self.objects:
-      if isinstance(obj, EditorBackground):
+
+    # opt-5: culling per object
+    for obj in self._bg_list:
+      if self._visible(obj, sw, sh):
         obj.draw(self.screen, self)
+
     self.draw_floor_line()
     self.draw_ghost()
-    for obj in self.objects:
-      if not isinstance(obj, EditorBackground):
+
+    for obj in self._fg_list:
+      if self._visible(obj, sw, sh):
         obj.draw(self.screen, self)
 
     for obj in self.selection:
@@ -1652,11 +1784,10 @@ class Editor:
     self.draw_select_rect_preview()
     self.draw_snap_guides()
 
-    # Lock badges last so they read above world, selection, previews and guides.
-    for obj in self.objects:
-      if obj.locked:
-        bx, by = obj.badge_screen_pos(self)
-        draw_lock_badge(self.screen, bx, by)
+    # Lock badges above everything else (uses cached locked list)
+    for obj in self._locked_list:
+      bx, by = obj.badge_screen_pos(self)
+      draw_lock_badge(self.screen, bx, by)
 
     self.draw_bottom_bar()
     self.panel.draw(self.screen)
@@ -1712,30 +1843,18 @@ class Editor:
     self.screen.blit(surf, (0, y - 1))
 
   def draw_ghost(self):
+    # opt-3: prebuilt surfaces, only blits here
     gx, gy = self.ghost
     sx, sy = self.to_screen(gx, gy)
-    self.draw_ghost_line(sx, sy)
-    self.draw_ghost_arm(sx, sy, -ARM_DX)
-    self.draw_ghost_arm(sx, sy, ARM_DX)
-    surf = pygame.Surface((PLAYER_R * 2, PLAYER_R * 2), pygame.SRCALPHA)
-    pygame.draw.circle(surf, (255, 255, 255, GHOST_ALPHA), (PLAYER_R, PLAYER_R), PLAYER_R)
-    self.screen.blit(surf, (sx - PLAYER_R, sy - PLAYER_R))
+    _, ey = self.to_screen(gx, gy + JUMP_H)
+    self.screen.blit(self._ghost_line, (int(sx) - 1, int(ey)))
+    self.screen.blit(self._ghost_cap, (int(sx) - 5, int(ey) - 1))
 
-  def draw_ghost_line(self, sx, sy):
-    ex, ey = self.to_screen(self.ghost[0], self.ghost[1] + JUMP_H)
-    surf = pygame.Surface((2, int(sy - ey)), pygame.SRCALPHA)
-    surf.fill((255, 255, 255, JUMP_ALPHA))
-    self.screen.blit(surf, (int(sx) - 1, int(ey)))
-    cap = pygame.Surface((10, 2), pygame.SRCALPHA)
-    cap.fill((255, 255, 255, JUMP_ALPHA))
-    self.screen.blit(cap, (int(sx) - 5, int(ey) - 1))
-
-  def draw_ghost_arm(self, sx, sy, dx):
-    ax = sx + dx
-    size = ARM_R * 2 + 4
-    surf = pygame.Surface((size, size), pygame.SRCALPHA)
-    pygame.draw.circle(surf, (255, 255, 255, ARM_ALPHA), (size // 2, size // 2), ARM_R)
-    self.screen.blit(surf, (ax - size // 2, sy - size // 2))
+    aw = self._ghost_arm.get_width()
+    ah = self._ghost_arm.get_height()
+    self.screen.blit(self._ghost_arm, (int(sx - ARM_DX) - aw // 2, int(sy) - ah // 2))
+    self.screen.blit(self._ghost_arm, (int(sx + ARM_DX) - aw // 2, int(sy) - ah // 2))
+    self.screen.blit(self._ghost_body, (int(sx - PLAYER_R), int(sy - PLAYER_R)))
 
   def draw_bottom_bar(self):
     h = self.screen.get_height()
@@ -1905,4 +2024,5 @@ class Editor:
       obj.locked = bool(it.get("locked", False))
       self.objects.append(obj)
     self._clear_selection()
+    self._mark_scene_dirty()
     self._push_undo_now(before)
