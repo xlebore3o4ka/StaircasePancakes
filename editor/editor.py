@@ -72,6 +72,7 @@ class Editor:
     self.cam_x = 0
     self.cam_y = 0
     self.zoom = 1.0
+    self.scale = 1.0     # алиас zoom для игровых draw_at
     self.panning = False
     self.pan_last = (0, 0)
     # ---- ghost ----
@@ -142,6 +143,7 @@ class Editor:
       return
     wx, wy = self.from_screen(*screen_pos)
     self.zoom = new_zoom
+    self.scale = new_zoom
     sw, sh = self.screen.get_size()
     sx, sy = screen_pos
     self.cam_x = wx - (sx - sw / 2) / self.zoom
@@ -771,6 +773,7 @@ class Editor:
         self._set_selection(list(self.objects))
       elif e.key == pygame.K_0:
         self.zoom = 1.0
+        self.scale = 1.0
         self._rebuild_ghost_assets()
       elif e.key == pygame.K_l:
         self.set_tool("peg" if self.tool == "lock" else "lock")
