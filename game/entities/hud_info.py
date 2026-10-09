@@ -23,7 +23,9 @@ class HudInfo:
     m = int((total % 3600) // 60)
     sec = int(total % 60)
     cs = int((total * 100) % 100)
-    return f"{h:02d}:{m:02d}:{sec:02d}.{cs:02d}"
+    if h > 0:
+      return f"{h:02d}:{m:02d}:{sec:02d}.{cs:02d}"
+    return f"{m:02d}:{sec:02d}.{cs:02d}"
 
   def _render(self, text):
     if self._cache_key == text:
