@@ -79,7 +79,11 @@ THROW_SMOOTH_FRAMES = 4
 
 SOUND_DIR = "sounds"
 SOUND_VOLUME = 0.6
-SOUND_NAMES = ["jump"]
+SOUND_NAMES = ["jump", "hit"]
+# <NOTE>#693 impact tuning: below MIN no sound, above MAX full volume
+HIT_VOL_MIN = 250
+HIT_VOL_MAX = 1800
+HIT_COOLDOWN = 0.08
 
 HUD_INFO_ALPHA = 160
 HUD_INFO_MARGIN = 16

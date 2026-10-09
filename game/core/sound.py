@@ -28,11 +28,13 @@ class SoundManager:
       snd.set_volume(SOUND_VOLUME)
       self.banks[name].append(snd)
 
-  def play(self, name):
+  def play(self, name, volume=1.0):
     bank = self.banks.get(name)
     if not bank:
       return
-    random.choice(bank).play()
+    snd = random.choice(bank)
+    snd.set_volume(SOUND_VOLUME * max(0.0, min(1.0, volume)))
+    snd.play()
 
   def report(self):
     # <TODO>#687 diagnostic: show loaded banks once at startup
