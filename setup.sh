@@ -2,37 +2,35 @@
 set -e
 
 python - <<'PYEOF'
-p = "game/game.py"
+p = "game/entities/item.py"
 s = open(p).read()
 
-old = """      player = Player(space, (0, BODY_R), cheats=self.cheats)"""
-new = """      player = Player(space, (0, BODY_R), cheats=self.cheats)
-      spawn_y = BODY_R"""
-assert old in s, "player init"
+old = "from shared.physics_util import has_ground_contact\n"
+new = "from shared.physics_util import kill_bias\n"
+assert old in s, "item imports"
 s = s.replace(old, new, 1)
 
-old = """        hud_info.draw(w.screen, player.body.position.y)"""
-new = """        # <STRANGE>#620 height is distance from spawn, not absolute y
-        hud_info.draw(w.screen, player.body.position.y - spawn_y)"""
-assert old in s, "hud draw"
-s = s.replace(old, new, 1)
+old = """  def post_step(self):
+    # <STRANGE>#596 ignore kinematic items (held, stuck) — their velocity is set by gameplay, not physics
+    if self.body.body_type != pymunk.Body.DYNAMIC:
+      return
+    # <STRANGE>#614 strip velocity along any floor/platform normal; solver bias and residual bounce both die here
+    kill_bias(self.body)
+"""
+new = """  def post_step(self):
+    # <STRANGE>#596 ignore kinematic items (held, stuck) — their velocity is set by gameplay, not physics
+    if self.body.body_type != pymunk.Body.DYNAMIC:
+      return
+    # <STRANGE>#614 strip solver bias from items; threshold-based, so bouncing stays alive
+    kill_bias(self.body)
+"""
+if old in s:
+  s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
 PYEOF
 
-python - <<'PYEOF'
-p = "game/entities/hud_info.py"
-s = open(p).read()
-
-old = """    meters = max(0.0, (height_px - BODY_R) * HUD_METERS_PER_PX)"""
-new = """    meters = max(0.0, height_px * HUD_METERS_PER_PX)"""
-assert old in s, "meters"
-s = s.replace(old, new, 1)
-
-open(p, "w").write(s)
-PYEOF
-
-python -c "import ast; [ast.parse(open(f).read()) for f in ['game/game.py','game/entities/hud_info.py']]; print('syntax ok')"
+python -c "import ast; ast.parse(open('game/entities/item.py').read()); print('syntax ok')"
 
 git add -A
-git commit -m "hud: height measured from spawn point"
+git commit -m "item: use kill_bias instead of removed has_ground_contact"

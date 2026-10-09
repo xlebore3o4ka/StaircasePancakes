@@ -1,22 +1,40 @@
-def has_ground_contact(body):
-  # <STRANGE>#602 walk this body's arbiters looking for a floor/platform contact whose normal points up
-  result = [False]
+import pymunk
+
+
+SLOP = 1.0
+
+
+def kill_bias(body):
+  """Strip solver bias from body.velocity.
+
+  Bias is created only when a contact penetrates deeper than the space's
+  collision_slop. Shallow (resting/brushing) contacts leave velocity alone."""
+  v = body.velocity
   def cb(arb, data):
     a, b = arb.shapes
     if a.body is body:
       other = b
-      ny = -arb.contact_point_set.normal.y
+      n = -arb.contact_point_set.normal
     elif b.body is body:
       other = a
-      ny = arb.contact_point_set.normal.y
+      n = arb.contact_point_set.normal
     else:
       return True
     if not (other.filter.categories & 0b10):
       return True
-    # <STRANGE>#588 normal from surface to body must point up; .y > 0.5 rejects walls and ceilings
-    if ny > 0.5:
-      result[0] = True
-      return False
+    # <STRANGE>#622 deepest penetration in this contact set decides whether bias was applied
+    max_pen = 0.0
+    for cp in arb.contact_point_set.points:
+      if cp.distance < 0 and -cp.distance > max_pen:
+        max_pen = -cp.distance
+    if max_pen <= SLOP:
+      return True
+    # normal points from surface outward; only kill velocity pointing further out (bias)
+    proj = data[0].x * n.x + data[0].y * n.y
+    if proj <= 0:
+      return True
+    data[0] = pymunk.Vec2d(data[0].x - n.x * proj, data[0].y - n.y * proj)
     return True
-  body.each_arbiter(cb, None)
-  return result[0]
+  box = [v]
+  body.each_arbiter(cb, box)
+  body.velocity = box[0]

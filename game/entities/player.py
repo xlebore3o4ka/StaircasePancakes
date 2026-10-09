@@ -4,7 +4,7 @@ import pygame
 import pymunk
 from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W
 from shared.smooth import smooth, per_sec
-from shared.physics_util import has_ground_contact
+from shared.physics_util import kill_bias
 from .consume_fx import SodaConsumeFx
 
 ARM_MASS = 0.1
@@ -94,10 +94,8 @@ class Player:
 
   def post_step(self, dt):
     # <STRANGE>#583 runs after space.step: solver bias impulses are applied by then
-    # <STRANGE>#593 any upward vy while touching ground and not jumping this frame is bias; clamp unconditionally
-    if has_ground_contact(self.body) and not self.jumped_this_frame:
-      if self.body.velocity.y > 0:
-        self.body.velocity = (self.body.velocity.x, 0.0)
+    # <STRANGE>#623 penetration-threshold based, so wall brushes and rolling contacts are untouched
+    kill_bias(self.body)
 
   def _use(self, i):
     item = self.held[i]

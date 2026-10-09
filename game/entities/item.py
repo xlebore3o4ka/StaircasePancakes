@@ -9,7 +9,7 @@ from shared.const import (
   REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
-from shared.physics_util import has_ground_contact
+from shared.physics_util import kill_bias
 
 
 def _corners(pos, angle, hw, hh):
