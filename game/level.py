@@ -88,6 +88,8 @@ class Level:
         if hits:
           it.stick()
           continue
+      # <STRANGE>#654 per-item bias clamp after physics
+      it.post_step()
 
 
   def draw_spawners(self, screen, cam, player_pos):

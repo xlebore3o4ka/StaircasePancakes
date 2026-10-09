@@ -9,6 +9,7 @@ from shared.const import (
   REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
+from shared.physics_util import has_ground_contact
 
 
 def _corners(pos, angle, hw, hh):
@@ -85,6 +86,13 @@ class Item:
     # <STRANGE>#295 destroy only removes physics; caller clears held_by on player side
     self.space.remove(self.body, self.shape)
 
+
+  def post_step(self):
+    # <STRANGE>#653 ignore kinematic items; strip upward vy at ground contact as solver bias
+    if self.body.body_type != pymunk.Body.DYNAMIC:
+      return
+    if self.body.velocity.y > 0 and has_ground_contact(self.body):
+      self.body.velocity = (self.body.velocity.x, 0.0)
 
   def radius(self):
     return max(self.w, self.h) / 2

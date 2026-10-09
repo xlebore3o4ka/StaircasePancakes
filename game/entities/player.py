@@ -4,6 +4,7 @@ import pygame
 import pymunk
 from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W
 from shared.smooth import smooth, per_sec
+from shared.physics_util import has_ground_contact
 from .consume_fx import SodaConsumeFx
 
 ARM_MASS = 0.1
@@ -93,6 +94,13 @@ class Player:
     hits = self.space.point_query(pt, 6, pymunk.ShapeFilter(mask=0b10))
     return len(hits) > 0
 
+
+  def post_step(self, dt):
+    # <STRANGE>#652 on ground, not jumping this frame, vy up -> solver bias; clamp to zero
+    if self.jumped_this_frame:
+      return
+    if self.body.velocity.y > 0 and has_ground_contact(self.body):
+      self.body.velocity = (self.body.velocity.x, 0.0)
 
   def _use(self, i):
     item = self.held[i]
