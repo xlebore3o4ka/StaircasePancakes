@@ -180,6 +180,9 @@ class Player:
       if item.center_anim:
         # <STRANGE>#414 defer stamina to fx completion; item must be alive for draw_at during the anim
         self.consume_fx.append(SodaConsumeFx(self, item, angle, stamina_gain))
+        # <STRANGE>#697 soda sfx plays as the drink animation starts
+        if self.sound is not None:
+          self.sound.play("soda")
       else:
         item.destroy()
         if stamina_gain:
