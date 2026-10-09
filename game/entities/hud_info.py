@@ -37,7 +37,7 @@ class HudInfo:
     return surf
 
   def draw(self, screen, height_px):
-    meters = max(0.0, (height_px - BODY_R) * HUD_METERS_PER_PX)
+    meters = max(0.0, height_px * HUD_METERS_PER_PX)
     lines = [self._fmt_time(), f"{int(meters)} m"]
     x = HUD_INFO_MARGIN
     y = HUD_INFO_MARGIN

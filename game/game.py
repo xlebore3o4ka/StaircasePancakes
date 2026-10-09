@@ -21,6 +21,7 @@ class Game:
       space = make_space()
       # <STRANGE>#158 spawn at world origin on the floor; cam starts synced so it doesn't fly in
       player = Player(space, (0, BODY_R), cheats=self.cheats)
+      spawn_y = BODY_R
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       level = Level(space, self.map_path)
@@ -63,5 +64,6 @@ class Game:
           level.draw_spawners(w.screen, cam, player.body.position)
         player.draw_hud(w.screen, cam)
         hud_info.update(dt)
-        hud_info.draw(w.screen, player.body.position.y)
+        # <STRANGE>#620 height is distance from spawn, not absolute y
+        hud_info.draw(w.screen, player.body.position.y - spawn_y)
         w.flip()
