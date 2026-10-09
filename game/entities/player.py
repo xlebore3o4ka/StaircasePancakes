@@ -113,6 +113,9 @@ class Player:
     if self.jumped_this_frame:
       return
     v = self.body.velocity.y
+    # <TODO>#741 diagnostic: log any positive vy jump; remove when filters are solid
+    if v > 200 and (v - self._pre_vy) > 100:
+      print(f"JUMP vy={v:.0f} pre_vy={self._pre_vy:.0f} dv={v - self._pre_vy:.0f} grabbed={[g is not None for g in self.grabbed]} jumped={self.jumped_this_frame}")
     if v > JUMP_V * 1.05 and self._pre_vy < 50 and not any(g is not None for g in self.grabbed):
       self.body.velocity = (self.body.velocity.x, 0.0)
     # <STRANGE>#694 impact sfx: any new contact with floor/platform while moving into it fast
@@ -170,6 +173,9 @@ class Player:
       return
     consumed, spawn_spec, stamina_gain = item.use()
     if consumed:
+      if self.sound is not None and item.use_sound:
+        # <STRANGE>#744 fire before item.destroy in case subclass cleanup nulls state
+        self.sound.play(item.use_sound)
       # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
       pos = item.body.position
       angle = item.body.angle

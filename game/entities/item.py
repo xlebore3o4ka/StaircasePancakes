@@ -52,6 +52,8 @@ class Item:
   layer = LAYER_ITEM
   # <STRANGE>#702 sfx name played on pickup; each subclass overrides
   pickup_sound = None
+  # <STRANGE>#744 sfx name played when use() consumes this item; None = silent
+  use_sound = None
 
   def on_use(self, player, hand):
     # <STRANGE>#521 default: return False to fall through to use() (consume/shake)
@@ -165,6 +167,7 @@ class Item:
 
 class CubeItem(Item):
   pickup_sound = "pickup_cube"
+  use_sound = "open_cube"
 
   def __init__(self, space, pos, contents=None):
     # <STRANGE>#292 cube size fixed; no JSON override
