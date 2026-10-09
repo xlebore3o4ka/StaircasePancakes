@@ -8,7 +8,6 @@ from shared.const import (
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
   REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
-  HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN,
 )
 from shared.physics_util import has_ground_contact
 
@@ -84,9 +83,8 @@ class Item:
     # <STRANGE>#376 linear damping bleeds off energy so items settle instead of drifting; does not affect held (kinematic) state
     self.body.linear_damping = CUBE_LINEAR_DAMPING
     space.add(self.body, shape)
-    # <STRANGE>#708 impact sfx support; sound set by Level after creation
+    # <STRANGE>#713 sound manager ref, attached by Level after creation
     self.sound = None
-    self._pre_v = pymunk.Vec2d(0, 0)
     self._hit_cd = 0.0
 
   def destroy(self):
@@ -94,42 +92,37 @@ class Item:
     self.space.remove(self.body, self.shape)
 
 
-  def post_step(self):
+  def post_step(self, cam=None):
+    # <STRANGE>#653 ignore kinematic items
     if self.body.body_type != pymunk.Body.DYNAMIC:
       return
+    # <STRANGE>#721 bias clamp: upward vy while touching ground is solver artifact
+    if self.body.velocity.y > 0 and has_ground_contact(self.body):
+      self.body.velocity = (self.body.velocity.x, 0.0)
+    # <STRANGE>#717 impact sfx only for items currently visible on screen
     if self._hit_cd > 0:
       self._hit_cd -= 1 / 120
-    # <STRANGE>#708 impact sfx on new floor/platform contacts, 50% quieter than the player
-    if self.sound is not None and self._hit_cd <= 0:
-      max_proj = [0.0]
+    if self.sound is not None and self._hit_cd <= 0 and cam is not None and _on_screen(self, cam):
+      hit = [False]
       def cb(arb, _):
-        if not arb.is_first_contact:
+        if hit[0] or not arb.is_first_contact:
           return True
         a, b = arb.shapes
         if a.body is self.body:
           other = b
-          n = -arb.contact_point_set.normal
         elif b.body is self.body:
           other = a
-          n = arb.contact_point_set.normal
         else:
           return True
-        if not (other.filter.categories & 0b10):
-          return True
-        p = -(self._pre_v.x * n.x + self._pre_v.y * n.y)
-        if p > max_proj[0]:
-          max_proj[0] = p
+        if other.filter.categories & 0b10:
+          hit[0] = True
+          return False
         return True
       self.body.each_arbiter(cb, None)
-      if max_proj[0] >= HIT_VOL_MIN:
-        vol = (max_proj[0] - HIT_VOL_MIN) / max(1, HIT_VOL_MAX - HIT_VOL_MIN)
-        vol = min(1.0, max(0.15, vol)) * 0.5
-        self.sound.play("hit", volume=vol)
-        self._hit_cd = HIT_COOLDOWN
-
-  def record_pre_step(self):
-    # <STRANGE>#709 snapshot before physics for impact volume estimation
-    self._pre_v = pymunk.Vec2d(self.body.velocity.x, self.body.velocity.y)
+      if hit[0]:
+        # <STRANGE>#718 volume = 1/3 of player's half, per request
+        self.sound.play("hit", volume=0.05)
+        self._hit_cd = 0.08
 
   def radius(self):
     return max(self.w, self.h) / 2
@@ -306,6 +299,14 @@ class RebarItem(Item):
     edge = (*REBAR_EDGE, alpha) if alpha < 255 else REBAR_EDGE
     w_edge = max(1, int(REBAR_EDGE_W * sc))
     _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
+
+
+def _on_screen(item, cam):
+  # <STRANGE>#717 cheap axis check against camera viewport
+  sx, sy = cam.to_screen(item.body.position.x, item.body.position.y)
+  vw = cam.w * cam.scale
+  vh = cam.h * cam.scale
+  return -50 <= sx <= vw + 50 and -50 <= sy <= vh + 50
 
 
 def make_item(space, spec):

@@ -42,8 +42,10 @@ class Player:
     self.body.position = pos
     body_shape = pymunk.Circle(self.body, BODY_R)
     body_shape.filter = pymunk.ShapeFilter(group=1, categories=0b01)
-    # <STRANGE>#364 player is perfectly inelastic; without this a 0.5 platform elasticity multiplied by player default could still bounce
+    # <STRANGE>#364 player is perfectly inelastic
     body_shape.elasticity = 0.0
+    # <STRANGE>#731 zero friction on the player shape: brushing floor mid-swing would otherwise kill tangential velocity
+    body_shape.friction = 0.0
     space.add(self.body, body_shape)
     self.arms = []
     for dx in (-ARM_DX, ARM_DX):
@@ -107,11 +109,11 @@ class Player:
     self._pre_v = pymunk.Vec2d(self.body.velocity.x, self.body.velocity.y)
 
   def post_step(self, dt):
-    # <STRANGE>#679 bias spike = velocity.y jumped more than gravity could over one step; anything else is ballistic
+    # <STRANGE>#736 bias means vy was ~0 before step and became large after: solver kicked, not gameplay
     if self.jumped_this_frame:
       return
     v = self.body.velocity.y
-    if v > 0 and (v - self._pre_vy) > 300:
+    if v > JUMP_V * 1.05 and self._pre_vy < 50 and not any(g is not None for g in self.grabbed):
       self.body.velocity = (self.body.velocity.x, 0.0)
     # <STRANGE>#694 impact sfx: any new contact with floor/platform while moving into it fast
     if self.sound is not None and self._hit_cd <= 0:
@@ -295,7 +297,8 @@ class Player:
     if self.body.velocity.y > 550 and self.body.position.y < BODY_R * 3:
       print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
     pitoned = any(g is not None for g in self.grabbed)
-    drag = GROUND_DRAG if grounded else AIR_DRAG
+    # <STRANGE>#729 while held to a peg, never use ground drag; brushing floor mid-swing would kill momentum
+    drag = AIR_DRAG if pitoned else (GROUND_DRAG if grounded else AIR_DRAG)
     # <STRANGE>#430 cheats re-queue every frame while space is held, so air-jump becomes flight
     if self.cheats and self.jump:
       self.jump_queued = True

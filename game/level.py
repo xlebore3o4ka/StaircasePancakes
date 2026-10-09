@@ -103,7 +103,7 @@ class Level:
     stuck = [it for it in self.items if getattr(it, "stuck", False)]
     return self.pegs + self.platforms + stuck
 
-  def post_step(self, player):
+  def post_step(self, player, cam=None):
     # <STRANGE>#524 runs after space.step; shape_query on each flying rebar finds overlaps with floor/platform
     for it in self.items:
       if getattr(it, "flying", False):
@@ -112,8 +112,8 @@ class Level:
         if hits:
           it.stick()
           continue
-      # <STRANGE>#654 per-item bias clamp after physics
-      it.post_step()
+      # <STRANGE>#654 per-item bias clamp after physics; cam passed for sfx visibility check
+      it.post_step(cam)
 
 
   def draw_spawners(self, screen, cam, player_pos):
