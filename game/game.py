@@ -5,6 +5,7 @@ from .entities.player import Player, BODY_R
 from .core.camera import Camera
 from .level import Level
 from .entities.floor import FloorFill
+from .core.sound import SoundManager
 from .entities.hud_info import HudInfo
 
 LOGICAL_W = 1920
@@ -19,8 +20,10 @@ class Game:
   def run(self):
     with Window() as w:
       space = make_space()
+      sound = SoundManager()
+      sound.report()
       # <STRANGE>#158 spawn at world origin on the floor; cam starts synced so it doesn't fly in
-      player = Player(space, (0, BODY_R), cheats=self.cheats)
+      player = Player(space, (0, BODY_R), cheats=self.cheats, sound=sound)
       spawn_y = BODY_R
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)

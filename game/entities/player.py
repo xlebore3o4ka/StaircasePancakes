@@ -32,8 +32,10 @@ SHAKE_MAX = 2
 class Player:
   layer = LAYER_PLAYER
 
-  def __init__(self, space, pos, cheats=False):
+  def __init__(self, space, pos, cheats=False, sound=None):
     self.space = space
+    # <STRANGE>#683 optional; None in tests/editor
+    self.sound = sound
     # <STRANGE>#429 cheats flag bypasses stamina accounting and air-jump gating
     self.cheats = cheats
     self.body = pymunk.Body(1, pymunk.moment_for_circle(1, 0, BODY_R))
@@ -265,6 +267,8 @@ class Player:
       self.body.velocity = (self.body.velocity.x, JUMP_V)
       self.jump_queued = False
       self.jumped_this_frame = True
+      if self.sound is not None:
+        self.sound.play("jump")
       n = sum(1 for g in self.grabbed if g is not None)
       if n > 0:
         cost = STAMINA_JUMP_COST / n
