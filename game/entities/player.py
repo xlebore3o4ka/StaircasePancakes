@@ -4,7 +4,7 @@ import pygame
 import pymunk
 from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W
 from shared.smooth import smooth, per_sec
-from shared.physics_util import has_ground_contact
+from shared.physics_util import stop_incoming
 from .consume_fx import SodaConsumeFx
 
 ARM_MASS = 0.1
@@ -94,10 +94,9 @@ class Player:
 
   def post_step(self, dt):
     # <STRANGE>#583 runs after space.step: solver bias impulses are applied by then
-    # <STRANGE>#628 only vertical bias from a floor/platform contact; wall contacts skipped to avoid sticking
-    if has_ground_contact(self.body) and not self.jumped_this_frame:
-      if self.body.velocity.y > 0:
-        self.body.velocity = (self.body.velocity.x, 0.0)
+    # <STRANGE>#629 one-sided clamp: kill only the velocity component heading INTO a wall/floor
+    if not self.jumped_this_frame:
+      stop_incoming(self.body)
 
   def _use(self, i):
     item = self.held[i]

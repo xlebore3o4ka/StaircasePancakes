@@ -9,7 +9,7 @@ from shared.const import (
   REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
-from shared.physics_util import has_ground_contact
+from shared.physics_util import stop_incoming
 
 
 def _corners(pos, angle, hw, hh):
@@ -90,9 +90,8 @@ class Item:
     # <STRANGE>#596 ignore kinematic items (held, stuck) — their velocity is set by gameplay, not physics
     if self.body.body_type != pymunk.Body.DYNAMIC:
       return
-    # <STRANGE>#597 upward vy at ground contact is solver bias or leftover bounce; clamp flat
-    if self.body.velocity.y > 0 and has_ground_contact(self.body):
-      self.body.velocity = (self.body.velocity.x, 0.0)
+    # <STRANGE>#630 one-sided clamp; solver bias dies, item's own motion along the surface stays
+    stop_incoming(self.body)
 
   def radius(self):
     return max(self.w, self.h) / 2
