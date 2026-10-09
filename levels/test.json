@@ -1473,17 +1473,10 @@
       "layer": 9
     },
     {
-<<<<<<< Updated upstream
-      "x": -7596,
-      "y": 354,
-      "w": 111,
-      "h": 92,
-=======
       "x": -4083,
       "y": 1519,
       "w": 84,
       "h": 33,
->>>>>>> Stashed changes
       "fill": [
         60,
         60,
@@ -1495,8 +1488,6 @@
         255
       ],
       "locked": false
-<<<<<<< Updated upstream
-=======
     },
     {
       "x": -3802,
@@ -1568,7 +1559,6 @@
       ],
       "locked": false,
       "layer": 4
->>>>>>> Stashed changes
     }
   ],
   "backgrounds": [
@@ -2557,31 +2547,15 @@
       "locked": false
     },
     {
-<<<<<<< Updated upstream
-      "x": -7644,
-      "y": 74,
-      "w": 84,
-      "h": 79,
-=======
       "x": -4077,
       "y": 1557,
       "w": 71,
       "h": 43,
->>>>>>> Stashed changes
       "color": [
         70,
         75,
         82
       ],
-<<<<<<< Updated upstream
-      "locked": false
-    },
-    {
-      "x": -7549,
-      "y": 74,
-      "w": 84,
-      "h": 79,
-=======
       "locked": true
     },
     {
@@ -2589,21 +2563,11 @@
       "y": 1357,
       "w": 1082,
       "h": 291,
->>>>>>> Stashed changes
       "color": [
         70,
         75,
         82
       ],
-<<<<<<< Updated upstream
-      "locked": false
-    },
-    {
-      "x": -7596,
-      "y": 211,
-      "w": 94,
-      "h": 175,
-=======
       "locked": true
     },
     {
@@ -2611,17 +2575,12 @@
       "y": 1638,
       "w": 903,
       "h": 271,
->>>>>>> Stashed changes
       "color": [
         70,
         75,
         82
       ],
-<<<<<<< Updated upstream
-      "locked": false
-=======
       "locked": true
->>>>>>> Stashed changes
     }
   ],
   "items": [
