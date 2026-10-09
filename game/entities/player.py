@@ -106,6 +106,13 @@ class Player:
       self.grab_lock[i] = True
       # <STRANGE>#647 rebar shoots out of hand; block re-grab for a moment so it clears the arm radius
       self.grab_cooldown[i] = 0.5
+      # <STRANGE>#650 recoil kicks the body away from any peg it was holding; release both hands like a jump does
+      for j in range(2):
+        if j == i:
+          continue
+        self._release(j)
+        if self.pressed[j]:
+          self.grab_lock[j] = True
       return
     if r:
       return
