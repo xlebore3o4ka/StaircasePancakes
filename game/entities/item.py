@@ -8,6 +8,7 @@ from shared.const import (
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
   REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
+  HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN,
 )
 from shared.physics_util import has_ground_contact
 
@@ -83,6 +84,10 @@ class Item:
     # <STRANGE>#376 linear damping bleeds off energy so items settle instead of drifting; does not affect held (kinematic) state
     self.body.linear_damping = CUBE_LINEAR_DAMPING
     space.add(self.body, shape)
+    # <STRANGE>#708 impact sfx support; sound set by Level after creation
+    self.sound = None
+    self._pre_v = pymunk.Vec2d(0, 0)
+    self._hit_cd = 0.0
 
   def destroy(self):
     # <STRANGE>#295 destroy only removes physics; caller clears held_by on player side
@@ -90,11 +95,41 @@ class Item:
 
 
   def post_step(self):
-    # <STRANGE>#653 ignore kinematic items; strip upward vy at ground contact as solver bias
     if self.body.body_type != pymunk.Body.DYNAMIC:
       return
-    if self.body.velocity.y > 0 and has_ground_contact(self.body):
-      self.body.velocity = (self.body.velocity.x, 0.0)
+    if self._hit_cd > 0:
+      self._hit_cd -= 1 / 120
+    # <STRANGE>#708 impact sfx on new floor/platform contacts, 50% quieter than the player
+    if self.sound is not None and self._hit_cd <= 0:
+      max_proj = [0.0]
+      def cb(arb, _):
+        if not arb.is_first_contact:
+          return True
+        a, b = arb.shapes
+        if a.body is self.body:
+          other = b
+          n = -arb.contact_point_set.normal
+        elif b.body is self.body:
+          other = a
+          n = arb.contact_point_set.normal
+        else:
+          return True
+        if not (other.filter.categories & 0b10):
+          return True
+        p = -(self._pre_v.x * n.x + self._pre_v.y * n.y)
+        if p > max_proj[0]:
+          max_proj[0] = p
+        return True
+      self.body.each_arbiter(cb, None)
+      if max_proj[0] >= HIT_VOL_MIN:
+        vol = (max_proj[0] - HIT_VOL_MIN) / max(1, HIT_VOL_MAX - HIT_VOL_MIN)
+        vol = min(1.0, max(0.15, vol)) * 0.5
+        self.sound.play("hit", volume=vol)
+        self._hit_cd = HIT_COOLDOWN
+
+  def record_pre_step(self):
+    # <STRANGE>#709 snapshot before physics for impact volume estimation
+    self._pre_v = pymunk.Vec2d(self.body.velocity.x, self.body.velocity.y)
 
   def radius(self):
     return max(self.w, self.h) / 2

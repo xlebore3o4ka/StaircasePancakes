@@ -2,81 +2,70 @@
 set -e
 
 python - <<'PYEOF'
-p = "shared/const.py"
+p = "game/level.py"
 s = open(p).read()
 
-old = 'SOUND_NAMES = ["jump", "hit", "soda"]\n'
-new = 'SOUND_NAMES = ["jump", "hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar"]\n'
-assert old in s, "SOUND_NAMES"
+# Level accepts sound manager
+old = "class Level:\n  def __init__(self, space, path):\n    self.space = space"
+new = "class Level:\n  def __init__(self, space, path, sound=None):\n    self.space = space\n    self.sound = sound"
+assert old in s, "Level init"
 s = s.replace(old, new, 1)
+
+# attach sound to every item created during load
+old = """    self.items = []
+    for it_spec in data.get("items", []):
+      item = make_item(space, it_spec)
+      if "layer" in it_spec:
+        item.layer = int(it_spec["layer"])
+      self.items.append(item)"""
+new = """    self.items = []
+    for it_spec in data.get("items", []):
+      item = make_item(space, it_spec)
+      if "layer" in it_spec:
+        item.layer = int(it_spec["layer"])
+      if self.sound is not None:
+        item.sound = self.sound
+      self.items.append(item)"""
+assert old in s, "items loop"
+s = s.replace(old, new, 1)
+
+# spawn_item also attaches
+old = """    it = make_item(self.space, full)
+    if "layer" in spec:
+      it.layer = int(spec["layer"])"""
+new = """    it = make_item(self.space, full)
+    if "layer" in spec:
+      it.layer = int(spec["layer"])
+    if self.sound is not None:
+      it.sound = self.sound"""
+assert old in s, "spawn_item"
+s = s.replace(old, new, 1)
+
+# spawner items also
+old = """      self.items.append(make_item(space, spec))"""
+new = """      sp_item = make_item(space, spec)
+      if self.sound is not None:
+        sp_item.sound = self.sound
+      self.items.append(sp_item)"""
+if old in s:
+  s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
 PYEOF
 
 python - <<'PYEOF'
-p = "game/entities/item.py"
+p = "game/game.py"
 s = open(p).read()
 
-# атрибут pickup_sound у Item
-old = """class Item:
-  layer = LAYER_ITEM
-"""
-new = """class Item:
-  layer = LAYER_ITEM
-  # <STRANGE>#702 sfx name played on pickup; each subclass overrides
-  pickup_sound = None
-"""
-assert old in s, "Item class"
-s = s.replace(old, new, 1)
-
-old = """class CubeItem(Item):
-  def __init__(self, space, pos, contents=None):"""
-new = """class CubeItem(Item):
-  pickup_sound = "pickup_cube"
-
-  def __init__(self, space, pos, contents=None):"""
-assert old in s, "CubeItem"
-s = s.replace(old, new, 1)
-
-old = """class SodaItem(Item):
-  center_anim = True"""
-new = """class SodaItem(Item):
-  center_anim = True
-  pickup_sound = "pickup_soda\""""
-assert old in s, "SodaItem"
-s = s.replace(old, new, 1)
-
-old = """class RebarItem(Item):
-  # <STRANGE>#513 hold offset toward the near end"""
-new = """class RebarItem(Item):
-  pickup_sound = "pickup_rebar"
-  # <STRANGE>#513 hold offset toward the near end"""
-assert old in s, "RebarItem"
+old = '      level = Level(space, self.map_path)'
+new = '      level = Level(space, self.map_path, sound=sound)'
+assert old in s, "level init"
 s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
 PYEOF
 
-python - <<'PYEOF'
-p = "game/entities/player.py"
-s = open(p).read()
-
-old = """          if item_hit is not None:
-            self.held[i] = item_hit
-            item_hit.hold(i)"""
-new = """          if item_hit is not None:
-            self.held[i] = item_hit
-            item_hit.hold(i)
-            # <STRANGE>#703 per-type pickup sfx, name from item class
-            if self.sound is not None and item_hit.pickup_sound:
-              self.sound.play(item_hit.pickup_sound)"""
-assert old in s, "item grab"
-s = s.replace(old, new, 1)
-
-open(p, "w").write(s)
-PYEOF
-
-python -c "import ast; [ast.parse(open(f).read()) for f in ['shared/const.py','game/entities/item.py','game/entities/player.py']]; print('syntax ok')"
+python -c "import ast; [ast.parse(open(f).read()) for f in ['game/entities/item.py','game/level.py','game/game.py']]; print('syntax ok')"
 
 git add -A
-git commit -m "sound: per-item pickup sfx driven by item.pickup_sound"
+git commit -m "sound: item impacts play hit sfx at 50% volume"

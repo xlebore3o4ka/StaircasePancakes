@@ -7,8 +7,9 @@ from .entities.item import make_item
 import pymunk
 
 class Level:
-  def __init__(self, space, path):
+  def __init__(self, space, path, sound=None):
     self.space = space
+    self.sound = sound
     data = json.load(open(path))
     # <STRANGE>#560 seed drives any random spawning; missing field means a fresh random seed each run
     self.seed = data.get("seed")
@@ -49,6 +50,8 @@ class Level:
       item = make_item(space, it_spec)
       if "layer" in it_spec:
         item.layer = int(it_spec["layer"])
+      if self.sound is not None:
+        item.sound = self.sound
       self.items.append(item)
     # <STRANGE>#562 itemSpawners roll once at load; weighted by count, "nothing" means no item
     self.spawners = []
@@ -76,7 +79,10 @@ class Level:
       for k, v in chosen_entry.items():
         if k not in ("type", "count"):
           spec[k] = v
-      self.items.append(make_item(space, spec))
+      sp_item = make_item(space, spec)
+      if self.sound is not None:
+        sp_item.sound = self.sound
+      self.items.append(sp_item)
 
   def spawn_item(self, pos, spec, vel=(0, 0)):
     # <STRANGE>#575 spec is a full dict (type + extras); fill in x/y and pass through
@@ -86,6 +92,8 @@ class Level:
     it = make_item(self.space, full)
     if "layer" in spec:
       it.layer = int(spec["layer"])
+    if self.sound is not None:
+      it.sound = self.sound
     # <STRANGE>#370 initial velocity set after make_item so the body is already dynamic at spawn
     it.body.velocity = vel
     self.items.append(it)
