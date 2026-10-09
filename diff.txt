@@ -1,0 +1,1348 @@
+diff --git a/.gitignore b/.gitignore
+index 6f596e1..4443ac3 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -218,3 +218,6 @@ __marimo__/
+ 
+ # Streamlit
+ .streamlit/secrets.toml
++
++
++diff.txt 
+\ No newline at end of file
+diff --git a/.gitignore b/.gitignore
+index 6f596e1..4443ac3 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -218,3 +218,6 @@ __marimo__/
+ 
+ # Streamlit
+ .streamlit/secrets.toml
++
++
++diff.txt 
+\ No newline at end of file
+* Unmerged path editor/__pycache__/editor.cpython-314.pyc
+* Unmerged path game/__pycache__/game.cpython-314.pyc
+* Unmerged path game/__pycache__/level.cpython-314.pyc
+* Unmerged path game/entities/__pycache__/item.cpython-314.pyc
+* Unmerged path game/entities/__pycache__/player.cpython-314.pyc
+* Unmerged path levels/test.json
+* Unmerged path levels/test2.json
+* Unmerged path shared/__pycache__/const.cpython-314.pyc
+diff --git a/game/__pycache__/game.cpython-314.pyc b/game/__pycache__/game.cpython-314.pyc
+index 8bc1bb4..80936ae 100644
+Binary files a/game/__pycache__/game.cpython-314.pyc and b/game/__pycache__/game.cpython-314.pyc differ
+diff --git a/game/core/physics.py b/game/core/physics.py
+index 6b002d5..55633ae 100644
+--- a/game/core/physics.py
++++ b/game/core/physics.py
+@@ -4,6 +4,10 @@ from shared.const import GRAVITY
+ def make_space():
+   space = pymunk.Space()
+   space.gravity = (0, -GRAVITY)
++  # <STRANGE>#380 tolerance for penetration; higher slop trades a hair of visual contact for no bias-velocity spikes
++  space.collision_slop = 1.0
++  # <STRANGE>#381 more iterations so rigid rope joints don't shove the body through the floor in one pass
++  space.iterations = 20
+   # <STRANGE>#8 static floor segment at y=0 stops player; real death check comes later
+   # <STRANGE>#277 thick floor (r=8) shifted down so top surface stays at y=0; stops fast items tunneling through
+   floor = pymunk.Segment(space.static_body, (-10000, -8), (10000, -8), 8)
+@@ -11,6 +15,7 @@ def make_space():
+   floor.filter = pymunk.ShapeFilter(categories=0b10)
+   # <STRANGE>#267 friction/elasticity combine by multiplication with the other shape; floor defaults to 0 so items never grip or bounce
+   floor.friction = 1.0
+-  floor.elasticity = 0.5
++  # <STRANGE>#374 low floor elasticity so falling items don't pogo; combined with item e=0.08 -> ~0.024 effective
++  floor.elasticity = 0.3
+   space.add(floor)
+   return space
+\ No newline at end of file
+diff --git a/game/entities/__pycache__/item.cpython-314.pyc b/game/entities/__pycache__/item.cpython-314.pyc
+index 018a8f5..d2873d2 100644
+Binary files a/game/entities/__pycache__/item.cpython-314.pyc and b/game/entities/__pycache__/item.cpython-314.pyc differ
+diff --git a/game/entities/__pycache__/player.cpython-314.pyc b/game/entities/__pycache__/player.cpython-314.pyc
+index 4b12e27..a41d1a2 100644
+Binary files a/game/entities/__pycache__/player.cpython-314.pyc and b/game/entities/__pycache__/player.cpython-314.pyc differ
+diff --git a/game/entities/consume_fx.py b/game/entities/consume_fx.py
+index de19408..bdd213a 100644
+--- a/game/entities/consume_fx.py
++++ b/game/entities/consume_fx.py
+@@ -1,30 +1,50 @@
+-from shared.const import (
+-  BODY_R, CONSUME_FX_DURATION, CONSUME_FX_RISE, CONSUME_FX_OFFSET,
+-  CONSUME_FX_SCALE, CONSUME_FX_ALPHA,
+-)
++import math
++import pygame
++from shared.const import SODA_CX_DURATION, SODA_CX_SPINS, SODA_CX_ALPHA, SODA_CX_SCALE
+ 
+ 
+-class ConsumeFx:
+-  # <STRANGE>#325 holds a reference to the consumed item only for its draw_at; item physics is already gone
+-  def __init__(self, player_body, item, angle):
+-    self.player_body = player_body
++class SodaConsumeFx:
++  # <STRANGE>#409 visual-only fx for soda; defers stamina gain until the animation completes
++  def __init__(self, player, item, angle, stamina_gain):
++    self.player = player
+     self.item = item
+-    self.angle = angle
++    self.start_angle = angle
++    self.stamina_gain = stamina_gain
++    # <STRANGE>#410 offset saved at spawn; fx follows player by adding current body pos to the shrinking offset
++    self.start_offset = (
++      item.body.position.x - player.body.position.x,
++      item.body.position.y - player.body.position.y,
++    )
+     self.t = 0.0
+     self.dead = False
++    self.applied = False
+ 
+   def update(self, dt):
++    if self.dead:
++      return
+     self.t += dt
+-    if self.t >= CONSUME_FX_DURATION:
++    if self.t >= SODA_CX_DURATION:
++      self.t = SODA_CX_DURATION
+       self.dead = True
++      if not self.applied:
++        self.applied = True
++        if self.stamina_gain:
++          # <STRANGE>#419 STAMINA_MAX lives in player module; import inside to avoid circular import at module level
++          from .player import STAMINA_MAX
++          for j in range(2):
++            self.player.stamina[j] = min(STAMINA_MAX, self.player.stamina[j] + self.stamina_gain)
+ 
+   def draw(self, screen, cam):
+-    k = self.t / CONSUME_FX_DURATION
+-    # <STRANGE>#333 ease-out on rise: fast first, slows down; (1-(1-k)^2) gives that curve
++    k = self.t / SODA_CX_DURATION
+     eased = 1.0 - (1.0 - k) * (1.0 - k)
+-    y_off = BODY_R + CONSUME_FX_OFFSET + CONSUME_FX_RISE * eased
+-    pos = (self.player_body.position.x, self.player_body.position.y + y_off)
+-    alpha = int(CONSUME_FX_ALPHA * (1.0 - k))
++    ox = self.start_offset[0] * (1.0 - eased)
++    oy = self.start_offset[1] * (1.0 - eased)
++    pos = (self.player.body.position.x + ox, self.player.body.position.y + oy)
++    # <STRANGE>#411 spin is linear, not eased, so one full 360 reads clearly over the flight
++    angle = self.start_angle + math.tau * SODA_CX_SPINS * k
++    # <STRANGE>#421 scale shrinks from 1 to SODA_CX_SCALE over the flight so the soda visually disappears into the body
++    scale = 1.0 + (SODA_CX_SCALE - 1.0) * eased
++    alpha = int(SODA_CX_ALPHA * (1.0 - k))
+     if alpha <= 0:
+       return
+-    self.item.draw_at(screen, cam, pos, self.angle, alpha, CONSUME_FX_SCALE)
++    self.item.draw_at(screen, cam, pos, angle, alpha, scale)
+diff --git a/game/entities/item.py b/game/entities/item.py
+index 918fc16..a63796a 100644
+--- a/game/entities/item.py
++++ b/game/entities/item.py
+@@ -4,7 +4,7 @@ import pygame
+ import pymunk
+ from shared.const import (
+   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
+-  CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY,
++  CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
+   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA,
+ )
+ 
+@@ -63,6 +63,8 @@ class Item:
+     shape.friction = CUBE_FRICTION
+     shape.elasticity = CUBE_ELASTICITY
+     self.shape = shape
++    # <STRANGE>#376 linear damping bleeds off energy so items settle instead of drifting; does not affect held (kinematic) state
++    self.body.linear_damping = CUBE_LINEAR_DAMPING
+     space.add(self.body, shape)
+ 
+   def destroy(self):
+@@ -88,6 +90,9 @@ class Item:
+     self.body.moment = self.moment
+     self.body.velocity = vel
+ 
++  # <STRANGE>#412 center_anim items play the "fly to player center" fx on consume; base off
++  center_anim = False
++
+   def use(self):
+     # <STRANGE>#303 returns (consumed, spawn_type, stamina_gain); None spawn just vanishes
+     return (False, None, 0)
+@@ -122,6 +127,8 @@ class CubeItem(Item):
+ 
+ 
+ class SodaItem(Item):
++  center_anim = True
++
+   def __init__(self, space, pos):
+     super().__init__(space, pos, SODA_W, SODA_H)
+ 
+diff --git a/game/entities/platform.py b/game/entities/platform.py
+index 9b8592b..246dacb 100644
+--- a/game/entities/platform.py
++++ b/game/entities/platform.py
+@@ -18,7 +18,8 @@ class Platform:
+     shape.filter = pymunk.ShapeFilter(categories=0b10)
+     # <STRANGE>#268 same reasoning as floor: friction/elasticity multiply, defaults 0 kill both
+     shape.friction = 1.0
+-    shape.elasticity = 0.5
++    # <STRANGE>#375 mirrored floor: low elasticity, see physics.py
++    shape.elasticity = 0.3
+     space.add(self.body, shape)
+ 
+   def grab_points(self):
+diff --git a/game/entities/player.py b/game/entities/player.py
+index 5cda694..1ed8d9a 100644
+--- a/game/entities/player.py
++++ b/game/entities/player.py
+@@ -2,8 +2,9 @@ import math
+ import random
+ import pygame
+ import pymunk
+-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V
++from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION
+ from shared.smooth import smooth, per_sec
++from .consume_fx import SodaConsumeFx
+ 
+ ARM_MASS = 0.1
+ ARM_MIN_ANG = math.radians(15)
+@@ -70,12 +71,28 @@ class Player:
+     self.shake_t = [0.0, 0.0]
+     self.throw_hist = [[], []]
+     self.spawn_queue = []
++    # <STRANGE>#413 visual fx from consumed items; player-owned, ticked in update
++    self.consume_fx = []
++    # <STRANGE>#390 HUD feedback state: per-hand flash (0..1) on use, lazy-cached Q/E surfaces
++    self.hud_flash = [0.0, 0.0]
++    self._hud_labels = None
+ 
+   def _velocity_func(self, body, gravity, damping, dt):
+     # <STRANGE>#366 default pymunk integrator first, then post-filter micro-bounces
++    pre_vy = body.velocity.y
+     pymunk.Body.update_velocity(body, gravity, damping, dt)
+-    if abs(body.velocity.y) < 30 and self._is_grounded():
+-      body.velocity = (body.velocity.x, 0.0)
++    grounded = self._is_grounded()
++    self._grounded_cache = grounded
++    # <TODO>#385 diagnostic: any positive velocity jump > 300 in one step is anomalous; skip deliberate jump / reel
++    if (body.velocity.y - pre_vy > 300
++        and not self.jump
++        and not any(g is not None for g in self.grabbed)):
++      print(f"BUMP pre={pre_vy:.0f} post={body.velocity.y:.0f} dvy={body.velocity.y - pre_vy:.0f} vx={body.velocity.x:.0f} pos=({body.position.x:.1f},{body.position.y:.1f}) grounded={grounded} move={self.move}")
++    if grounded:
++      if body.velocity.y > JUMP_V * 1.05:
++        body.velocity = (body.velocity.x, 0.0)
++      elif abs(body.velocity.y) < 30:
++        body.velocity = (body.velocity.x, 0.0)
+ 
+   def _is_grounded(self):
+     b = self.body.position
+@@ -87,20 +104,26 @@ class Player:
+     item = self.held[i]
+     if item is None:
+       return
++    self.hud_flash[i] = 1.0
+     consumed, spawn_type, stamina_gain = item.use()
+     if consumed:
+       # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
+       pos = item.body.position
++      angle = item.body.angle
+       # <STRANGE>#369 spawn inherits the throw velocity the item would have had; a bouncy +Y gives the "pop out" feel
+       vx, vy = item.throw_vel
+       vy += SPAWN_BOUNCE_V
+-      item.destroy()
+       self.held[i] = None
+       # <STRANGE>#362 lock this hand until mouse is released; otherwise the freshly spawned item lands in the arm and gets grabbed next frame
+       self.grab_lock[i] = True
+-      if stamina_gain:
+-        for j in range(2):
+-          self.stamina[j] = min(STAMINA_MAX, self.stamina[j] + stamina_gain)
++      if item.center_anim:
++        # <STRANGE>#414 defer stamina to fx completion; item must be alive for draw_at during the anim
++        self.consume_fx.append(SodaConsumeFx(self, item, angle, stamina_gain))
++      else:
++        item.destroy()
++        if stamina_gain:
++          for j in range(2):
++            self.stamina[j] = min(STAMINA_MAX, self.stamina[j] + stamina_gain)
+       if spawn_type is not None:
+         self.spawn_queue.append((pos, spawn_type, (vx, vy)))
+     else:
+@@ -174,6 +197,15 @@ class Player:
+         mul = STAMINA_LOW_MUL if self.stamina[i] > STAMINA_LOW_THRESH else 1.0
+         self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + per_sec(STAMINA_REGEN * mul, dt))
+     grounded = self._is_grounded()
++    # <TODO>#385 diagnostic: only fire on a truly anomalous spike; legit swings exceed JUMP_V all the time
++    if (self.body.velocity.y > JUMP_V * 1.6
++        and not any(g is not None for g in self.grabbed)
++        and not self.move[0] and not self.move[1]
++        and self.body.position.y < BODY_R * 4):
++      print(f"BOUNCE v.y={self.body.velocity.y:.0f} v.x={self.body.velocity.x:.0f} pos=({self.body.position.x:.1f},{self.body.position.y:.1f}) grounded={grounded}")
++    # <STRANGE>#385 diagnostic: catch the phantom bounce moment; remove once root cause is confirmed
++    if self.body.velocity.y > 550 and self.body.position.y < BODY_R * 3:
++      print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
+     pitoned = any(g is not None for g in self.grabbed)
+     drag = GROUND_DRAG if grounded else AIR_DRAG
+     if self.jump_queued and (grounded or pitoned):
+@@ -225,6 +257,8 @@ class Player:
+               obj.grab_count += 1
+               cur = self.body.position.get_distance(world_pt)
+               self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, cur, cur)
++              # <STRANGE>#382 max_force caps how hard the rope can yank; stops the joint from slamming body through floor
++              self.joints[i].max_force = REEL_MAX_FORCE
+               self.rope_len[i] = cur
+               self.space.add(self.joints[i])
+               break
+@@ -318,11 +352,27 @@ class Player:
+         if self.shake_t[i] < 0:
+           self.shake_t[i] = 0.0
+ 
++    # <STRANGE>#391 HUD decay per frame: flash fades linearly on use
++    for i in range(2):
++      if self.hud_flash[i] > 0:
++        self.hud_flash[i] = max(0.0, self.hud_flash[i] - dt / HUD_FLASH_DURATION)
++
++    # <STRANGE>#415 fx tick: soda completion applies stamina; dead fx also destroy their item ref
++    for fx in self.consume_fx:
++      fx.update(dt)
++      if fx.dead and fx.item is not None:
++        fx.item.destroy()
++        fx.item = None
++    self.consume_fx = [fx for fx in self.consume_fx if not fx.dead]
++
+ 
+   def draw(self, screen, cam):
+     sc = cam.scale
+     bx, by = cam.to_screen(*self.body.position)
+     pygame.draw.circle(screen, (255, 255, 255), (int(bx), int(by)), int(BODY_R * sc))
++    # <STRANGE>#416 consume fx draws on top of the body so the fly-in reads clearly
++    for fx in self.consume_fx:
++      fx.draw(screen, cam)
+     for i, arm in enumerate(self.arms):
+       ax, ay = cam.to_screen(*arm.position)
+       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
+@@ -354,6 +404,13 @@ class Player:
+           t = max(2, r // 4)
+           pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, t)
+ 
++  def _ensure_hud_labels(self):
++    # <STRANGE>#392 lazy cache; Q/E rendered once with white, alpha applied per blit via set_alpha
++    if self._hud_labels is not None:
++      return
++    font = pygame.font.SysFont(None, 64)
++    self._hud_labels = [font.render("Q", True, (255, 255, 255)), font.render("E", True, (255, 255, 255))]
++
+   def draw_hud(self, screen, cam):
+     # <STRANGE>#351 HUD is screen-space; identity cam trick reuses item.draw_at without touching world logic
+     sc = cam.scale
+@@ -362,20 +419,35 @@ class Player:
+     # <STRANGE>#352 offset = 4 player diameters / 2 = 4*BODY_R; distance between circle centers is 8*BODY_R
+     offset = 4 * BODY_R * sc
+     r = int(BODY_R * sc)
++    self._ensure_hud_labels()
+     for i in range(2):
+       hx = cx + (-offset if i == 0 else offset)
+       hy = cy
+       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
+       arm_color = (223, int(223 * s_t), int(223 * s_t))
++      it = self.held[i]
++      base_a = HUD_BASE_ALPHA if it is not None else HUD_BASE_ALPHA_EMPTY
++      alpha = int(base_a + HUD_FLASH_ALPHA * self.hud_flash[i])
+       surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+-      # <STRANGE>#357 fill-only HUD circle, low alpha so it reads as an overlay, not a solid disc
+-      pygame.draw.circle(surf, (*arm_color, 35), (r, r), r)
++      # <STRANGE>#357 fill-only HUD circle, low alpha; alpha rises briefly on use then decays
++      pygame.draw.circle(surf, (*arm_color, alpha), (r, r), r)
+       screen.blit(surf, (int(hx) - r, int(hy) - r))
+-      it = self.held[i]
+-      if it is not None:
++      # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
++      lbl = self._hud_labels[i]
++      if it is None:
++        lbl.set_alpha(HUD_LABEL_ALPHA_EMPTY)
++        screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
++      else:
+         # <STRANGE>#353 identity cam: to_screen returns coords unchanged so item renders in HUD space; scale 1.0
+         it.draw_at(screen, _HUDScreenCam(sc), (hx, hy), 0.0, 160, 1.0)
+-
++        # <STRANGE>#403 small label at bottom of the circle outline, alpha slightly higher than the empty variant
++        sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
++        sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))
++        small = pygame.transform.smoothscale(lbl, (sw2, sh2))
++        small.set_alpha(HUD_LABEL_ALPHA_HELD)
++        # <STRANGE>#405 small text sits slightly inside the circle outline near the bottom
++        ly = int(hy + r - sh2 * 0.35)
++        screen.blit(small, small.get_rect(center=(int(hx), ly)))
+ 
+ class _HUDScreenCam:
+   # <STRANGE>#354 minimal stand-in for Camera; item.draw_at only needs .scale and .to_screen
+diff --git a/game/game.py b/game/game.py
+index f6d4d27..8bab387 100644
+--- a/game/game.py
++++ b/game/game.py
+@@ -24,6 +24,8 @@ class Game:
+         dt = min(clock.tick() / 1000.0, 1 / 30)
+         if dt <= 0:
+           dt = 1 / 60
++        # <STRANGE>#377 sub-step long frames: 1/30 broken into two 1/60 steps reduces penetration and phantom bounces
++        substeps = 2 if dt > 1/45 else 1
+         for e in pygame.event.get():
+           if e.type == pygame.QUIT:
+             running = False
+@@ -37,7 +39,8 @@ class Game:
+           for pos, type_name, vel in player.spawn_queue:
+             level.spawn_item(pos, type_name, vel)
+           player.spawn_queue.clear()
+-        space.step(dt)
++        for _ in range(substeps):
++          space.step(dt / substeps)
+         cam.follow(player.body.position, dt)
+         w.screen.fill((89, 95, 102))
+         level.draw_backgrounds(w.screen, cam)
+diff --git a/setup.sh b/setup.sh
+index 85b0226..90f370e 100644
+--- a/setup.sh
++++ b/setup.sh
+@@ -1,101 +1,22 @@
+ #!/bin/sh
+ set -e
+ 
+-python - <<'PYEOF'
+-p = "shared/const.py"
+-s = open(p).read()
+-old = "SODA_STAMINA = 90\n"
+-new = "SODA_STAMINA = 90\nSPAWN_BOUNCE_V = 300\n"
+-assert old in s, "SODA_STAMINA"
+-s = s.replace(old, new, 1)
+-open(p, "w").write(s)
+-PYEOF
+-
+ python - <<'PYEOF'
+ p = "game/entities/player.py"
+ s = open(p).read()
+ 
+-old = "from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES\n"
+-new = "from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V\n"
+-assert old in s, "imports"
+-s = s.replace(old, new, 1)
+-
+-old = """    consumed, spawn_type, stamina_gain = item.use()
+-    if consumed:
+-      # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
+-      pos = item.body.position
+-      item.destroy()
+-      self.held[i] = None
+-      # <STRANGE>#362 lock this hand until mouse is released; otherwise the freshly spawned item lands in the arm and gets grabbed next frame
+-      self.grab_lock[i] = True
+-      if stamina_gain:
+-        for j in range(2):
+-          self.stamina[j] = min(STAMINA_MAX, self.stamina[j] + stamina_gain)
+-      if spawn_type is not None:
+-        self.spawn_queue.append((pos, spawn_type))
+-    else:
+-      self.shake_t[i] = ITEM_USE_SHAKE_TIME"""
+-new = """    consumed, spawn_type, stamina_gain = item.use()
+-    if consumed:
+-      # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
+-      pos = item.body.position
+-      # <STRANGE>#369 spawn inherits the throw velocity the item would have had; a bouncy +Y gives the "pop out" feel
+-      vx, vy = item.throw_vel
+-      vy += SPAWN_BOUNCE_V
+-      item.destroy()
+-      self.held[i] = None
+-      # <STRANGE>#362 lock this hand until mouse is released; otherwise the freshly spawned item lands in the arm and gets grabbed next frame
+-      self.grab_lock[i] = True
+-      if stamina_gain:
+-        for j in range(2):
+-          self.stamina[j] = min(STAMINA_MAX, self.stamina[j] + stamina_gain)
+-      if spawn_type is not None:
+-        self.spawn_queue.append((pos, spawn_type, (vx, vy)))
+-    else:
+-      self.shake_t[i] = ITEM_USE_SHAKE_TIME"""
+-assert old in s, "_use"
+-s = s.replace(old, new, 1)
+-
+-open(p, "w").write(s)
+-PYEOF
+-
+-python - <<'PYEOF'
+-p = "game/level.py"
+-s = open(p).read()
+-
+-old = """  def spawn_item(self, pos, type_name):
+-    # <STRANGE>#299 wraps pos into a spec dict so make_item stays the single entry point for item creation
+-    spec = {"x": pos[0], "y": pos[1], "type": type_name}
+-    self.items.append(make_item(self.space, spec))"""
+-new = """  def spawn_item(self, pos, type_name, vel=(0, 0)):
+-    # <STRANGE>#299 wraps pos into a spec dict so make_item stays the single entry point for item creation
+-    spec = {"x": pos[0], "y": pos[1], "type": type_name}
+-    it = make_item(self.space, spec)
+-    # <STRANGE>#370 initial velocity set after make_item so the body is already dynamic at spawn
+-    it.body.velocity = vel
+-    self.items.append(it)"""
+-assert old in s, "spawn_item"
+-s = s.replace(old, new, 1)
+-
+-open(p, "w").write(s)
+-PYEOF
+-
+-python - <<'PYEOF'
+-p = "game/game.py"
+-s = open(p).read()
+-
+-old = """        if player.spawn_queue:
+-          for pos, type_name in player.spawn_queue:
+-            level.spawn_item(pos, type_name)
+-          player.spawn_queue.clear()"""
+-new = """        if player.spawn_queue:
+-          for pos, type_name, vel in player.spawn_queue:
+-            level.spawn_item(pos, type_name, vel)
+-          player.spawn_queue.clear()"""
+-assert old in s, "spawn queue drain"
++old = """    # <TODO>#385 diagnostic: log any upward spike post-integration; pre_vy alone misses solver-generated impulses
++    if body.velocity.y > JUMP_V * 1.1 and not any(g is not None for g in self.grabbed) and not self.jump:
++      print(f"SPIKE pre={pre_vy:.0f} post={body.velocity.y:.0f} vx={body.velocity.x:.0f} pos=({body.position.x:.1f},{body.position.y:.1f}) grounded={grounded} move={self.move}")"""
++new = """    # <TODO>#385 diagnostic: any positive velocity jump > 300 in one step is anomalous; skip deliberate jump / reel
++    if (body.velocity.y - pre_vy > 300
++        and not self.jump
++        and not any(g is not None for g in self.grabbed)):
++      print(f"BUMP pre={pre_vy:.0f} post={body.velocity.y:.0f} dvy={body.velocity.y - pre_vy:.0f} vx={body.velocity.x:.0f} pos=({body.position.x:.1f},{body.position.y:.1f}) grounded={grounded} move={self.move}")"""
++assert old in s, "SPIKE diag"
+ s = s.replace(old, new, 1)
+ 
+ open(p, "w").write(s)
+ PYEOF
+ 
+-python -c "import ast; [ast.parse(open(f).read()) for f in ['shared/const.py','game/entities/player.py','game/level.py','game/game.py']]; print('syntax ok')"
+\ No newline at end of file
++python -c "import ast; ast.parse(open('game/entities/player.py').read()); print('syntax ok')"
+\ No newline at end of file
+diff --git a/shared/__pycache__/const.cpython-314.pyc b/shared/__pycache__/const.cpython-314.pyc
+index 6ac1d9d..0ed31bb 100644
+Binary files a/shared/__pycache__/const.cpython-314.pyc and b/shared/__pycache__/const.cpython-314.pyc differ
+diff --git a/shared/const.py b/shared/const.py
+index d2b3221..689dedf 100644
+--- a/shared/const.py
++++ b/shared/const.py
+@@ -32,7 +32,23 @@ SODA_H = 36
+ SODA_BLUE = (55, 55, 175)
+ SODA_WHITE = (245, 245, 245)
+ SODA_STAMINA = 90
++SODA_CX_DURATION = 0.5
++SODA_CX_SPINS = 0.5
++SODA_CX_SCALE = 0.3
++SODA_CX_ALPHA = 255
+ SPAWN_BOUNCE_V = 300
++REEL_MAX_FORCE = 60000
++
++HUD_BASE_ALPHA = 35
++HUD_BASE_ALPHA_EMPTY = 15
++HUD_LABEL_ALPHA = 45
++HUD_LABEL_ALPHA_EMPTY = 20
++HUD_LABEL_ALPHA_HELD = 40
++HUD_LABEL_SCALE_HELD = 0.45
++HUD_FLASH_ALPHA = 70
++HUD_FLASH_DURATION = 0.35
++HUD_RIPPLE_DURATION = 1.0
++HUD_RIPPLE_WIDTH = 3
+ CONSUME_FX_DURATION = 1.0
+ CONSUME_FX_RISE = 80
+ CONSUME_FX_OFFSET = 30
+@@ -40,6 +56,7 @@ CONSUME_FX_SCALE = 0.8
+ CONSUME_FX_ALPHA = 220
+ # <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
+ ITEM_TYPES = ["cube", "soda"]
+-CUBE_ELASTICITY = 0.35
++CUBE_ELASTICITY = 0.08
++CUBE_LINEAR_DAMPING = 0.2
+ THROW_MAX_SPEED = 1400
+ THROW_SMOOTH_FRAMES = 4
+diff --git a/editor/__pycache__/editor.cpython-314.pyc b/editor/__pycache__/editor.cpython-314.pyc
+index c1d3332..ecc1b68 100644
+Binary files a/editor/__pycache__/editor.cpython-314.pyc and b/editor/__pycache__/editor.cpython-314.pyc differ
+diff --git a/game/__pycache__/game.cpython-314.pyc b/game/__pycache__/game.cpython-314.pyc
+index 80936ae..4bb0676 100644
+Binary files a/game/__pycache__/game.cpython-314.pyc and b/game/__pycache__/game.cpython-314.pyc differ
+diff --git a/game/__pycache__/level.cpython-314.pyc b/game/__pycache__/level.cpython-314.pyc
+index 4822ec6..d6e7e92 100644
+Binary files a/game/__pycache__/level.cpython-314.pyc and b/game/__pycache__/level.cpython-314.pyc differ
+diff --git a/game/entities/__pycache__/item.cpython-314.pyc b/game/entities/__pycache__/item.cpython-314.pyc
+index d2873d2..b4bfd10 100644
+Binary files a/game/entities/__pycache__/item.cpython-314.pyc and b/game/entities/__pycache__/item.cpython-314.pyc differ
+diff --git a/game/entities/__pycache__/player.cpython-314.pyc b/game/entities/__pycache__/player.cpython-314.pyc
+index a41d1a2..6754258 100644
+Binary files a/game/entities/__pycache__/player.cpython-314.pyc and b/game/entities/__pycache__/player.cpython-314.pyc differ
+diff --git a/game/entities/background.py b/game/entities/background.py
+index d6d60a5..9167ffb 100644
+--- a/game/entities/background.py
++++ b/game/entities/background.py
+@@ -1,7 +1,9 @@
+ import pygame
+-from shared.const import BG_FILL
++from shared.const import BG_FILL, LAYER_BG
+ 
+ class Background:
++  layer = LAYER_BG
++
+   def __init__(self, pos, w, h, color=BG_FILL):
+     self.x, self.y = pos
+     self.w, self.h = w, h
+diff --git a/game/entities/consume_fx.py b/game/entities/consume_fx.py
+index bdd213a..5c4e039 100644
+--- a/game/entities/consume_fx.py
++++ b/game/entities/consume_fx.py
+@@ -22,17 +22,18 @@ class SodaConsumeFx:
+   def update(self, dt):
+     if self.dead:
+       return
++    # <STRANGE>#434 drip stamina across the animation; min() at STAMINA_MAX clamps the last tiny over-application
++    if self.stamina_gain and not self.applied:
++      from .player import STAMINA_MAX
++      step = min(1.0, dt / SODA_CX_DURATION)
++      gain = self.stamina_gain * step
++      for j in range(2):
++        self.player.stamina[j] = min(STAMINA_MAX, self.player.stamina[j] + gain)
+     self.t += dt
+     if self.t >= SODA_CX_DURATION:
+       self.t = SODA_CX_DURATION
+       self.dead = True
+-      if not self.applied:
+-        self.applied = True
+-        if self.stamina_gain:
+-          # <STRANGE>#419 STAMINA_MAX lives in player module; import inside to avoid circular import at module level
+-          from .player import STAMINA_MAX
+-          for j in range(2):
+-            self.player.stamina[j] = min(STAMINA_MAX, self.player.stamina[j] + self.stamina_gain)
++      self.applied = True
+ 
+   def draw(self, screen, cam):
+     k = self.t / SODA_CX_DURATION
+diff --git a/game/entities/item.py b/game/entities/item.py
+index a63796a..a06bca6 100644
+--- a/game/entities/item.py
++++ b/game/entities/item.py
+@@ -5,7 +5,7 @@ import pymunk
+ from shared.const import (
+   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
+   CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
+-  SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA,
++  SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
+ )
+ 
+ 
+@@ -46,6 +46,8 @@ def _blit_bands(screen, cam, bands):
+ 
+ 
+ class Item:
++  layer = LAYER_ITEM
++
+   def __init__(self, space, pos, w, h):
+     self.space = space
+     self.w = w
+diff --git a/game/entities/peg.py b/game/entities/peg.py
+index b72f65c..90743b1 100644
+--- a/game/entities/peg.py
++++ b/game/entities/peg.py
+@@ -1,10 +1,12 @@
+ import pygame
+ import pymunk
+ from shared.const import (
+-  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W,
++  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W, LAYER_PEG,
+ )
+ 
+ class Peg:
++  layer = LAYER_PEG
++
+   def __init__(self, space, pos):
+     self.grab_count = 0
+     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
+diff --git a/game/entities/platform.py b/game/entities/platform.py
+index 246dacb..e4a390b 100644
+--- a/game/entities/platform.py
++++ b/game/entities/platform.py
+@@ -1,11 +1,13 @@
+ import pygame
+ import pymunk
+-from shared.const import BODY_R, PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W
++from shared.const import BODY_R, PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W, LAYER_PLATFORM
+ 
+ PLAT_W = 5 * BODY_R
+ PLAT_H = 2 * BODY_R
+ 
+ class Platform:
++  layer = LAYER_PLATFORM
++
+   def __init__(self, space, pos, w=PLAT_W, h=PLAT_H, fill=PLAT_FILL, edge=PLAT_EDGE):
+     self.grab_count = 0
+     self.w = w
+diff --git a/game/entities/player.py b/game/entities/player.py
+index 1ed8d9a..e7f530c 100644
+--- a/game/entities/player.py
++++ b/game/entities/player.py
+@@ -2,7 +2,7 @@ import math
+ import random
+ import pygame
+ import pymunk
+-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION
++from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER
+ from shared.smooth import smooth, per_sec
+ from .consume_fx import SodaConsumeFx
+ 
+@@ -29,8 +29,12 @@ STAMINA_GRAB_MIN = 15
+ SHAKE_MAX = 2
+ 
+ class Player:
+-  def __init__(self, space, pos):
++  layer = LAYER_PLAYER
++
++  def __init__(self, space, pos, cheats=False):
+     self.space = space
++    # <STRANGE>#429 cheats flag bypasses stamina accounting and air-jump gating
++    self.cheats = cheats
+     self.body = pymunk.Body(1, pymunk.moment_for_circle(1, 0, BODY_R))
+     self.body.position = pos
+     body_shape = pymunk.Circle(self.body, BODY_R)
+@@ -76,6 +80,8 @@ class Player:
+     # <STRANGE>#390 HUD feedback state: per-hand flash (0..1) on use, lazy-cached Q/E surfaces
+     self.hud_flash = [0.0, 0.0]
+     self._hud_labels = None
++    # <STRANGE>#434 pending stamina from soda; drips into stamina[] at STAMINA_BOOST_RATE per second
++    self.stamina_boost = [0.0, 0.0]
+ 
+   def _velocity_func(self, body, gravity, damping, dt):
+     # <STRANGE>#366 default pymunk integrator first, then post-filter micro-bounces
+@@ -184,10 +190,25 @@ class Player:
+       elif e.scancode == 44:
+         self.jump = False
+         self.jump_queued = False
++        # <STRANGE>#432 on space release, unlock arms that are still held down so they re-clench and can re-grab
++        for i in range(2):
++          if self.pressed[i]:
++            self.grab_lock[i] = False
+ 
+   def update(self, cam, pegs, items, dt):
+     num_grabbed = sum(1 for g in self.grabbed if g is not None)
+     for i in range(2):
++      if self.cheats:
++        self.stamina[i] = STAMINA_MAX
++        self.stamina_boost[i] = 0.0
++        continue
++      # <STRANGE>#434 boost drains into stamina at a capped rate; leftover kept for next frame
++      if self.stamina_boost[i] > 0:
++        step = per_sec(STAMINA_BOOST_RATE, dt)
++        if step > self.stamina_boost[i]:
++          step = self.stamina_boost[i]
++        self.stamina_boost[i] -= step
++        self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + step)
+       if self.grabbed[i] is not None:
+         self.stamina[i] -= per_sec(STAMINA_HOLD_DRAIN, dt) / max(num_grabbed, 1)
+         if self.stamina[i] <= 0:
+@@ -208,7 +229,10 @@ class Player:
+       print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
+     pitoned = any(g is not None for g in self.grabbed)
+     drag = GROUND_DRAG if grounded else AIR_DRAG
+-    if self.jump_queued and (grounded or pitoned):
++    # <STRANGE>#430 cheats re-queue every frame while space is held, so air-jump becomes flight
++    if self.cheats and self.jump:
++      self.jump_queued = True
++    if self.jump_queued and (grounded or pitoned or self.cheats):
+       self.body.velocity = (self.body.velocity.x, JUMP_V)
+       self.jump_queued = False
+       n = sum(1 for g in self.grabbed if g is not None)
+@@ -256,16 +280,18 @@ class Player:
+               self.grabbed[i] = (obj, anchor, world_pt)
+               obj.grab_count += 1
+               cur = self.body.position.get_distance(world_pt)
+-              self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, cur, cur)
+-              # <STRANGE>#382 max_force caps how hard the rope can yank; stops the joint from slamming body through floor
++              # <STRANGE>#438 min = ARM_DX always; if grabbed while arm is inside body, joint pushes body out so arm renders outside
++              max_len = max(cur, ARM_DX)
++              self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, ARM_DX, max_len)
+               self.joints[i].max_force = REEL_MAX_FORCE
+-              self.rope_len[i] = cur
++              self.rope_len[i] = max_len
+               self.space.add(self.joints[i])
+               break
+         if self.grabbed[i] is not None:
+           if self.rope_len[i] > ARM_DX:
+             self.rope_len[i] = max(ARM_DX, self.rope_len[i] - per_sec(REEL_SPEED, dt))
+-            self.joints[i].min = self.rope_len[i]
++            # <STRANGE>#439 keep min = ARM_DX on every reel tick; max reels in, min never drops below the natural reach
++            self.joints[i].min = ARM_DX
+             self.joints[i].max = self.rope_len[i]
+           world_pt = self.grabbed[i][2]
+           d = world_pt - self.body.position
+@@ -331,9 +357,12 @@ class Player:
+       item.body.position = pymunk.Vec2d(tx, ty)
+       item.body.velocity = (0, 0)
+       # <STRANGE>#349 while held, angle lerps to 0 (upright); smooth() keeps this fps-independent
++      # <STRANGE>#449 wrap delta to [-pi, pi]: raw angle may be 12+ rad after spinning, lerp would unwind all turns
+       k = smooth(0.25, dt)
+-      if abs(item.body.angle) > 1e-3:
+-        item.body.angle += (0 - item.body.angle) * k
++      a = item.body.angle
++      if abs(a) > 1e-3:
++        da = (-a + math.pi) % (2 * math.pi) - math.pi
++        item.body.angle = a + da * k
+       else:
+         item.body.angle = 0.0
+       # <STRANGE>#343 dt-correct instantaneous throw velocity: screen px per second
+diff --git a/game/game.py b/game/game.py
+index 8bab387..d1e873e 100644
+--- a/game/game.py
++++ b/game/game.py
+@@ -4,19 +4,24 @@ from .core.physics import make_space
+ from .entities.player import Player, BODY_R
+ from .core.camera import Camera
+ from .level import Level
++from .entities.floor import FloorFill
+ 
+ LOGICAL_W = 1920
+ LOGICAL_H = 1080
+ 
+ class Game:
++  def __init__(self, cheats=False):
++    self.cheats = cheats
++
+   def run(self):
+     with Window() as w:
+       space = make_space()
+       # <STRANGE>#158 spawn at world origin on the floor; cam starts synced so it doesn't fly in
+-      player = Player(space, (0, BODY_R))
++      player = Player(space, (0, BODY_R), cheats=self.cheats)
+       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
+       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
+       level = Level(space, "levels/test.json")
++      floor_fill = FloorFill()
+       clock = pygame.time.Clock()
+       running = True
+       while running:
+@@ -43,13 +48,10 @@ class Game:
+           space.step(dt / substeps)
+         cam.follow(player.body.position, dt)
+         w.screen.fill((89, 95, 102))
+-        level.draw_backgrounds(w.screen, cam)
+-        # <STRANGE>#26 floor fill spans whole width using cam.to_screen of two world points; width from world doesn't matter since y is constant
+-        fx0, fy0 = cam.to_screen(cam.x - cam.w, 0)
+-        fx1, fy1 = cam.to_screen(cam.x + cam.w, 0)
+-        pygame.draw.rect(w.screen, (19, 20, 26), (fx0, fy0, fx1 - fx0, w.screen.get_height() - fy0))
+-        level.draw(w.screen, cam)
+-        level.draw_items(w.screen, cam)
+-        player.draw(w.screen, cam)
++        # <NOTE>#445 single sorted pass: backgrounds -> floor -> platforms/pegs -> items -> player
++        drawables = level.drawables() + [floor_fill, player]
++        drawables.sort(key=lambda o: o.layer)
++        for d in drawables:
++          d.draw(w.screen, cam)
+         player.draw_hud(w.screen, cam)
+         w.flip()
+diff --git a/game/level.py b/game/level.py
+index 75398d8..1a5c062 100644
+--- a/game/level.py
++++ b/game/level.py
+@@ -44,18 +44,7 @@ class Level:
+ 
+   def update(self, player, dt=1/60):
+     pass
+-  def draw_backgrounds(self, screen, cam):
+-    for b in self.backgrounds:
+-      b.draw(screen, cam)
+-
+-  def draw_items(self, screen, cam):
+-    # <STRANGE>#250 held items drawn by Player; skip held and consuming to avoid double draw
+-    for it in self.items:
+-      if it.held_by is None:
+-        it.draw(screen, cam)
+-
+-  def draw(self, screen, cam):
+-    for peg in self.pegs:
+-      peg.draw(screen, cam)
+-    for plat in self.platforms:
+-      plat.draw(screen, cam)
++  def drawables(self):
++    # <NOTE>#444 single source for the render list; held items are drawn by Player, not here
++    free_items = [it for it in self.items if it.held_by is None]
++    return self.backgrounds + self.platforms + self.pegs + free_items
+diff --git a/main.py b/main.py
+index 4f42137..1cd4f6a 100644
+--- a/main.py
++++ b/main.py
+@@ -1,4 +1,11 @@
++import argparse
+ from game import Game
+ 
++def main():
++  p = argparse.ArgumentParser()
++  p.add_argument("--cheats", action="store_true", help="infinite stamina and free air jump while space is held")
++  args = p.parse_args()
++  Game(cheats=args.cheats).run()
++
+ if __name__ == "__main__":
+-  Game().run()
++  main()
+diff --git a/setup.sh b/setup.sh
+index 90f370e..13d8d7a 100644
+--- a/setup.sh
++++ b/setup.sh
+@@ -5,18 +5,25 @@ python - <<'PYEOF'
+ p = "game/entities/player.py"
+ s = open(p).read()
+ 
+-old = """    # <TODO>#385 diagnostic: log any upward spike post-integration; pre_vy alone misses solver-generated impulses
+-    if body.velocity.y > JUMP_V * 1.1 and not any(g is not None for g in self.grabbed) and not self.jump:
+-      print(f"SPIKE pre={pre_vy:.0f} post={body.velocity.y:.0f} vx={body.velocity.x:.0f} pos=({body.position.x:.1f},{body.position.y:.1f}) grounded={grounded} move={self.move}")"""
+-new = """    # <TODO>#385 diagnostic: any positive velocity jump > 300 in one step is anomalous; skip deliberate jump / reel
+-    if (body.velocity.y - pre_vy > 300
+-        and not self.jump
+-        and not any(g is not None for g in self.grabbed)):
+-      print(f"BUMP pre={pre_vy:.0f} post={body.velocity.y:.0f} dvy={body.velocity.y - pre_vy:.0f} vx={body.velocity.x:.0f} pos=({body.position.x:.1f},{body.position.y:.1f}) grounded={grounded} move={self.move}")"""
+-assert old in s, "SPIKE diag"
++old = """      # <STRANGE>#349 while held, angle lerps to 0 (upright); smooth() keeps this fps-independent
++      k = smooth(0.25, dt)
++      if abs(item.body.angle) > 1e-3:
++        item.body.angle += (0 - item.body.angle) * k
++      else:
++        item.body.angle = 0.0"""
++new = """      # <STRANGE>#349 while held, angle lerps to 0 (upright); smooth() keeps this fps-independent
++      # <STRANGE>#449 wrap delta to [-pi, pi]: raw angle may be 12+ rad after spinning, lerp would unwind all turns
++      k = smooth(0.25, dt)
++      a = item.body.angle
++      if abs(a) > 1e-3:
++        da = (-a + math.pi) % (2 * math.pi) - math.pi
++        item.body.angle = a + da * k
++      else:
++        item.body.angle = 0.0"""
++assert old in s, "held angle"
+ s = s.replace(old, new, 1)
+ 
+ open(p, "w").write(s)
+ PYEOF
+ 
+-python -c "import ast; ast.parse(open('game/entities/player.py').read()); print('syntax ok')"
+\ No newline at end of file
++python -c "import ast; ast.parse(open('game/entities/player.py').read()); print('syntax ok')"
+diff --git a/shared/__pycache__/const.cpython-314.pyc b/shared/__pycache__/const.cpython-314.pyc
+index 0ed31bb..a6ba613 100644
+Binary files a/shared/__pycache__/const.cpython-314.pyc and b/shared/__pycache__/const.cpython-314.pyc differ
+diff --git a/shared/const.py b/shared/const.py
+index 689dedf..b57ffef 100644
+--- a/shared/const.py
++++ b/shared/const.py
+@@ -16,6 +16,15 @@ PLAT_EDGE_W = 2
+ 
+ BG_FILL = (70, 75, 82)
+ 
++# <NOTE>#442 render layers; higher = drawn on top; stable sort keeps insertion order within a layer
++LAYER_BG = 0
++LAYER_FLOOR = 5
++LAYER_PLATFORM = 10
++LAYER_PEG = 10
++LAYER_ITEM = 20
++LAYER_PLAYER = 30
++FLOOR_FILL = (19, 20, 26)
++
+ ITEM_GRAB_DIST = 5
+ ITEM_OFFSET = 0
+ ARM_HOLD_ALPHA = 130
+@@ -32,6 +41,7 @@ SODA_H = 36
+ SODA_BLUE = (55, 55, 175)
+ SODA_WHITE = (245, 245, 245)
+ SODA_STAMINA = 90
++STAMINA_BOOST_RATE = 300
+ SODA_CX_DURATION = 0.5
+ SODA_CX_SPINS = 0.5
+ SODA_CX_SCALE = 0.3
+diff --git a/game/__pycache__/game.cpython-314.pyc b/game/__pycache__/game.cpython-314.pyc
+index 4bb0676..a50530e 100644
+Binary files a/game/__pycache__/game.cpython-314.pyc and b/game/__pycache__/game.cpython-314.pyc differ
+diff --git a/game/__pycache__/level.cpython-314.pyc b/game/__pycache__/level.cpython-314.pyc
+index d6e7e92..d0a9530 100644
+Binary files a/game/__pycache__/level.cpython-314.pyc and b/game/__pycache__/level.cpython-314.pyc differ
+diff --git a/game/entities/item.py b/game/entities/item.py
+index a06bca6..e2489d1 100644
+--- a/game/entities/item.py
++++ b/game/entities/item.py
+@@ -6,6 +6,8 @@ from shared.const import (
+   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
+   CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
+   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
++  REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_HOLD_DIST, REBAR_GRAB_R,
++  REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
+ )
+ 
+ 
+@@ -48,6 +50,16 @@ def _blit_bands(screen, cam, bands):
+ class Item:
+   layer = LAYER_ITEM
+ 
++  def on_use(self, player, hand):
++    # <STRANGE>#521 default: return False to fall through to use() (consume/shake)
++    return False
++  # <NOTE>#461 local-space offset from body center to the grab point; when held, body.position = arm.pos - R(angle) * hold_offset
++  hold_offset = (0, 0)
++  # <NOTE>#462 override when max(w,h) is a bad reach metric (long thin items); None means use max/2
++  grab_radius = None
++  # <NOTE>#481 per-hand target angle while held; None means 0 (upright) for both hands
++  hand_angle = None
++
+   def __init__(self, space, pos, w, h):
+     self.space = space
+     self.w = w
+@@ -77,7 +89,8 @@ class Item:
+     return max(self.w, self.h) / 2
+ 
+   def grab_dist(self):
+-    return ARM_R + self.radius() + ITEM_GRAB_DIST
++    r = self.grab_radius if self.grab_radius is not None else self.radius()
++    return ARM_R + r + ITEM_GRAB_DIST
+ 
+   def hold(self, hand):
+     self.held_by = hand
+@@ -149,9 +162,82 @@ class SodaItem(Item):
+     _blit_bands(screen, cam, bands)
+ 
+ 
++class RebarItem(Item):
++  # <STRANGE>#513 hold offset toward the near end: local -Y is the end facing away from cursor
++  hold_offset = (0, REBAR_H / 6)
++  grab_radius = REBAR_GRAB_R
++  # <STRANGE>#480 base angle per hand: -pi/2 for left (index 0), +pi/2 for right (index 1); item's local +Y ends up horizontal
++  # <STRANGE>#491 per-hand hold angle: left hand rotates +90deg, right -90deg
++  hand_angle = (-math.pi / 2, math.pi / 2)
++
++  def __init__(self, space, pos):
++    super().__init__(space, pos, REBAR_W, REBAR_H)
++    self.stuck = False
++    self.flying = False
++    # <STRANGE>#535 player grab loop increments obj.grab_count for peg-style targets; stuck rebar joins that list
++    self.grab_count = 0
++
++  def on_use(self, player, hand):
++    # <STRANGE>#516 "release" tells Player to drop it and lock the hand; False falls through to normal use()
++    if self.stuck or self.flying:
++      return False
++    # <STRANGE>#534 shot direction is local -Y in world space (opposite of hold_offset axis) so it aligns with the cursor
++    a = self.body.angle
++    dx = math.sin(a)
++    dy = -math.cos(a)
++    recoil = REBAR_RECOIL_AIR if not player._is_grounded() else REBAR_RECOIL_GROUND
++    vx, vy = player.body.velocity
++    player.body.velocity = (vx - dx * JUMP_V * recoil, vy - dy * JUMP_V * recoil)
++    self.body.body_type = pymunk.Body.DYNAMIC
++    self.body.mass = self.mass
++    self.body.moment = self.moment
++    self.body.velocity = (dx * REBAR_SHOOT_V, dy * REBAR_SHOOT_V)
++    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0b10)
++    self.flying = True
++    # <STRANGE>#530 release from hand: Level.drawables filters held_by; forgetting this hides the flying rebar
++    self.held_by = None
++    return "release"
++
++  def grab_points(self):
++    # <STRANGE>#519 stuck rebar exposes anchors along its length; free one uses its center
++    if not self.stuck:
++      return [(self.body.position, pymunk.Vec2d(0, 0))]
++    a = self.body.angle
++    c, sn = math.cos(a), math.sin(a)
++    n = REBAR_STUCK_POINTS
++    half = self.h / 2 - REBAR_W
++    pts = []
++    for k in range(n):
++      t = (k / (n - 1)) * 2 - 1
++      ly = t * half
++      wx = self.body.position.x - ly * sn
++      wy = self.body.position.y + ly * c
++      pts.append((pymunk.Vec2d(wx, wy), pymunk.Vec2d(0, ly)))
++    return pts
++
++  def stick(self):
++    # <STRANGE>#520 freeze in place; mask=0 stops all collisions
++    self.flying = False
++    self.stuck = True
++    self.body.body_type = pymunk.Body.STATIC
++    self.body.velocity = (0, 0)
++    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
++
++  def draw_at(self, screen, cam, pos, angle, alpha, scale):
++    sc = cam.scale * scale
++    hw, hh = self.w / 2 * scale, self.h / 2 * scale
++    pts = _corners(pos, angle, hw, hh)
++    fill = (*REBAR_FILL, alpha) if alpha < 255 else REBAR_FILL
++    edge = (*REBAR_EDGE, alpha) if alpha < 255 else REBAR_EDGE
++    w_edge = max(1, int(REBAR_EDGE_W * sc))
++    _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
++
++
+ def make_item(space, spec):
+   t = spec.get("type", "cube")
+   pos = (spec["x"], spec["y"])
+   if t == "soda":
+     return SodaItem(space, pos)
++  if t == "rebar":
++    return RebarItem(space, pos)
+   return CubeItem(space, pos)
+diff --git a/game/entities/platform.py b/game/entities/platform.py
+index e4a390b..1f26075 100644
+--- a/game/entities/platform.py
++++ b/game/entities/platform.py
+@@ -16,7 +16,9 @@ class Platform:
+     self.edge = edge
+     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
+     self.body.position = pos
+-    shape = pymunk.Poly.create_box(self.body, (self.w, self.h))
++    # <STRANGE>#456 physics shape inset by INSET on each side; editor snap makes platforms share exact edges, solver can't pick a side at the seam
++    inset = 0.5
++    shape = pymunk.Poly.create_box(self.body, (max(0.1, self.w - inset * 2), max(0.1, self.h - inset * 2)))
+     shape.filter = pymunk.ShapeFilter(categories=0b10)
+     # <STRANGE>#268 same reasoning as floor: friction/elasticity multiply, defaults 0 kill both
+     shape.friction = 1.0
+diff --git a/game/entities/player.py b/game/entities/player.py
+index e7f530c..79682ef 100644
+--- a/game/entities/player.py
++++ b/game/entities/player.py
+@@ -111,6 +111,14 @@ class Player:
+     if item is None:
+       return
+     self.hud_flash[i] = 1.0
++    # <STRANGE>#522 on_use can consume the action entirely (rebar shoot); "release" also drops it from the hand
++    r = item.on_use(self, i)
++    if r == "release":
++      self.held[i] = None
++      self.grab_lock[i] = True
++      return
++    if r:
++      return
+     consumed, spawn_type, stamina_gain = item.use()
+     if consumed:
+       # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
+@@ -262,6 +270,9 @@ class Player:
+         if self.held[i] is None and self.grabbed[i] is None and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN:
+           item_hit = None
+           for it in items:
++            # <STRANGE>#539 stuck rebar is a grapplable, not a carryable; skip it here so it goes to the peg-style path
++            if getattr(it, "stuck", False):
++              continue
+             if it.held_by is None and arm.position.get_distance(it.body.position) <= it.grab_dist():
+               item_hit = it
+               break
+@@ -328,7 +339,17 @@ class Player:
+ 
+     for i, arm in enumerate(self.arms):
+       if self.grabbed[i] is None:
+-        target_pos = self.body.position + self.arm_dir[i] * ARM_DX
++        # <STRANGE>#499 rebar offsets the free-hand rest position by ±90deg (left -90, right +90)
++        held_item = self.held[i]
++        if held_item is not None and held_item.hand_angle is not None:
++          # <STRANGE>#541 rebar hand must never sit below the body; pick the perpendicular with positive Y from the two options
++          d = self.arm_dir[i]
++          a1 = d.rotated(math.pi / 2)
++          a2 = d.rotated(-math.pi / 2)
++          rest_dir = a1 if a1.y >= a2.y else a2
++        else:
++          rest_dir = self.arm_dir[i]
++        target_pos = self.body.position + rest_dir * ARM_DX
+         pressed = self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN
+         l = self.arm_lerp if pressed else self.arm_lerp_return
+         self.arm_pos[i] += (target_pos - self.arm_pos[i]) * smooth(l, dt)
+@@ -349,22 +370,41 @@ class Player:
+       arm = self.arms[i]
+       prev = pymunk.Vec2d(item.body.position.x, item.body.position.y)
+       side = -1 if i == 0 else 1
+-      tx = arm.position.x + ITEM_OFFSET * side
+-      ty = arm.position.y
+-      r = item.radius()
+-      if ty < r:
+-        ty = r
+-      item.body.position = pymunk.Vec2d(tx, ty)
+-      item.body.velocity = (0, 0)
+-      # <STRANGE>#349 while held, angle lerps to 0 (upright); smooth() keeps this fps-independent
+-      # <STRANGE>#449 wrap delta to [-pi, pi]: raw angle may be 12+ rad after spinning, lerp would unwind all turns
++      # <NOTE>#463 offset so the item's hold point lands under the hand, not its center
++      # <STRANGE>#484 angle must be resolved first; hold_offset is local so it rotates with the item
+       k = smooth(0.25, dt)
++      # <STRANGE>#493 rebar angle follows arm direction plus per-hand offset; arm_dir already points at cursor
++      # <STRANGE>#510 rebar tip points at the cursor: angle from hand position to mouse, +pi/2 because local +Y is the far end
++      if item.hand_angle is not None:
++        hx = arm.position.x + ITEM_OFFSET * side
++        hy = arm.position.y
++        ddx = mx - hx
++        ddy = wy - hy
++        if ddx * ddx + ddy * ddy < 1:
++          target_a = item.body.angle
++        else:
++          target_a = math.atan2(ddy, ddx) + math.pi / 2
++      else:
++        target_a = 0.0
+       a = item.body.angle
+-      if abs(a) > 1e-3:
+-        da = (-a + math.pi) % (2 * math.pi) - math.pi
++      da = (target_a - a + math.pi) % (2 * math.pi) - math.pi
++      if abs(da) > 1e-3:
+         item.body.angle = a + da * k
+       else:
+-        item.body.angle = 0.0
++        item.body.angle = target_a
++      hox, hoy = item.hold_offset
++      c, sn = math.cos(item.body.angle), math.sin(item.body.angle)
++      rx = hox * c - hoy * sn
++      ry = hox * sn + hoy * c
++      tx = arm.position.x + ITEM_OFFSET * side - rx
++      ty = arm.position.y - ry
++      # <STRANGE>#506 rebar is allowed to visually sink below the floor while held; clamp only round items so they don't fall through
++      if item.hand_angle is None:
++        r = item.radius()
++        if ty < r:
++          ty = r
++      item.body.position = pymunk.Vec2d(tx, ty)
++      item.body.velocity = (0, 0)
+       # <STRANGE>#343 dt-correct instantaneous throw velocity: screen px per second
+       inst = (pymunk.Vec2d(tx, ty) - prev) / dt
+       hist = self.throw_hist[i]
+diff --git a/game/game.py b/game/game.py
+index d1e873e..3e54bc4 100644
+--- a/game/game.py
++++ b/game/game.py
+@@ -10,8 +10,9 @@ LOGICAL_W = 1920
+ LOGICAL_H = 1080
+ 
+ class Game:
+-  def __init__(self, cheats=False):
++  def __init__(self, cheats=False, map_path="levels/test.json"):
+     self.cheats = cheats
++    self.map_path = map_path
+ 
+   def run(self):
+     with Window() as w:
+@@ -20,7 +21,7 @@ class Game:
+       player = Player(space, (0, BODY_R), cheats=self.cheats)
+       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
+       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
+-      level = Level(space, "levels/test.json")
++      level = Level(space, self.map_path)
+       floor_fill = FloorFill()
+       clock = pygame.time.Clock()
+       running = True
+@@ -46,6 +47,8 @@ class Game:
+           player.spawn_queue.clear()
+         for _ in range(substeps):
+           space.step(dt / substeps)
++        # <STRANGE>#525 rebar sticking is checked after physics so arbiter list is fresh
++        level.post_step(player)
+         cam.follow(player.body.position, dt)
+         w.screen.fill((89, 95, 102))
+         # <NOTE>#445 single sorted pass: backgrounds -> floor -> platforms/pegs -> items -> player
+diff --git a/game/level.py b/game/level.py
+index 1a5c062..a096001 100644
+--- a/game/level.py
++++ b/game/level.py
+@@ -40,7 +40,19 @@ class Level:
+     self.items.append(it)
+ 
+   def grabbables(self):
+-    return self.pegs + self.platforms
++    # <STRANGE>#523 stuck rebars join the peg list so the player's existing grab loop handles them
++    stuck = [it for it in self.items if getattr(it, "stuck", False)]
++    return self.pegs + self.platforms + stuck
++
++  def post_step(self, player):
++    # <STRANGE>#524 runs after space.step; shape_query on each flying rebar finds overlaps with floor/platform
++    for it in self.items:
++      if not getattr(it, "flying", False):
++        continue
++      # <STRANGE>#527 rebar mask is 0b10 while flying, so shape_query returns only floor/platform touches
++      hits = self.space.shape_query(it.shape)
++      if hits:
++        it.stick()
+ 
+   def update(self, player, dt=1/60):
+     pass
+diff --git a/main.py b/main.py
+index 1cd4f6a..d088c01 100644
+--- a/main.py
++++ b/main.py
+@@ -4,8 +4,9 @@ from game import Game
+ def main():
+   p = argparse.ArgumentParser()
+   p.add_argument("--cheats", action="store_true", help="infinite stamina and free air jump while space is held")
++  p.add_argument("--map", default="levels/test.json", help="path to level json (default: levels/test.json)")
+   args = p.parse_args()
+-  Game(cheats=args.cheats).run()
++  Game(cheats=args.cheats, map_path=args.map).run()
+ 
+ if __name__ == "__main__":
+   main()
+diff --git a/setup.sh b/setup.sh
+index 13d8d7a..991db76 100644
+--- a/setup.sh
++++ b/setup.sh
+@@ -2,28 +2,15 @@
+ set -e
+ 
+ python - <<'PYEOF'
+-p = "game/entities/player.py"
++p = "shared/const.py"
+ s = open(p).read()
+ 
+-old = """      # <STRANGE>#349 while held, angle lerps to 0 (upright); smooth() keeps this fps-independent
+-      k = smooth(0.25, dt)
+-      if abs(item.body.angle) > 1e-3:
+-        item.body.angle += (0 - item.body.angle) * k
+-      else:
+-        item.body.angle = 0.0"""
+-new = """      # <STRANGE>#349 while held, angle lerps to 0 (upright); smooth() keeps this fps-independent
+-      # <STRANGE>#449 wrap delta to [-pi, pi]: raw angle may be 12+ rad after spinning, lerp would unwind all turns
+-      k = smooth(0.25, dt)
+-      a = item.body.angle
+-      if abs(a) > 1e-3:
+-        da = (-a + math.pi) % (2 * math.pi) - math.pi
+-        item.body.angle = a + da * k
+-      else:
+-        item.body.angle = 0.0"""
+-assert old in s, "held angle"
++old = "REBAR_RECOIL_AIR = 1.5\n"
++new = "REBAR_RECOIL_AIR = 1.3\n"
++assert old in s, "REBAR_RECOIL_AIR"
+ s = s.replace(old, new, 1)
+ 
+ open(p, "w").write(s)
+ PYEOF
+ 
+-python -c "import ast; ast.parse(open('game/entities/player.py').read()); print('syntax ok')"
++python -c "import ast; ast.parse(open('shared/const.py').read()); print('syntax ok')"
+\ No newline at end of file
+diff --git a/shared/__pycache__/const.cpython-314.pyc b/shared/__pycache__/const.cpython-314.pyc
+index a6ba613..a6b42e9 100644
+Binary files a/shared/__pycache__/const.cpython-314.pyc and b/shared/__pycache__/const.cpython-314.pyc differ
+diff --git a/shared/const.py b/shared/const.py
+index b57ffef..0037369 100644
+--- a/shared/const.py
++++ b/shared/const.py
+@@ -47,6 +47,19 @@ SODA_CX_SPINS = 0.5
+ SODA_CX_SCALE = 0.3
+ SODA_CX_ALPHA = 255
+ SPAWN_BOUNCE_V = 300
++
++REBAR_W = 7
++REBAR_H = 87
++REBAR_FILL = (220, 40, 40)
++REBAR_EDGE = (255, 255, 255)
++REBAR_EDGE_W = 1
++# <NOTE>#460 grab point 8 px from the near end; hold_offset in local (angle=0) coords is then (0, -H/2 + 8)
++REBAR_HOLD_DIST = 10
++REBAR_GRAB_R = 13
++REBAR_SHOOT_V = 2000
++REBAR_RECOIL_AIR = 1.3
++REBAR_RECOIL_GROUND = 0.5
++REBAR_STUCK_POINTS = 5
+ REEL_MAX_FORCE = 60000
+ 
+ HUD_BASE_ALPHA = 35
+@@ -65,7 +78,7 @@ CONSUME_FX_OFFSET = 30
+ CONSUME_FX_SCALE = 0.8
+ CONSUME_FX_ALPHA = 220
+ # <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
+-ITEM_TYPES = ["cube", "soda"]
++ITEM_TYPES = ["cube", "soda", "rebar"]
+ CUBE_ELASTICITY = 0.08
+ CUBE_LINEAR_DAMPING = 0.2
+ THROW_MAX_SPEED = 1400

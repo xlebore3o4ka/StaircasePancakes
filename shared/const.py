@@ -53,8 +53,6 @@ REBAR_H = 87
 REBAR_FILL = (220, 40, 40)
 REBAR_EDGE = (255, 255, 255)
 REBAR_EDGE_W = 1
-# <NOTE>#460 grab point 8 px from the near end; hold_offset in local (angle=0) coords is then (0, -H/2 + 8)
-REBAR_HOLD_DIST = 10
 REBAR_GRAB_R = 13
 REBAR_SHOOT_V = 2000
 REBAR_RECOIL_AIR = 1.3
@@ -72,16 +70,16 @@ HUD_FLASH_ALPHA = 70
 HUD_FLASH_DURATION = 0.35
 HUD_ITEMSMODE_RING_ALPHA = 60
 HUD_ITEMSMODE_RING_W = 2
-HUD_RIPPLE_DURATION = 1.0
-HUD_RIPPLE_WIDTH = 3
-CONSUME_FX_DURATION = 1.0
-CONSUME_FX_RISE = 80
-CONSUME_FX_OFFSET = 30
-CONSUME_FX_SCALE = 0.8
-CONSUME_FX_ALPHA = 220
 # <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
 ITEM_TYPES = ["cube", "soda", "rebar"]
 CUBE_ELASTICITY = 0.08
 CUBE_LINEAR_DAMPING = 0.2
 THROW_MAX_SPEED = 1400
 THROW_SMOOTH_FRAMES = 4
+
+HUD_INFO_ALPHA = 160
+HUD_INFO_MARGIN = 16
+HUD_INFO_LINE_GAP = 4
+HUD_INFO_FONT = 24
+# <NOTE>#609 1 meter = player diameter = 2 * BODY_R px
+HUD_METERS_PER_PX = 1.0 / (2 * BODY_R)

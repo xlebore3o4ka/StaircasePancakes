@@ -6,9 +6,10 @@ from shared.const import (
   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
   CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
-  REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_HOLD_DIST, REBAR_GRAB_R,
+  REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
+from shared.physics_util import stop_incoming
 
 
 def _corners(pos, angle, hw, hh):
@@ -86,34 +87,11 @@ class Item:
     self.space.remove(self.body, self.shape)
 
   def post_step(self):
-    # <STRANGE>#596 ignore kinematic items (held, stuck) — their vy is set by gameplay, not physics
+    # <STRANGE>#596 ignore kinematic items (held, stuck) — their velocity is set by gameplay, not physics
     if self.body.body_type != pymunk.Body.DYNAMIC:
       return
-    # <STRANGE>#597 any upward vy at ground contact is solver bias or bounce; clamp flat
-    if self.body.velocity.y > 0 and self._has_ground_contact():
-      self.body.velocity = (self.body.velocity.x, 0.0)
-
-  def _has_ground_contact(self):
-    # <STRANGE>#598 mirrors Player._has_ground_contact; category check 0b10 keeps it floor/platform only
-    result = [False]
-    def cb(arb, data):
-      a, b = arb.shapes
-      if a.body is self.body:
-        other = b
-        ny = -arb.contact_point_set.normal.y
-      elif b.body is self.body:
-        other = a
-        ny = arb.contact_point_set.normal.y
-      else:
-        return True
-      if not (other.filter.categories & 0b10):
-        return True
-      if ny > 0.5:
-        result[0] = True
-        return False
-      return True
-    self.body.each_arbiter(cb, None)
-    return result[0]
+    # <STRANGE>#630 one-sided clamp; solver bias dies, item's own motion along the surface stays
+    stop_incoming(self.body)
 
   def radius(self):
     return max(self.w, self.h) / 2

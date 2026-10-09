@@ -5,6 +5,7 @@ from .entities.player import Player, BODY_R
 from .core.camera import Camera
 from .level import Level
 from .entities.floor import FloorFill
+from .entities.hud_info import HudInfo
 
 LOGICAL_W = 1920
 LOGICAL_H = 1080
@@ -20,10 +21,12 @@ class Game:
       space = make_space()
       # <STRANGE>#158 spawn at world origin on the floor; cam starts synced so it doesn't fly in
       player = Player(space, (0, BODY_R), cheats=self.cheats)
+      spawn_y = BODY_R
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       level = Level(space, self.map_path)
       floor_fill = FloorFill()
+      hud_info = HudInfo()
       clock = pygame.time.Clock()
       running = True
       while running:
@@ -39,7 +42,6 @@ class Game:
           elif e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
             running = False
           player.handle_event(e)
-        level.update(player, dt)
         player.update(cam, level.grabbables(), level.items, dt)
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:
@@ -61,4 +63,7 @@ class Game:
         if self.spawninfo:
           level.draw_spawners(w.screen, cam, player.body.position)
         player.draw_hud(w.screen, cam)
+        hud_info.update(dt)
+        # <STRANGE>#620 height is distance from spawn, not absolute y
+        hud_info.draw(w.screen, player.body.position.y - spawn_y)
         w.flip()
