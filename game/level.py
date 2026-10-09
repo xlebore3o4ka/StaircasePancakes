@@ -16,26 +16,40 @@ class Level:
       self.seed = random.randrange(2**31)
     random.seed(self.seed)
     # <STRANGE>#239 pegs accept both [x,y] and {x,y}; keeps old levels valid
+    # <STRANGE>#699 layer from JSON overrides class default; editor writes it, game must read it back
     self.pegs = []
     for p in data.get("pegs", []):
       if isinstance(p, dict):
-        self.pegs.append(Peg(space, (p["x"], p["y"])))
+        peg = Peg(space, (p["x"], p["y"]))
+        if "layer" in p:
+          peg.layer = int(p["layer"])
+        self.pegs.append(peg)
       else:
         self.pegs.append(Peg(space, tuple(p)))
     self.platforms = []
     for pd in data.get("platforms", []):
-      self.platforms.append(Platform(
+      plat = Platform(
         space, (pd["x"], pd["y"]),
         w=pd.get("w", PLAT_W),
         h=pd.get("h", PLAT_H),
         fill=tuple(pd.get("fill", PLAT_FILL)),
         edge=tuple(pd.get("edge", PLAT_EDGE)),
-      ))
-    self.backgrounds = [
-      Background((bd["x"], bd["y"]), bd["w"], bd["h"], tuple(bd.get("color", BG_FILL)))
-      for bd in data.get("backgrounds", [])
-    ]
-    self.items = [make_item(space, it) for it in data.get("items", [])]
+      )
+      if "layer" in pd:
+        plat.layer = int(pd["layer"])
+      self.platforms.append(plat)
+    self.backgrounds = []
+    for bd in data.get("backgrounds", []):
+      bg = Background((bd["x"], bd["y"]), bd["w"], bd["h"], tuple(bd.get("color", BG_FILL)))
+      if "layer" in bd:
+        bg.layer = int(bd["layer"])
+      self.backgrounds.append(bg)
+    self.items = []
+    for it_spec in data.get("items", []):
+      item = make_item(space, it_spec)
+      if "layer" in it_spec:
+        item.layer = int(it_spec["layer"])
+      self.items.append(item)
     # <STRANGE>#562 itemSpawners roll once at load; weighted by count, "nothing" means no item
     self.spawners = []
     for sp in data.get("itemSpawners", []):
@@ -70,6 +84,8 @@ class Level:
     full["x"] = pos[0]
     full["y"] = pos[1]
     it = make_item(self.space, full)
+    if "layer" in spec:
+      it.layer = int(spec["layer"])
     # <STRANGE>#370 initial velocity set after make_item so the body is already dynamic at spawn
     it.body.velocity = vel
     self.items.append(it)
