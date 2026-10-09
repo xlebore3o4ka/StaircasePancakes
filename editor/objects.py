@@ -1,8 +1,7 @@
-"""Объекты сцены редактора: пеги, платформы, фоны, предметы.
+"""Объекты сцены редактора: пеги, платформы, фоны, предметы, спавнеры.
 
 Предметы делегируют отрисовку и размеры игровым классам — так редактор
-автоматически видит новые типы, добавленные в игру. Для инстанцирования
-игрового класса используется фиктивный pymunk.Space.
+автоматически видит новые типы, добавленные в игру.
 """
 import math
 import pymunk
@@ -15,10 +14,10 @@ from .const import (
   RESIZE_ZONE, BG_DEFAULT_COLOR,
   LAYER_BG, LAYER_PLATFORM, LAYER_PEG, LAYER_ITEM,
   DEFAULT_ITEM_TYPE,
+  SPAWNER_R, SPAWNER_FILL, SPAWNER_EDGE, SPAWNER_EDGE_W, SPAWNER_TEXT_COLOR,
 )
 from .helpers import make_stripe_surface, make_circle_stripe_surface
 
-# игровые классы предметов — редактор тянет из них размеры и отрисовку
 try:
   from game.entities.item import (
     CubeItem as GameCubeItem,
@@ -42,11 +41,6 @@ if GameSodaItem is not None:
 
 
 def make_fake_item(item_type):
-  """Инстанцирует игровой предмет в фиктивном Space и сразу выдёргивает.
-
-  Сначала пробуем локальный реестр (быстро), потом game_make_item — так
-  редактор подхватывает новые типы, даже если они ещё не прописаны в
-  GAME_ITEM_CLASSES."""
   cls = GAME_ITEM_CLASSES.get(item_type)
   if cls is not None:
     try:
@@ -81,7 +75,7 @@ def default_layer_for(obj):
     return LAYER_PLATFORM
   if isinstance(obj, EditorPeg):
     return LAYER_PEG
-  if isinstance(obj, EditorItem):
+  if isinstance(obj, (EditorItem, EditorSpawner)):
     return LAYER_ITEM
   return 0
 
@@ -260,17 +254,35 @@ class EditorBackground:
 
 
 # =========================================================
-# Item — delegate to game
+# Item — delegate to game, supports recursive contents
 # =========================================================
 class EditorItem:
-  """Превью игрового предмета. Отрисовка и размеры — из игрового класса."""
+  """Превью игрового предмета. Отрисовка и размеры — из игрового класса.
 
-  def __init__(self, x, y, item_type=DEFAULT_ITEM_TYPE):
+  Для `type == "cube"` дополнительно ведём `contents` — список взвешенных
+  записей той же формы, что и у спавнера:
+    [{"type": "soda", "count": 2}, {"type": "nothing", "count": 1}, ...]
+  У вложенных коробок запись сама может иметь ключ "contents".
+  """
+
+  def __init__(self, x, y, item_type=DEFAULT_ITEM_TYPE, contents=None):
     self.x, self.y = x, y
     self.item_type = item_type
     self.locked = False
     self.layer = None
+    self.contents = []
+    if item_type == "cube" and contents:
+      self.contents = [self._clean_entry(e) for e in contents]
     self._refresh()
+
+  @staticmethod
+  def _clean_entry(e):
+    d = {"type": e.get("type", "nothing"),
+         "count": int(e.get("count", 1))}
+    if d["type"] == "cube" and e.get("contents"):
+      d["contents"] = [EditorItem._clean_entry(x)
+                       for x in e["contents"]]
+    return d
 
   def _refresh(self):
     self._game = make_fake_item(self.item_type)
@@ -282,6 +294,8 @@ class EditorItem:
 
   def set_type(self, t):
     self.item_type = t
+    if t != "cube":
+      self.contents = []
     self._refresh()
 
   def world_rect(self):
@@ -310,6 +324,8 @@ class EditorItem:
     }
     if self.layer is not None:
       d["layer"] = int(self.layer)
+    if self.item_type == "cube" and self.contents:
+      d["contents"] = [dict(e) for e in self.contents]
     return d
 
   def draw(self, screen, ed):
@@ -334,3 +350,58 @@ class EditorItem:
       rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
                          int(abs(x1 - x0)), int(abs(y1 - y0)))
       screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
+
+
+# =========================================================
+# Spawner
+# =========================================================
+class EditorSpawner:
+  """Точка, которая при загрузке уровня одноразово спавнит предмет."""
+
+  def __init__(self, x, y):
+    self.x, self.y = x, y
+    self.r = SPAWNER_R
+    self.locked = False
+    self.layer = None
+    self.items = []  # [{"type": str, "count": int}]
+
+  def hit(self, wx, wy):
+    return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
+
+  def intersects_rect(self, l, r, b, t):
+    nx = max(l, min(self.x, r))
+    ny = max(b, min(self.y, t))
+    return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
+
+  def to_json(self):
+    d = {
+      "x": int(self.x), "y": int(self.y),
+      "items": [{"type": e.get("type", "nothing"),
+                 "count": int(e.get("count", 1))} for e in self.items],
+    }
+    if self.locked:
+      d["locked"] = True
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    return d
+
+  def badge_screen_pos(self, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    r = self.r * ed.zoom
+    return sx + r + 2, sy - r - 2
+
+  def draw(self, screen, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    r = max(1, int(self.r * ed.zoom))
+    cx, cy = int(sx), int(sy)
+    pygame.draw.circle(screen, SPAWNER_FILL, (cx, cy), r)
+    edge_w = max(1, int(SPAWNER_EDGE_W * ed.zoom))
+    pygame.draw.circle(screen, SPAWNER_EDGE, (cx, cy), r, edge_w)
+
+    font_size = max(10, int(r * 1.1))
+    f = pygame.font.SysFont(None, font_size, bold=True)
+    surf = f.render("S", True, SPAWNER_TEXT_COLOR)
+    screen.blit(surf, surf.get_rect(center=(cx, cy)))
+
+    if self.locked:
+      screen.blit(make_circle_stripe_surface(r), (cx - r, cy - r))
