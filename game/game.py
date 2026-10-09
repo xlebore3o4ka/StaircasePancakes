@@ -52,6 +52,8 @@ class Game:
           space.step(dt / substeps)
           # <STRANGE>#525 rebar sticking is checked after physics so arbiter list is fresh
           level.post_step(player)
+          # <STRANGE>#657 player bias clamp runs after every substep
+          player.post_step(dt)
         cam.follow(player.body.position, dt)
         w.screen.fill((89, 95, 102))
         # <NOTE>#445 single sorted pass: backgrounds -> floor -> platforms/pegs -> items -> player
