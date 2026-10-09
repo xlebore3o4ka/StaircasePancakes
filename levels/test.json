@@ -1448,6 +1448,24 @@
       ],
       "locked": false,
       "layer": 9
+    },
+    {
+      "x": -4287,
+      "y": 3860,
+      "w": 118,
+      "h": 37,
+      "fill": [
+        60,
+        60,
+        80
+      ],
+      "edge": [
+        255,
+        255,
+        255
+      ],
+      "locked": false,
+      "layer": 9
     }
   ],
   "backgrounds": [
