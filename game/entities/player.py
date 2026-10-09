@@ -312,8 +312,6 @@ class Player:
       self.body.velocity = (self.body.velocity.x, JUMP_V)
       self.jump_queued = False
       self.jumped_this_frame = True
-      if self.sound is not None:
-        self.sound.play("jump")
       n = sum(1 for g in self.grabbed if g is not None)
       if n > 0:
         cost = STAMINA_JUMP_COST / n
@@ -367,6 +365,9 @@ class Player:
               world_pt, anchor = hit
               self.grabbed[i] = (obj, anchor, world_pt)
               obj.grab_count += 1
+              # <STRANGE>#752 peg grab sfx, fires on the frame the hand latches
+              if self.sound is not None:
+                self.sound.play("peg_grab")
               cur = self.body.position.get_distance(world_pt)
               # <STRANGE>#617 rope not rod: min=0 so body can hug walls without the joint fighting collision; max caps distance
               max_len = max(cur, ARM_DX)
