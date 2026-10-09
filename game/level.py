@@ -79,6 +79,13 @@ class Level:
     stuck = [it for it in self.items if getattr(it, "stuck", False)]
     return self.pegs + self.platforms + stuck
 
+  def record_pre_step(self):
+    # <STRANGE>#634 snapshot every dynamic item's velocity before the physics step
+    for it in self.items:
+      rec = getattr(it, "record_pre_step", None)
+      if rec is not None:
+        rec()
+
   def post_step(self, player):
     # <STRANGE>#524 runs after space.step; shape_query on each flying rebar finds overlaps with floor/platform
     for it in self.items:

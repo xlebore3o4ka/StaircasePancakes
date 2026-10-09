@@ -16,6 +16,6 @@ def make_space():
   # <STRANGE>#267 friction/elasticity combine by multiplication with the other shape; floor defaults to 0 so items never grip or bounce
   floor.friction = 1.0
   # <STRANGE>#374 low floor elasticity so falling items don't pogo; combined with item e=0.08 -> ~0.024 effective
-  floor.elasticity = 0.3
+  floor.elasticity = 0.0
   space.add(floor)
   return space

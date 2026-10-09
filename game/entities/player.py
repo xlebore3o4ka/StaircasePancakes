@@ -2,9 +2,9 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W, MAX_FALL_VY
 from shared.smooth import smooth, per_sec
-from shared.physics_util import stop_incoming
+from shared.physics_util import snapshot_velocity, undo_bias
 from .consume_fx import SodaConsumeFx
 
 ARM_MASS = 0.1
@@ -94,9 +94,16 @@ class Player:
 
   def post_step(self, dt):
     # <STRANGE>#583 runs after space.step: solver bias impulses are applied by then
-    # <STRANGE>#629 one-sided clamp: kill only the velocity component heading INTO a wall/floor
+    # <STRANGE>#641 clamp fall speed so deep tunneling never happens
+    if self.body.velocity.y < -MAX_FALL_VY:
+      self.body.velocity = (self.body.velocity.x, -MAX_FALL_VY)
+    # <STRANGE>#641 undo_bias only strips outward push on new, mid-depth contacts
     if not self.jumped_this_frame:
-      stop_incoming(self.body)
+      undo_bias(self.body, self._pre_step_vel)
+
+  def record_pre_step(self):
+    # <STRANGE>#633 game.py calls this just before space.step; bias detection needs the pre snapshot
+    self._pre_step_vel = snapshot_velocity(self.body)
 
   def _use(self, i):
     item = self.held[i]

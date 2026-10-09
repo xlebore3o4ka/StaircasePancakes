@@ -3,6 +3,8 @@ ARM_R = 13
 ARM_DX = 45
 JUMP_V = 500
 GRAVITY = 900
+# <STRANGE>#640 hard cap on downward speed; any deeper and the body tunnels/pops harder than bias can handle
+MAX_FALL_VY = 1400
 
 PEG_R = 16
 PEG_FILL = (220, 60, 60)
@@ -72,7 +74,7 @@ HUD_ITEMSMODE_RING_ALPHA = 60
 HUD_ITEMSMODE_RING_W = 2
 # <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
 ITEM_TYPES = ["cube", "soda", "rebar"]
-CUBE_ELASTICITY = 0.08
+CUBE_ELASTICITY = 0.0
 CUBE_LINEAR_DAMPING = 0.2
 THROW_MAX_SPEED = 1400
 THROW_SMOOTH_FRAMES = 4

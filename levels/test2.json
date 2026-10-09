@@ -1,141 +1,14 @@
 {
-  "pegs": [
-    [
-      315,
-      168
-    ]
-  ],
-  "itemSpawners": [
-    {"x": 200, "y": 100, "items": [
-      {"type": "soda", "count": 3},
-      {"type": "cube", "count": 1},
-      {"type": "rebar", "count": 1}
-    ]},
-    {"x": 150, "y": 100, "items": [
-      {"type": "soda", "count": 3},
-      {"type": "cube", "count": 1},
-      {"type": "rebar", "count": 1}
-    ]},
-    {"x": 100, "y": 100, "items": [
-      {"type": "soda", "count": 3},
-      {"type": "cube", "count": 1},
-      {"type": "rebar", "count": 1}
-    ]},
-    {"x": 50, "y": 100, "items": [
-      {"type": "soda", "count": 3},
-      {"type": "cube", "count": 1},
-      {"type": "rebar", "count": 1}
-    ]},
-    {"x": 0, "y": 100, "items": [
-    {"type": "cube", "count": 2, "contents": [
-      {"type": "soda", "count": 1},
-      {"type": "nothing", "count": 1}
-    ]},
-    {"type": "soda", "count": 5}
-  ]}
-  ],
-  "platforms": [
-    {
-      "x": -73,
-      "y": 261,
-      "w": 394,
-      "h": 61,
-      "fill": [
-        60,
-        60,
-        80
-      ],
-      "edge": [
-        255,
-        255,
-        255
-      ],
-      "locked": false
-    },
-    {
-      "x": -1124,
-      "y": 287,
-      "w": 315,
-      "h": 53,
-      "fill": [
-        60,
-        60,
-        80
-      ],
-      "edge": [
-        255,
-        255,
-        255
-      ],
-      "locked": false
-    },
-    {
-      "x": -1253,
-      "y": 556,
-      "w": 49,
-      "h": 330,
-      "fill": [
-        60,
-        60,
-        80
-      ],
-      "edge": [
-        255,
-        255,
-        255
-      ],
-      "locked": false
-    }
-  ],
-  "backgrounds": [
-    {
-      "x": 331,
-      "y": 189,
-      "w": 414,
-      "h": 419,
-      "color": [
-        70,
-        75,
-        82
-      ],
-      "locked": true
-    },
-    {
-      "x": -624,
-      "y": 421,
-      "w": 683,
-      "h": 44,
-      "color": [
-        70,
-        75,
-        82
-      ],
-      "locked": false
-    },
-    {
-      "x": -1123,
-      "y": 130,
-      "w": 80,
-      "h": 271,
-      "color": [
-        70,
-        75,
-        82
-      ],
-      "locked": false
-    }
-  ],
+  "pegs": [],
+  "platforms": [],
+  "backgrounds": [],
   "items": [
-    {"x": 100, "y": 200, "type": "cube", "contents": [
-      {"type": "soda", "count": 3},
-      {"type": "rebar", "count": 1},
-      {"type": "nothing", "count": 2}
-    ]},
     {
-      "x": -101,
-      "y": 372,
+      "x": 262,
+      "y": 154,
       "type": "rebar",
       "locked": false
     }
-  ]
+  ],
+  "itemSpawners": []
 }
