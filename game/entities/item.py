@@ -9,7 +9,7 @@ from shared.const import (
   REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
-from shared.physics_util import kill_bias
+from shared.physics_util import has_ground_contact
 
 
 def _corners(pos, angle, hw, hh):
@@ -90,8 +90,9 @@ class Item:
     # <STRANGE>#596 ignore kinematic items (held, stuck) — their velocity is set by gameplay, not physics
     if self.body.body_type != pymunk.Body.DYNAMIC:
       return
-    # <STRANGE>#614 strip solver bias from items; threshold-based, so bouncing stays alive
-    kill_bias(self.body)
+    # <STRANGE>#597 upward vy at ground contact is solver bias or leftover bounce; clamp flat
+    if self.body.velocity.y > 0 and has_ground_contact(self.body):
+      self.body.velocity = (self.body.velocity.x, 0.0)
 
   def radius(self):
     return max(self.w, self.h) / 2
