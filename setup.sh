@@ -2,31 +2,30 @@
 set -e
 
 python - <<'PYEOF'
-p = "game/entities/item.py"
+p = "shared/physics_util.py"
 s = open(p).read()
 
-old = """  def post_step(self):
-    # <STRANGE>#596 ignore kinematic items (held, stuck) — their vy is set by gameplay, not physics
-    if self.body.body_type != pymunk.Body.DYNAMIC:
-      return
-    # <STRANGE>#597 any upward vy at ground contact is solver bias or bounce; clamp flat
-    if self.body.velocity.y > 0 and has_ground_contact(self.body):
-      self.body.velocity = (self.body.velocity.x, 0.0)
+old = "SLOP = 1.0\n"
+new = """SLOP = 1.0
+# <STRANGE>#626 deep penetration is a stuck body; solver bias is the only way out, don't strip it
+ESCAPE_PEN = 8.0
 """
-new = """  def post_step(self):
-    # <STRANGE>#596 ignore kinematic items (held, stuck) — their velocity is set by gameplay, not physics
-    if self.body.body_type != pymunk.Body.DYNAMIC:
-      return
-    # <STRANGE>#614 strip solver bias from items; threshold-based, so bouncing stays alive
-    kill_bias(self.body)
-"""
-assert old in s, "post_step"
+assert old in s, "SLOP"
+s = s.replace(old, new, 1)
+
+old = """    if max_pen <= SLOP:
+      return True"""
+new = """    if max_pen <= SLOP:
+      return True
+    if max_pen > ESCAPE_PEN:
+      return True"""
+assert old in s, "max_pen check"
 s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
 PYEOF
 
-python -c "import ast; ast.parse(open('game/entities/item.py').read()); print('syntax ok')"
+python -c "import ast; ast.parse(open('shared/physics_util.py').read()); print('syntax ok')"
 
 git add -A
-git commit -m "item: finish switch to kill_bias"
+git commit -m "physics: skip kill_bias when penetration is deep (stuck escape)"

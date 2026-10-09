@@ -2,6 +2,8 @@ import pymunk
 
 
 SLOP = 1.0
+# <STRANGE>#626 deep penetration is a stuck body; solver bias is the only way out, don't strip it
+ESCAPE_PEN = 8.0
 
 
 def kill_bias(body):
@@ -28,6 +30,8 @@ def kill_bias(body):
       if cp.distance < 0 and -cp.distance > max_pen:
         max_pen = -cp.distance
     if max_pen <= SLOP:
+      return True
+    if max_pen > ESCAPE_PEN:
       return True
     # normal points from surface outward; only kill velocity pointing further out (bias)
     proj = data[0].x * n.x + data[0].y * n.y
