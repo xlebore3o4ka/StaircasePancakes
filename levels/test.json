@@ -2755,6 +2755,24 @@
       "y": 1521,
       "type": "soda",
       "locked": false
+    },
+    {
+      "x": 212,
+      "y": 117,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 232,
+      "y": 97,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 259,
+      "y": 104,
+      "type": "rebar",
+      "locked": false
     }
   ],
   "itemSpawners": [

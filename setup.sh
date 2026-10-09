@@ -5,8 +5,8 @@ python - <<'PYEOF'
 p = "shared/const.py"
 s = open(p).read()
 
-old = 'SOUND_NAMES = ["jump", "hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar"]\n'
-new = 'SOUND_NAMES = ["jump", "hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar", "open_cube"]\n'
+old = 'SOUND_NAMES = ["jump", "hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar", "open_cube"]\n'
+new = 'SOUND_NAMES = ["jump", "hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar", "open_cube", "rebar_throw", "rebar_stick"]\n'
 assert old in s, "SOUND_NAMES"
 s = s.replace(old, new, 1)
 
@@ -17,47 +17,59 @@ python - <<'PYEOF'
 p = "game/entities/item.py"
 s = open(p).read()
 
-# Item base: use_sound None
-old = """  # <STRANGE>#702 sfx name played on pickup; each subclass overrides
-  pickup_sound = None
-"""
-new = """  # <STRANGE>#702 sfx name played on pickup; each subclass overrides
-  pickup_sound = None
-  # <STRANGE>#744 sfx name played when use() consumes this item; None = silent
-  use_sound = None
-"""
-assert old in s, "Item class"
+# attach sound ref to rebar via Level already (all items get it). Just fire on throw.
+old = """    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0b10)
+    self.flying = True
+    # <STRANGE>#530 release from hand: Level.drawables filters held_by; forgetting this hides the flying rebar
+    self.held_by = None
+    return "release\""""
+new = """    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0b10)
+    self.flying = True
+    # <STRANGE>#530 release from hand: Level.drawables filters held_by; forgetting this hides the flying rebar
+    self.held_by = None
+    # <STRANGE>#748 throw sfx; fires on Q/E release
+    if self.sound is not None:
+      self.sound.play("rebar_throw")
+    return "release\""""
+assert old in s, "on_use release"
 s = s.replace(old, new, 1)
 
-old = """class CubeItem(Item):
-  pickup_sound = "pickup_cube\""""
-new = """class CubeItem(Item):
-  pickup_sound = "pickup_cube"
-  use_sound = "open_cube\""""
-assert old in s, "CubeItem"
+# stick sfx
+old = """  def stick(self):
+    # <STRANGE>#520 freeze in place; mask=0 stops all collisions
+    self.flying = False
+    self.stuck = True
+    self.body.body_type = pymunk.Body.STATIC
+    self.body.velocity = (0, 0)
+    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)"""
+new = """  def stick(self):
+    # <STRANGE>#520 freeze in place; mask=0 stops all collisions
+    self.flying = False
+    self.stuck = True
+    self.body.body_type = pymunk.Body.STATIC
+    self.body.velocity = (0, 0)
+    self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
+    # <STRANGE>#749 sticking sfx on first contact; per-item ref from Level
+    if self.sound is not None:
+      self.sound.play("rebar_stick")"""
+assert old in s, "stick"
 s = s.replace(old, new, 1)
+
+# ensure sound field on Item base
+if "self.sound = None" not in s:
+  old = "    # <STRANGE>#376 linear damping bleeds off energy so items settle instead of drifting; does not affect held (kinematic) state\n    self.body.linear_damping = CUBE_LINEAR_DAMPING\n    space.add(self.body, shape)"
+  new = """    # <STRANGE>#376 linear damping bleeds off energy so items settle instead of drifting; does not affect held (kinematic) state
+    self.body.linear_damping = CUBE_LINEAR_DAMPING
+    space.add(self.body, shape)
+    # <STRANGE>#713 sound manager ref, attached by Level after creation
+    self.sound = None"""
+  assert old in s, "item init"
+  s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
 PYEOF
 
-python - <<'PYEOF'
-p = "game/entities/player.py"
-s = open(p).read()
-
-old = """    consumed, spawn_spec, stamina_gain = item.use()
-    if consumed:"""
-new = """    consumed, spawn_spec, stamina_gain = item.use()
-    if consumed:
-      if self.sound is not None and item.use_sound:
-        # <STRANGE>#744 fire before item.destroy in case subclass cleanup nulls state
-        self.sound.play(item.use_sound)"""
-assert old in s, "_use consume"
-s = s.replace(old, new, 1)
-
-open(p, "w").write(s)
-PYEOF
-
-python -c "import ast; [ast.parse(open(f).read()) for f in ['shared/const.py','game/entities/item.py','game/entities/player.py']]; print('syntax ok')"
+python -c "import ast; [ast.parse(open(f).read()) for f in ['shared/const.py','game/entities/item.py']]; print('syntax ok')"
 
 git add -A
-git commit -m "sound: open_cube sfx on cube use"
+git commit -m "sound: rebar throw and stick sfx"

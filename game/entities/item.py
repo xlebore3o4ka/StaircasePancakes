@@ -267,6 +267,9 @@ class RebarItem(Item):
     self.flying = True
     # <STRANGE>#530 release from hand: Level.drawables filters held_by; forgetting this hides the flying rebar
     self.held_by = None
+    # <STRANGE>#748 throw sfx; fires on Q/E release
+    if self.sound is not None:
+      self.sound.play("rebar_throw")
     return "release"
 
   def grab_points(self):
@@ -293,6 +296,9 @@ class RebarItem(Item):
     self.body.body_type = pymunk.Body.STATIC
     self.body.velocity = (0, 0)
     self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
+    # <STRANGE>#749 sticking sfx on first contact; per-item ref from Level
+    if self.sound is not None:
+      self.sound.play("rebar_stick")
 
   def draw_at(self, screen, cam, pos, angle, alpha, scale):
     sc = cam.scale * scale
