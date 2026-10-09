@@ -49,6 +49,7 @@ class Game:
             level.spawn_item(pos, spec, vel)
           player.spawn_queue.clear()
         for _ in range(substeps):
+          player.record_pre_step()
           space.step(dt / substeps)
           # <STRANGE>#525 rebar sticking is checked after physics so arbiter list is fresh
           level.post_step(player)

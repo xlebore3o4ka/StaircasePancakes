@@ -68,6 +68,8 @@ class Player:
     self.jump_queued = False
     # <STRANGE>#591 set in the frame a jump is committed; post_step skips clamping then
     self.jumped_this_frame = False
+    # <STRANGE>#678 vy before the last physics step; used to tell ballistic motion from bias spikes
+    self._pre_vy = 0.0
     # <STRANGE>#551 f-mode: hands grab items only, pegs are ignored; toggle on KEYDOWN F
     self.items_only = False
     self.grab_lock = [False, False]
@@ -95,16 +97,16 @@ class Player:
     return len(hits) > 0
 
 
+  def record_pre_step(self):
+    # <STRANGE>#678 store vy before step; post_step compares
+    self._pre_vy = self.body.velocity.y
+
   def post_step(self, dt):
-    # <STRANGE>#656 bias pushes body out of contact in the same step, so has_ground_contact is already False
-    # <STRANGE>#656 fallback: any vy above jump speed with nothing pulling is impossible -> clamp
+    # <STRANGE>#679 bias spike = velocity.y jumped more than gravity could over one step; anything else is ballistic
     if self.jumped_this_frame:
       return
-    if self.body.velocity.y > JUMP_V * 1.05:
-      if not any(g is not None for g in self.grabbed):
-        self.body.velocity = (self.body.velocity.x, 0.0)
-        return
-    if self.body.velocity.y > 0 and has_ground_contact(self.body):
+    v = self.body.velocity.y
+    if v > 0 and (v - self._pre_vy) > 300:
       self.body.velocity = (self.body.velocity.x, 0.0)
 
   def _use(self, i):
