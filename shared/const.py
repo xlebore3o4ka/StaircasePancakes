@@ -79,7 +79,7 @@ THROW_SMOOTH_FRAMES = 4
 
 SOUND_DIR = "sounds"
 SOUND_VOLUME = 0.6
-SOUND_NAMES = ["jump", "hit", "soda"]
+SOUND_NAMES = ["jump", "hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar"]
 # <NOTE>#693 impact tuning: below MIN no sound, above MAX full volume
 HIT_VOL_MIN = 250
 HIT_VOL_MAX = 1800

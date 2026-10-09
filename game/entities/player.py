@@ -342,6 +342,9 @@ class Player:
           if item_hit is not None:
             self.held[i] = item_hit
             item_hit.hold(i)
+            # <STRANGE>#703 per-type pickup sfx, name from item class
+            if self.sound is not None and item_hit.pickup_sound:
+              self.sound.play(item_hit.pickup_sound)
         if (not self.items_only and self.held[i] is None and self.grabbed[i] is None
             and not self.grab_lock[i] and self.grab_cooldown[i] <= 0
             and self.stamina[i] > STAMINA_GRAB_MIN):

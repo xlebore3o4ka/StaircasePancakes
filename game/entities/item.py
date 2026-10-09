@@ -50,6 +50,8 @@ def _blit_bands(screen, cam, bands):
 
 class Item:
   layer = LAYER_ITEM
+  # <STRANGE>#702 sfx name played on pickup; each subclass overrides
+  pickup_sound = None
 
   def on_use(self, player, hand):
     # <STRANGE>#521 default: return False to fall through to use() (consume/shake)
@@ -134,6 +136,8 @@ class Item:
 
 
 class CubeItem(Item):
+  pickup_sound = "pickup_cube"
+
   def __init__(self, space, pos, contents=None):
     # <STRANGE>#292 cube size fixed; no JSON override
     super().__init__(space, pos, 30, 30)
@@ -177,6 +181,7 @@ class CubeItem(Item):
 
 class SodaItem(Item):
   center_anim = True
+  pickup_sound = "pickup_soda"
 
   def __init__(self, space, pos):
     super().__init__(space, pos, SODA_W, SODA_H)
@@ -197,6 +202,7 @@ class SodaItem(Item):
 
 
 class RebarItem(Item):
+  pickup_sound = "pickup_rebar"
   # <STRANGE>#513 hold offset toward the near end: local -Y is the end facing away from cursor
   hold_offset = (0, REBAR_H / 6)
   grab_radius = REBAR_GRAB_R
