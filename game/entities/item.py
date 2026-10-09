@@ -87,12 +87,11 @@ class Item:
     self.space.remove(self.body, self.shape)
 
   def post_step(self):
-    # <STRANGE>#596 ignore kinematic items (held, stuck) — their vy is set by gameplay, not physics
+    # <STRANGE>#596 ignore kinematic items (held, stuck) — their velocity is set by gameplay, not physics
     if self.body.body_type != pymunk.Body.DYNAMIC:
       return
-    # <STRANGE>#597 any upward vy at ground contact is solver bias or bounce; clamp flat
-    if self.body.velocity.y > 0 and has_ground_contact(self.body):
-      self.body.velocity = (self.body.velocity.x, 0.0)
+    # <STRANGE>#614 strip solver bias from items; threshold-based, so bouncing stays alive
+    kill_bias(self.body)
 
   def radius(self):
     return max(self.w, self.h) / 2
