@@ -5,6 +5,7 @@ from .entities.player import Player, BODY_R
 from .core.camera import Camera
 from .level import Level
 from .entities.floor import FloorFill
+from .entities.hud_info import HudInfo
 
 LOGICAL_W = 1920
 LOGICAL_H = 1080
@@ -24,6 +25,7 @@ class Game:
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       level = Level(space, self.map_path)
       floor_fill = FloorFill()
+      hud_info = HudInfo()
       clock = pygame.time.Clock()
       running = True
       while running:
@@ -60,4 +62,6 @@ class Game:
         if self.spawninfo:
           level.draw_spawners(w.screen, cam, player.body.position)
         player.draw_hud(w.screen, cam)
+        hud_info.update(dt)
+        hud_info.draw(w.screen, player.body.position.y)
         w.flip()
