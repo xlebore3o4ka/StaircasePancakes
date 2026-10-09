@@ -223,3 +223,7 @@ __marimo__/
 diff.txt 
 /editor/__pycache__
 /game/__pycache__
+editor/patch.cmd
+editor/patch.ps1
+patch.cmd
+patch.ps1
