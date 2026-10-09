@@ -79,11 +79,12 @@ THROW_SMOOTH_FRAMES = 4
 
 SOUND_DIR = "sounds"
 SOUND_VOLUME = 0.6
-SOUND_NAMES = ["hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar", "open_cube", "rebar_throw", "rebar_stick", "peg_grab"]
+SOUND_NAMES = ["hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar", "open_cube", "rebar_throw", "rebar_stick", "peg_grab", "step"]
 # <NOTE>#693 impact tuning: below MIN no sound, above MAX full volume
 HIT_VOL_MIN = 250
 HIT_VOL_MAX = 1800
 HIT_COOLDOWN = 0.08
+STEP_INTERVAL = 0.32
 
 HUD_INFO_ALPHA = 160
 HUD_INFO_MARGIN = 16

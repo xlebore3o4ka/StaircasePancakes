@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL
 from shared.smooth import smooth, per_sec
 from shared.physics_util import has_ground_contact
 from .consume_fx import SodaConsumeFx
@@ -76,6 +76,8 @@ class Player:
     self._pre_vy = 0.0
     self._pre_v = pymunk.Vec2d(0, 0)
     self._hit_cd = 0.0
+    # <STRANGE>#756 footstep sfx cooldown; fires on ground while walking
+    self._step_cd = 0.0
     # <STRANGE>#551 f-mode: hands grab items only, pegs are ignored; toggle on KEYDOWN F
     self.items_only = False
     self.grab_lock = [False, False]
@@ -499,6 +501,17 @@ class Player:
           self.shake_t[i] = 0.0
       if self.grab_cooldown[i] > 0:
         self.grab_cooldown[i] = max(0.0, self.grab_cooldown[i] - dt)
+
+    # <STRANGE>#756 footsteps: on ground, one move key pressed, interval elapsed
+    if self._step_cd > 0:
+      self._step_cd -= dt
+    walking = grounded and (self.move[0] or self.move[1])
+    if walking and self._step_cd <= 0:
+      if self.sound is not None:
+        self.sound.play("step")
+      self._step_cd = STEP_INTERVAL
+    elif not walking:
+      self._step_cd = 0.0
 
     # <STRANGE>#391 HUD decay per frame: flash fades linearly on use
     for i in range(2):
