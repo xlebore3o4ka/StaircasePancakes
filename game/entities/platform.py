@@ -23,7 +23,7 @@ class Platform:
     # <STRANGE>#268 same reasoning as floor: friction/elasticity multiply, defaults 0 kill both
     shape.friction = 1.0
     # <STRANGE>#375 mirrored floor: low elasticity, see physics.py
-    shape.elasticity = 0.3
+    shape.elasticity = 0.0
     space.add(self.body, shape)
 
   def grab_points(self):

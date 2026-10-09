@@ -1,79 +1,16 @@
 {
   "pegs": [
     [
-      315,
-      168
+      3,
+      177
     ]
-  ],
-  "itemSpawners": [
-    {"x": 200, "y": 100, "items": [
-      {"type": "soda", "count": 3},
-      {"type": "cube", "count": 1},
-      {"type": "rebar", "count": 1}
-    ]},
-    {"x": 150, "y": 100, "items": [
-      {"type": "soda", "count": 3},
-      {"type": "cube", "count": 1},
-      {"type": "rebar", "count": 1}
-    ]},
-    {"x": 100, "y": 100, "items": [
-      {"type": "soda", "count": 3},
-      {"type": "cube", "count": 1},
-      {"type": "rebar", "count": 1}
-    ]},
-    {"x": 50, "y": 100, "items": [
-      {"type": "soda", "count": 3},
-      {"type": "cube", "count": 1},
-      {"type": "rebar", "count": 1}
-    ]},
-    {"x": 0, "y": 100, "items": [
-    {"type": "cube", "count": 2, "contents": [
-      {"type": "soda", "count": 1},
-      {"type": "nothing", "count": 1}
-    ]},
-    {"type": "soda", "count": 5}
-  ]}
   ],
   "platforms": [
     {
-      "x": -73,
-      "y": 261,
-      "w": 394,
-      "h": 61,
-      "fill": [
-        60,
-        60,
-        80
-      ],
-      "edge": [
-        255,
-        255,
-        255
-      ],
-      "locked": false
-    },
-    {
-      "x": -1124,
-      "y": 287,
-      "w": 315,
-      "h": 53,
-      "fill": [
-        60,
-        60,
-        80
-      ],
-      "edge": [
-        255,
-        255,
-        255
-      ],
-      "locked": false
-    },
-    {
-      "x": -1253,
-      "y": 556,
-      "w": 49,
-      "h": 330,
+      "x": 2583,
+      "y": 184,
+      "w": 4824,
+      "h": 384,
       "fill": [
         60,
         60,
@@ -87,55 +24,188 @@
       "locked": false
     }
   ],
-  "backgrounds": [
-    {
-      "x": 331,
-      "y": 189,
-      "w": 414,
-      "h": 419,
-      "color": [
-        70,
-        75,
-        82
-      ],
-      "locked": true
-    },
-    {
-      "x": -624,
-      "y": 421,
-      "w": 683,
-      "h": 44,
-      "color": [
-        70,
-        75,
-        82
-      ],
-      "locked": false
-    },
-    {
-      "x": -1123,
-      "y": 130,
-      "w": 80,
-      "h": 271,
-      "color": [
-        70,
-        75,
-        82
-      ],
-      "locked": false
-    }
-  ],
+  "backgrounds": [],
   "items": [
-    {"x": 100, "y": 200, "type": "cube", "contents": [
-      {"type": "soda", "count": 3},
-      {"type": "rebar", "count": 1},
-      {"type": "nothing", "count": 2}
-    ]},
     {
-      "x": -101,
-      "y": 372,
+      "x": 306,
+      "y": 486,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 203,
+      "y": 530,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 230,
+      "y": 517,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 253,
+      "y": 499,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 270,
+      "y": 499,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 287,
+      "y": 499,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 336,
+      "y": 490,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 385,
+      "y": 482,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 364,
+      "y": 481,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 351,
+      "y": 478,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 373,
+      "y": 479,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 318,
+      "y": 447,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 297,
+      "y": 476,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 311,
+      "y": 475,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 277,
+      "y": 483,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 262,
+      "y": 481,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 244,
+      "y": 485,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 235,
+      "y": 486,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 223,
+      "y": 490,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 209,
+      "y": 490,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 216,
+      "y": 493,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 318,
+      "y": 473,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 325,
+      "y": 465,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 345,
+      "y": 467,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 359,
+      "y": 462,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 381,
+      "y": 459,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 404,
+      "y": 457,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 395,
+      "y": 456,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 413,
+      "y": 453,
+      "type": "rebar",
+      "locked": false
+    },
+    {
+      "x": 420,
+      "y": 453,
       "type": "rebar",
       "locked": false
     }
-  ]
+  ],
+  "itemSpawners": []
 }

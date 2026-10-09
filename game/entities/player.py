@@ -4,7 +4,7 @@ import pygame
 import pymunk
 from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W
 from shared.smooth import smooth, per_sec
-from shared.physics_util import stop_incoming
+from shared.physics_util import has_ground_contact
 from .consume_fx import SodaConsumeFx
 
 ARM_MASS = 0.1
@@ -71,6 +71,8 @@ class Player:
     # <STRANGE>#551 f-mode: hands grab items only, pegs are ignored; toggle on KEYDOWN F
     self.items_only = False
     self.grab_lock = [False, False]
+    # <STRANGE>#646 cooldown seconds per hand; blocks NEW grabs even while button is held
+    self.grab_cooldown = [0.0, 0.0]
     self.joints = [None, None]
     self.stamina = [float(STAMINA_MAX), float(STAMINA_MAX)]
     self.held = [None, None]
@@ -92,11 +94,18 @@ class Player:
     hits = self.space.point_query(pt, 6, pymunk.ShapeFilter(mask=0b10))
     return len(hits) > 0
 
+
   def post_step(self, dt):
-    # <STRANGE>#583 runs after space.step: solver bias impulses are applied by then
-    # <STRANGE>#629 one-sided clamp: kill only the velocity component heading INTO a wall/floor
-    if not self.jumped_this_frame:
-      stop_incoming(self.body)
+    # <STRANGE>#656 bias pushes body out of contact in the same step, so has_ground_contact is already False
+    # <STRANGE>#656 fallback: any vy above jump speed with nothing pulling is impossible -> clamp
+    if self.jumped_this_frame:
+      return
+    if self.body.velocity.y > JUMP_V * 1.05:
+      if not any(g is not None for g in self.grabbed):
+        self.body.velocity = (self.body.velocity.x, 0.0)
+        return
+    if self.body.velocity.y > 0 and has_ground_contact(self.body):
+      self.body.velocity = (self.body.velocity.x, 0.0)
 
   def _use(self, i):
     item = self.held[i]
@@ -108,6 +117,15 @@ class Player:
     if r == "release":
       self.held[i] = None
       self.grab_lock[i] = True
+      # <STRANGE>#647 rebar shoots out of hand; block re-grab for a moment so it clears the arm radius
+      self.grab_cooldown[i] = 0.5
+      # <STRANGE>#650 recoil kicks the body away from any peg it was holding; release both hands like a jump does
+      for j in range(2):
+        if j == i:
+          continue
+        self._release(j)
+        if self.pressed[j]:
+          self.grab_lock[j] = True
       return
     if r:
       return
@@ -269,7 +287,8 @@ class Player:
       if arm.body_type != pymunk.Body.KINEMATIC:
         arm.body_type = pymunk.Body.KINEMATIC
       if self.pressed[i]:
-        if self.held[i] is None and self.grabbed[i] is None and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN:
+        if (self.held[i] is None and self.grabbed[i] is None and not self.grab_lock[i]
+            and self.grab_cooldown[i] <= 0 and self.stamina[i] > STAMINA_GRAB_MIN):
           item_hit = None
           for it in items:
             # <STRANGE>#539 stuck rebar is a grapplable, not a carryable; skip it here so it goes to the peg-style path
@@ -282,7 +301,8 @@ class Player:
             self.held[i] = item_hit
             item_hit.hold(i)
         if (not self.items_only and self.held[i] is None and self.grabbed[i] is None
-            and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN):
+            and not self.grab_lock[i] and self.grab_cooldown[i] <= 0
+            and self.stamina[i] > STAMINA_GRAB_MIN):
           for obj in pegs:
             hit = None
             for world_pt, anchor in obj.grab_points():
@@ -422,6 +442,8 @@ class Player:
         self.shake_t[i] -= dt
         if self.shake_t[i] < 0:
           self.shake_t[i] = 0.0
+      if self.grab_cooldown[i] > 0:
+        self.grab_cooldown[i] = max(0.0, self.grab_cooldown[i] - dt)
 
     # <STRANGE>#391 HUD decay per frame: flash fades linearly on use
     for i in range(2):

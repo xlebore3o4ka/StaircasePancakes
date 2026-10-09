@@ -88,8 +88,9 @@ class Level:
         if hits:
           it.stick()
           continue
-      # <STRANGE>#599 per-item bias clamp after physics, same idea as Player.post_step
+      # <STRANGE>#654 per-item bias clamp after physics
       it.post_step()
+
 
   def draw_spawners(self, screen, cam, player_pos):
     # <STRANGE>#563 debug only: draws marker at each spawner; shows entries when player is nearby
