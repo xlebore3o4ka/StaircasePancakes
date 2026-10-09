@@ -110,7 +110,7 @@ class Level:
         # <STRANGE>#527 rebar mask is 0b10 while flying, so shape_query returns only floor/platform touches
         hits = self.space.shape_query(it.shape)
         if hits:
-          it.stick()
+          it.stick(cam)
           continue
       # <STRANGE>#654 per-item bias clamp after physics; cam passed for sfx visibility check
       it.post_step(cam)

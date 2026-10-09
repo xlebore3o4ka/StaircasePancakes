@@ -289,15 +289,15 @@ class RebarItem(Item):
       pts.append((pymunk.Vec2d(wx, wy), pymunk.Vec2d(0, ly)))
     return pts
 
-  def stick(self):
+  def stick(self, cam=None):
     # <STRANGE>#520 freeze in place; mask=0 stops all collisions
     self.flying = False
     self.stuck = True
     self.body.body_type = pymunk.Body.STATIC
     self.body.velocity = (0, 0)
     self.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
-    # <STRANGE>#749 sticking sfx on first contact; per-item ref from Level
-    if self.sound is not None:
+    # <STRANGE>#749 sticking sfx, but only if the rebar is on screen when it lands
+    if self.sound is not None and cam is not None and _on_screen(self, cam):
       self.sound.play("rebar_stick")
 
   def draw_at(self, screen, cam, pos, angle, alpha, scale):
