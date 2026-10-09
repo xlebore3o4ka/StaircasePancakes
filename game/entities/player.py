@@ -478,7 +478,14 @@ class Player:
         ax += random.uniform(-amp, amp)
         ay += random.uniform(-amp, amp)
       if self.held[i] is not None:
-        self.held[i].draw(screen, cam)
+        it = self.held[i]
+        # <STRANGE>#672 held item shakes along with the arm when stamina is low; shake is screen px, convert to world for draw_at
+        if s_t < 0.5:
+          shx = random.uniform(-shake, shake) / sc
+          shy = random.uniform(-shake, shake) / sc
+          it.draw_at(screen, cam, (it.body.position.x + shx, it.body.position.y + shy), it.body.angle, 255, 1.0)
+        else:
+          it.draw(screen, cam)
       arm_color = (223, int(223 * s_t), int(223 * s_t))
       if self.held[i] is not None:
         r = int(self.arm_r[i] * ARM_HOLD_SCALE * sc)
@@ -517,6 +524,11 @@ class Player:
       hx = cx + (-offset if i == 0 else offset)
       hy = cy
       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
+      # <STRANGE>#673 HUD slot shakes as one unit when stamina is low; same amplitude as the world arm
+      if s_t < 0.5:
+        hud_shake = SHAKE_MAX * (1 - s_t * 2) * sc
+        hx += random.uniform(-hud_shake, hud_shake)
+        hy += random.uniform(-hud_shake, hud_shake)
       arm_color = (223, int(223 * s_t), int(223 * s_t))
       it = self.held[i]
       base_a = HUD_BASE_ALPHA if it is not None else HUD_BASE_ALPHA_EMPTY
