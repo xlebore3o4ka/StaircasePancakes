@@ -39,7 +39,6 @@ class Game:
           elif e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
             running = False
           player.handle_event(e)
-        level.update(player, dt)
         player.update(cam, level.grabbables(), level.items, dt)
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:

@@ -91,8 +91,6 @@ class Level:
       # <STRANGE>#599 per-item bias clamp after physics, same idea as Player.post_step
       it.post_step()
 
-  def update(self, player, dt=1/60):
-    pass
   def draw_spawners(self, screen, cam, player_pos):
     # <STRANGE>#563 debug only: draws marker at each spawner; shows entries when player is nearby
     import pygame
