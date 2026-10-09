@@ -33,8 +33,6 @@ class CoreMixin:
     self._move_start = None
     self._move_anchor = None
     self._resize_data = []
-    self._drag_x_refs = []
-    self._drag_y_refs = []
 
     self.cam_x = 0
     self.cam_y = 0

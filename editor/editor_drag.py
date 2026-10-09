@@ -3,7 +3,7 @@ import math
 import pygame
 
 from .const import (
-  BOT_H, MIN_SIZE, SNAP_DIST, PLAYER_R,
+  BOT_H, MIN_SIZE, SNAP_DIST, SNAP_RANGE, PLAYER_R,
   CLICK_THRESHOLD, RESIZE_ZONE,
 )
 from .objects import (
@@ -68,23 +68,32 @@ class DragMixin:
     l, r, b, t = obj.world_rect()
     return (l, r, b, t)
 
-  def _gather_x_refs(self, exclude=()):
+  def _gather_x_refs(self, exclude=(), near=None):
+    """near = (l, r, b, t) — расширенный AABB. Объекты вне него игнорируются."""
     refs = []
     for obj in self.objects:
       if obj in exclude:
         continue
       l, r, b, t = self._obj_bounds(obj)
+      if near is not None:
+        nl, nr, nb, nt = near
+        if r < nl or l > nr or t < nb or b > nt:
+          continue
       refs.append(l)
       refs.append((l + r) / 2)
       refs.append(r)
     return refs
 
-  def _gather_y_refs(self, exclude=()):
-    refs = [0.0]
+  def _gather_y_refs(self, exclude=(), near=None):
+    refs = [0.0]  # пол — всегда доступен
     for obj in self.objects:
       if obj in exclude:
         continue
       l, r, b, t = self._obj_bounds(obj)
+      if near is not None:
+        nl, nr, nb, nt = near
+        if r < nl or l > nr or t < nb or b > nt:
+          continue
       refs.append(b)
       refs.append((b + t) / 2)
       refs.append(t)
@@ -268,6 +277,7 @@ class DragMixin:
     elif mode == "resize":
       self._apply_resize(wx, wy, data, snap)
 
+  # ---------- move ----------
   def _apply_move(self, wx, wy, snap):
     if not self._move_data or self._move_start is None:
       return
@@ -287,16 +297,28 @@ class DragMixin:
 
     snap_dx = raw_dx
     snap_dy = raw_dy
-    guide_x = None
-    guide_y = None
 
     if snap and primary_orig is not None:
+      # near считаем по "было бы" позиции всех перемещаемых объектов
+      l0, r0, b0, t0 = None, None, None, None
+      for obj, ox, oy, (bl, br, bb, bt) in self._move_data:
+        nl = bl + raw_dx
+        nr = br + raw_dx
+        nb = bb + raw_dy
+        nt = bt + raw_dy
+        if l0 is None or nl < l0: l0 = nl
+        if r0 is None or nr > r0: r0 = nr
+        if b0 is None or nb < b0: b0 = nb
+        if t0 is None or nt > t0: t0 = nt
+      near = (l0 - SNAP_RANGE, r0 + SNAP_RANGE,
+              b0 - SNAP_RANGE, t0 + SNAP_RANGE)
+
+      x_refs = self._gather_x_refs(exclude=self.selection, near=near)
+      y_refs = self._gather_y_refs(exclude=self.selection, near=near)
+
       pl, pr, pb, pt = primary_orig
       moved_x = [pl + raw_dx, (pl + pr) / 2 + raw_dx, pr + raw_dx]
       moved_y = [pb + raw_dy, (pb + pt) / 2 + raw_dy, pt + raw_dy]
-
-      x_refs = self._drag_x_refs
-      y_refs = self._drag_y_refs
 
       best_x_diff = 0
       best_x_dist = SNAP_DIST + 1
@@ -310,7 +332,7 @@ class DragMixin:
             best_x_guide = rx
       if best_x_guide is not None:
         snap_dx = raw_dx + best_x_diff
-        guide_x = best_x_guide
+        self.snap_guides_x.append(best_x_guide)
 
       best_y_diff = 0
       best_y_dist = SNAP_DIST + 1
@@ -324,7 +346,7 @@ class DragMixin:
             best_y_guide = ry
       if best_y_guide is not None:
         snap_dy = raw_dy + best_y_diff
-        guide_y = best_y_guide
+        self.snap_guides_y.append(best_y_guide)
 
     for obj, ox, oy, _ in self._move_data:
       if obj.locked:
@@ -332,17 +354,18 @@ class DragMixin:
       obj.x = ox + snap_dx
       obj.y = oy + snap_dy
 
-    if guide_x is not None:
-      self.snap_guides_x.append(guide_x)
-    if guide_y is not None:
-      self.snap_guides_y.append(guide_y)
-
+  # ---------- create ----------
   def _apply_create(self, wx, wy, ox, oy, snap):
     guide_x = None
     guide_y = None
     if snap:
-      x_refs = self._drag_x_refs if self._drag_x_refs else self._gather_x_refs(exclude=self.selection)
-      y_refs = self._drag_y_refs if self._drag_y_refs else self._gather_y_refs(exclude=self.selection)
+      l0 = min(ox, wx) - SNAP_RANGE
+      r0 = max(ox, wx) + SNAP_RANGE
+      b0 = min(oy, wy) - SNAP_RANGE
+      t0 = max(oy, wy) + SNAP_RANGE
+      near = (l0, r0, b0, t0)
+      x_refs = self._gather_x_refs(exclude=self.selection, near=near)
+      y_refs = self._gather_y_refs(exclude=self.selection, near=near)
       wx, hit_x = self._snap_value(wx, x_refs)
       if hit_x:
         guide_x = wx
@@ -365,6 +388,7 @@ class DragMixin:
     if guide_y is not None:
       self.snap_guides_y.append(guide_y)
 
+  # ---------- resize ----------
   def _apply_resize(self, wx, wy, edge, snap):
     if not self._resize_data:
       return
@@ -381,8 +405,10 @@ class DragMixin:
     guide_y = None
 
     if snap:
-      x_refs = self._drag_x_refs
-      y_refs = self._drag_y_refs
+      near = (pl - SNAP_RANGE, pr + SNAP_RANGE,
+              pb - SNAP_RANGE, pt + SNAP_RANGE)
+      x_refs = self._gather_x_refs(exclude=self.selection, near=near)
+      y_refs = self._gather_y_refs(exclude=self.selection, near=near)
       if edge in ("left", "right"):
         wx, hit = self._snap_value(wx, x_refs)
         if hit:
@@ -432,8 +458,6 @@ class DragMixin:
     self._move_start = (wx, wy)
     self._move_anchor = anchor
     self.drag = ("move", None)
-    self._drag_x_refs = self._gather_x_refs(exclude=self.selection)
-    self._drag_y_refs = self._gather_y_refs(exclude=self.selection)
 
   def _begin_resize(self, edge):
     self._resize_data = []
@@ -441,8 +465,6 @@ class DragMixin:
       if isinstance(obj, (EditorPlatform, EditorBackground)) and not obj.locked:
         self._resize_data.append((obj, obj.world_rect()))
     self.drag = ("resize", edge)
-    self._drag_x_refs = self._gather_x_refs(exclude=self.selection)
-    self._drag_y_refs = self._gather_y_refs(exclude=self.selection)
 
   def _begin_select_rect(self, wx, wy):
     self.select_start = (wx, wy)
