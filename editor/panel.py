@@ -31,10 +31,18 @@ class TopPanel:
     self.snap_btn.active = editor.snap_enabled
     self.undo_btn = UIButton(0, 0, 80, PANEL_WIDGET_H, "Undo", editor.undo)
     self.redo_btn = UIButton(0, 0, 80, PANEL_WIDGET_H, "Redo", editor.redo)
+    # <STRANGE>#403: ???????????? ?????????????? ????????????????, ?????????????????? ?????????????? ??????????????
+    self.copy_btn = UIButton(0, 0, 72, PANEL_WIDGET_H, "Copy", editor.copy_selected)
+    self.paste_btn = UIButton(0, 0, 72, PANEL_WIDGET_H, "Paste", editor.paste)
+    self.dup_btn = UIButton(0, 0, 72, PANEL_WIDGET_H, "Dup", editor.duplicate_selected)
+    self.all_btn = UIButton(0, 0, 80, PANEL_WIDGET_H, "All", editor._select_all)
+    self.del_btn = UIButton(0, 0, 72, PANEL_WIDGET_H, "Del", editor.delete_selected)
     self.save_btn = UIButton(0, 0, 88, PANEL_WIDGET_H, "Save", editor.save)
     self.load_btn = UIButton(0, 0, 88, PANEL_WIDGET_H, "Load", editor.load)
     self.body_widgets.extend([self.lock_btn, self.zone_unlock_btn,
                               self.snap_btn, self.undo_btn, self.redo_btn,
+                              self.copy_btn, self.paste_btn, self.dup_btn,
+                              self.all_btn, self.del_btn,
                               self.save_btn, self.load_btn])
 
     self.layout(editor.screen.get_width())

@@ -17,6 +17,7 @@ from .const import (
   SPAWNER_R, SPAWNER_FILL, SPAWNER_EDGE, SPAWNER_EDGE_W, SPAWNER_TEXT_COLOR,
 )
 from .helpers import make_stripe_surface, make_circle_stripe_surface
+from . import settings
 
 try:
   from game.entities.item import (
@@ -121,8 +122,15 @@ class EditorPeg:
 # Platform
 # =========================================================
 class EditorPlatform:
-  def __init__(self, x, y, w=PLAT_DEFAULT_W, h=PLAT_DEFAULT_H):
+  def __init__(self, x, y, w=None, h=None):
     self.x, self.y = x, y
+    # <STRANGE>#402: ???????????? ??? ???? ???????????????? ?????????????????? (settings.json), ?????????? ??????????????
+    if w is None or h is None:
+      saved = settings.get_panel_size("platform")
+      if saved is not None:
+        w, h = saved
+      else:
+        w, h = PLAT_DEFAULT_W, PLAT_DEFAULT_H
     self.w, self.h = w, h
     self.fill = PLAT_FILL
     self.edge = PLAT_EDGE
@@ -190,8 +198,14 @@ class EditorPlatform:
 # Background
 # =========================================================
 class EditorBackground:
-  def __init__(self, x, y, w=PLAT_DEFAULT_W, h=PLAT_DEFAULT_H):
+  def __init__(self, x, y, w=None, h=None):
     self.x, self.y = x, y
+    if w is None or h is None:
+      saved = settings.get_panel_size("background")
+      if saved is not None:
+        w, h = saved
+      else:
+        w, h = PLAT_DEFAULT_W, PLAT_DEFAULT_H
     self.w, self.h = w, h
     self.fill = BG_DEFAULT_COLOR
     self.locked = False

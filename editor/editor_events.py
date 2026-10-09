@@ -111,6 +111,7 @@ class EventsMixin:
       self._drag_y_refs = []
       self.snap_guides_x = []
       self.snap_guides_y = []
+      self._finalize_editor_panel_size()
       self.commit_undo()
     elif e.type == pygame.MOUSEMOTION:
       if self.panning:
