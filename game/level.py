@@ -79,13 +79,6 @@ class Level:
     stuck = [it for it in self.items if getattr(it, "stuck", False)]
     return self.pegs + self.platforms + stuck
 
-  def record_pre_step(self):
-    # <STRANGE>#634 snapshot every dynamic item's velocity before the physics step
-    for it in self.items:
-      rec = getattr(it, "record_pre_step", None)
-      if rec is not None:
-        rec()
-
   def post_step(self, player):
     # <STRANGE>#524 runs after space.step; shape_query on each flying rebar finds overlaps with floor/platform
     for it in self.items:
@@ -95,8 +88,7 @@ class Level:
         if hits:
           it.stick()
           continue
-      # <STRANGE>#599 per-item bias clamp after physics, same idea as Player.post_step
-      it.post_step()
+
 
   def draw_spawners(self, screen, cam, player_pos):
     # <STRANGE>#563 debug only: draws marker at each spawner; shows entries when player is nearby

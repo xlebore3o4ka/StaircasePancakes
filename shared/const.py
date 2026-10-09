@@ -3,8 +3,6 @@ ARM_R = 13
 ARM_DX = 45
 JUMP_V = 500
 GRAVITY = 900
-# <STRANGE>#640 hard cap on downward speed; any deeper and the body tunnels/pops harder than bias can handle
-MAX_FALL_VY = 1400
 
 PEG_R = 16
 PEG_FILL = (220, 60, 60)
