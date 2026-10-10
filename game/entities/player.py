@@ -277,14 +277,22 @@ class Player:
         self.jump = True
         self.jump_queued = True
       elif e.scancode == 20:
-        # <STRANGE>#819 only start charging if something is held; fire on keyup
+        # <STRANGE>#819 charge on hold, fire on release; instant items bypass this
         if self.held[0] is not None:
-          self.use_charged[0] = True
-          self.hud_flash[0] = 1.0
+          if getattr(self.held[0], "instant_use", False):
+            self.hud_flash[0] = 1.0
+            self._use(0)
+          else:
+            self.use_charged[0] = True
+            self.hud_flash[0] = 1.0
       elif e.scancode == 8:
         if self.held[1] is not None:
-          self.use_charged[1] = True
-          self.hud_flash[1] = 1.0
+          if getattr(self.held[1], "instant_use", False):
+            self.hud_flash[1] = 1.0
+            self._use(1)
+          else:
+            self.use_charged[1] = True
+            self.hud_flash[1] = 1.0
       # <STRANGE>#552 SDL scancode F=9; hold F for items-only grabbing
       elif e.scancode == 9:
         self.items_only = True
