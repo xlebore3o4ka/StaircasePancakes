@@ -104,7 +104,8 @@ class EditorPeg:
     self.x, self.y = x, y
     self.r = PEG_R
     self.locked = False
-    self.layer = None
+    # <STRANGE>#701: ?????????????? ???????? ???????? ??? 5
+    self.layer = 5
 
   def hit(self, wx, wy):
     return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
@@ -115,7 +116,11 @@ class EditorPeg:
     return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
 
   def to_json(self):
-    return [int(self.x), int(self.y)]
+    # <STRANGE>#702: ?????????? ?????? dict, ?????????? ?????????????????? layer/locked
+    d = {"x": int(self.x), "y": int(self.y), "layer": int(self.layer)}
+    if self.locked:
+      d["locked"] = True
+    return d
 
   def badge_screen_pos(self, ed):
     sx, sy = ed.to_screen(self.x, self.y)

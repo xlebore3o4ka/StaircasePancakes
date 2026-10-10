@@ -58,9 +58,16 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     before = self._snapshot()
     self.objects = []
     for p in data.get("pegs", []):
-      obj = EditorPeg(p[0], p[1])
-      if len(p) > 2:
-        obj.locked = bool(p[2])
+      # <STRANGE>#700: ?????? ?????????? ???????? [x, y], [x, y, locked] ?????? dict
+      if isinstance(p, dict):
+        obj = EditorPeg(p["x"], p["y"])
+        obj.locked = bool(p.get("locked", False))
+        if "layer" in p:
+          obj.layer = int(p["layer"])
+      else:
+        obj = EditorPeg(p[0], p[1])
+        if len(p) > 2:
+          obj.locked = bool(p[2])
       self.objects.append(obj)
     for pd in data.get("platforms", []):
       obj = EditorPlatform(pd["x"], pd["y"],
