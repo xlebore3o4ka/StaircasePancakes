@@ -518,7 +518,11 @@ class Player:
         target = pymunk.Vec2d(mx - self.body.position.x, wy - self.body.position.y)
       else:
         self._release(i)
-        target = pymunk.Vec2d(-1 if i == 0 else 1, 0)
+        if self.converge:
+          # <STRANGE>#871 converge = same aim as a pressed hand, but no grab attempt
+          target = pymunk.Vec2d(mx - self.body.position.x, wy - self.body.position.y)
+        else:
+          target = pymunk.Vec2d(-1 if i == 0 else 1, 0)
       if target.length > 0:
         target = target.normalized()
       else:
@@ -527,23 +531,9 @@ class Player:
       target_r = PRESS_R if self.pressed[i] and not self.grab_lock[i] and self.grabbed[i] is None and self.stamina[i] > STAMINA_GRAB_MIN else ARM_R
       self.arm_r[i] += (target_r - self.arm_r[i]) * smooth(self.lerp_t, dt)
 
-    # <STRANGE>#864 while converge, both arms point at the cursor
-    if self.converge:
-      c_target = pymunk.Vec2d(mx - self.body.position.x, wy - self.body.position.y)
-      if c_target.length > 0:
-        c_target = c_target.normalized()
-        for i in range(2):
-          self.arm_dir[i] = (self.arm_dir[i] + (c_target - self.arm_dir[i]) * smooth(0.5, dt)).normalized()
-
-    # <STRANGE>#868 while converge use the exact edge-to-edge angle so arms meet, not overlap
-    if self.converge:
-      min_ang = 2.0 * math.asin(min(1.0, ARM_R / ARM_DX))
-    else:
-      min_ang = ARM_MIN_ANG
-
     a0, a1 = self.arm_dir[0].angle, self.arm_dir[1].angle
     diff = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi
-    if abs(diff) < min_ang:
+    if abs(diff) < ARM_MIN_ANG:
       sign = 1 if diff >= 0 else -1
       push = (min_ang - abs(diff)) / 2
       a0 -= sign * push
