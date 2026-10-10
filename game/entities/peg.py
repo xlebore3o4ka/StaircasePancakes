@@ -2,7 +2,7 @@ import pygame
 import pymunk
 from shared.const import (
   PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W, LAYER_PEG,
-  PEG_EDGE_FROM_ITEM,
+  PEG_FILL_FROM_ITEM,
 )
 
 class Peg:
@@ -28,9 +28,9 @@ class Peg:
     sc = cam.scale
     x, y = cam.to_screen(*self.pos)
     ix, iy = int(x), int(y)
-    pygame.draw.circle(screen, PEG_FILL, (ix, iy), int(PEG_R * sc))
+    fill = PEG_FILL_FROM_ITEM if self.from_item else PEG_FILL
+    pygame.draw.circle(screen, fill, (ix, iy), int(PEG_R * sc))
     # <STRANGE>#87 gray edge lerps with grab_count; two hands on same peg -> fully gray
     t = min(self.grab_count, 2) / 2
-    base = PEG_EDGE_FROM_ITEM if self.from_item else PEG_EDGE
-    edge = tuple(int(a + (b - a) * t) for a, b in zip(base, PEG_EDGE_GRABBED))
+    edge = tuple(int(a + (b - a) * t) for a, b in zip(PEG_EDGE, PEG_EDGE_GRABBED))
     pygame.draw.circle(screen, edge, (ix, iy), int(PEG_R * sc), max(1, int(PEG_EDGE_W * sc)))

@@ -8,8 +8,9 @@ PEG_R = 16
 PEG_FILL = (220, 60, 60)
 PEG_EDGE = (255, 255, 255)
 PEG_EDGE_GRABBED = (70, 70, 70)
+# <NOTE>#807 spawned-from-item pegs keep an orange fill so you can tell where they came from; edge stays white
+PEG_FILL_FROM_ITEM = (230, 140, 40)
 # <NOTE>#807 spawned-from-item pegs keep an orange edge so you can tell where they came from
-PEG_EDGE_FROM_ITEM = (230, 140, 40)
 PEG_EDGE_W = 4
 
 PLAT_FILL = (60, 60, 80)
