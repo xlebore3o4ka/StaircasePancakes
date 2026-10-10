@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD
 from shared.smooth import smooth, per_sec
 from shared.physics_util import has_ground_contact
 from .consume_fx import SodaConsumeFx
@@ -29,8 +29,6 @@ STAMINA_LOW_THRESH = 50
 STAMINA_LOW_MUL = 1.5
 STAMINA_GRAB_MIN = 15
 SHAKE_MAX = 2
-# <NOTE>#818 rad/s for the hold-to-use spin on held items
-USE_SPIN_RATE = 15.0
 
 class Player:
   layer = LAYER_PLAYER
@@ -103,6 +101,8 @@ class Player:
     self.hud_flash = [0.0, 0.0]
     # <STRANGE>#819 q/e are charge-on-hold, fire-on-release
     self.use_charged = [False, False]
+    # <STRANGE>#824 time held on q/e, drives the white pulse on the item sprite
+    self.use_charge_t = [0.0, 0.0]
     self._hud_labels = None
     # <STRANGE>#434 pending stamina from soda; drips into stamina[] at STAMINA_BOOST_RATE per second
     self.stamina_boost = [0.0, 0.0]
@@ -508,10 +508,6 @@ class Player:
           target_a = item.body.angle
         else:
           target_a = math.atan2(ddy, ddx) + math.pi / 2
-      elif self.use_charged[i]:
-        # <STRANGE>#820 charge spin: fast continuous 360 on the held item, overrides rest angle
-        item.body.angle += USE_SPIN_RATE * dt
-        target_a = item.body.angle
       else:
         target_a = 0.0
       a = item.body.angle
@@ -566,8 +562,11 @@ class Player:
     for i in range(2):
       if self.use_charged[i]:
         self.hud_flash[i] = 1.0
-      elif self.hud_flash[i] > 0:
-        self.hud_flash[i] = max(0.0, self.hud_flash[i] - dt / HUD_FLASH_DURATION)
+        self.use_charge_t[i] += dt
+      else:
+        if self.hud_flash[i] > 0:
+          self.hud_flash[i] = max(0.0, self.hud_flash[i] - dt / HUD_FLASH_DURATION)
+        self.use_charge_t[i] = 0.0
 
     # <STRANGE>#795 attach hand to freshly spawned peg on the same frame it appears
     if self.pending_grab is not None:
@@ -620,13 +619,17 @@ class Player:
         ay += random.uniform(-amp, amp)
       if self.held[i] is not None:
         it = self.held[i]
-        # <STRANGE>#672 held item shakes along with the arm when stamina is low; shake is screen px, convert to world for draw_at
+        # <STRANGE>#824 whiten pulse while q/e is held; cosine gives smooth in/out
+        if self.use_charged[i]:
+          whiten = 0.5 - 0.5 * math.cos(math.tau * self.use_charge_t[i] / USE_PULSE_PERIOD)
+        else:
+          whiten = 0.0
         if s_t < 0.5:
           shx = random.uniform(-shake, shake) / sc
           shy = random.uniform(-shake, shake) / sc
-          it.draw_at(screen, cam, (it.body.position.x + shx, it.body.position.y + shy), it.body.angle, 255, 1.0)
+          it.draw_at(screen, cam, (it.body.position.x + shx, it.body.position.y + shy), it.body.angle, 255, 1.0, whiten)
         else:
-          it.draw(screen, cam)
+          it.draw_at(screen, cam, it.body.position, it.body.angle, 255, 1.0, whiten)
       arm_color = (223, int(223 * s_t), int(223 * s_t))
       if self.held[i] is not None:
         r = int(self.arm_r[i] * ARM_HOLD_SCALE * sc)

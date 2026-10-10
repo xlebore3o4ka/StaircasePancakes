@@ -13,6 +13,19 @@ from shared.const import (
 from shared.physics_util import has_ground_contact
 
 
+def _tint(color, k):
+  # <STRANGE>#824 blend toward white; k=0 original, k=1 pure white; keeps alpha if present
+  if k <= 0.0:
+    return color
+  if k > 1.0:
+    k = 1.0
+  if len(color) == 4:
+    r, g, b, a = color
+    return (int(r + (255 - r) * k), int(g + (255 - g) * k), int(b + (255 - b) * k), a)
+  r, g, b = color
+  return (int(r + (255 - r) * k), int(g + (255 - g) * k), int(b + (255 - b) * k))
+
+
 def _corners(pos, angle, hw, hh):
   c, sn = math.cos(angle), math.sin(angle)
   return [
@@ -162,7 +175,7 @@ class Item:
   def draw(self, screen, cam):
     self.draw_at(screen, cam, self.body.position, self.body.angle, 255, 1.0)
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
     pass
 
 
@@ -201,12 +214,14 @@ class CubeItem(Item):
       return (True, {"type": "soda"}, 0)
     return (True, None, 0)
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
     sc = cam.scale * scale
     hw, hh = self.w / 2 * scale, self.h / 2 * scale
     pts = _corners(pos, angle, hw, hh)
-    fill = (*CUBE_FILL, alpha) if alpha < 255 else CUBE_FILL
-    edge = (*CUBE_EDGE, alpha) if alpha < 255 else CUBE_EDGE
+    bf = _tint(CUBE_FILL, whiten)
+    be = _tint(CUBE_EDGE, whiten)
+    fill = (*bf, alpha) if alpha < 255 else bf
+    edge = (*be, alpha) if alpha < 255 else be
     w_edge = max(1, int(CUBE_EDGE_W * sc))
     _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
 
@@ -221,10 +236,12 @@ class SodaItem(Item):
   def use(self):
     return (True, None, SODA_STAMINA)
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
     hw, hh = self.w / 2 * scale, self.h / 2 * scale
-    blue = (*SODA_BLUE, alpha) if alpha < 255 else SODA_BLUE
-    white = (*SODA_WHITE, alpha) if alpha < 255 else SODA_WHITE
+    bb = _tint(SODA_BLUE, whiten)
+    bw = _tint(SODA_WHITE, whiten)
+    blue = (*bb, alpha) if alpha < 255 else bb
+    white = (*bw, alpha) if alpha < 255 else bw
     bands = [
       (_band(pos, angle, -hw, hh * 0.5, hw, hh), blue, 0),
       (_band(pos, angle, -hw, -hh * 0.5, hw, hh * 0.5), white, 0),
@@ -301,12 +318,14 @@ class RebarItem(Item):
     if self.sound is not None and cam is not None and _on_screen(self, cam):
       self.sound.play("rebar_stick")
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
     sc = cam.scale * scale
     hw, hh = self.w / 2 * scale, self.h / 2 * scale
     pts = _corners(pos, angle, hw, hh)
-    fill = (*REBAR_FILL, alpha) if alpha < 255 else REBAR_FILL
-    edge = (*REBAR_EDGE, alpha) if alpha < 255 else REBAR_EDGE
+    bf = _tint(REBAR_FILL, whiten)
+    be = _tint(REBAR_EDGE, whiten)
+    fill = (*bf, alpha) if alpha < 255 else bf
+    edge = (*be, alpha) if alpha < 255 else be
     w_edge = max(1, int(REBAR_EDGE_W * sc))
     _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
 
@@ -335,18 +354,20 @@ class PortablePegItem(Item):
     # <STRANGE>#788 high friction on this shape -> effective 0.5 with floor, stops quickly
     self.shape.friction = 0.5
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
     sc = cam.scale * scale
     x, y = cam.to_screen(pos[0], pos[1])
     r = max(1, int(PEG_R * sc))
+    fill = _tint(self.FILL, whiten)
+    edge = _tint(PEG_EDGE, whiten)
     if alpha < 255:
       surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-      pygame.draw.circle(surf, (*self.FILL, alpha), (r, r), r)
-      pygame.draw.circle(surf, (*PEG_EDGE, alpha), (r, r), r, max(1, int(PEG_EDGE_W * sc)))
+      pygame.draw.circle(surf, (*fill, alpha), (r, r), r)
+      pygame.draw.circle(surf, (*edge, alpha), (r, r), r, max(1, int(PEG_EDGE_W * sc)))
       screen.blit(surf, (int(x) - r, int(y) - r))
     else:
-      pygame.draw.circle(screen, self.FILL, (int(x), int(y)), r)
-      pygame.draw.circle(screen, PEG_EDGE, (int(x), int(y)), r, max(1, int(PEG_EDGE_W * sc)))
+      pygame.draw.circle(screen, fill, (int(x), int(y)), r)
+      pygame.draw.circle(screen, edge, (int(x), int(y)), r, max(1, int(PEG_EDGE_W * sc)))
 
 
 def make_item(space, spec):

@@ -88,6 +88,8 @@ HIT_VOL_MIN = 250
 HIT_VOL_MAX = 1800
 HIT_COOLDOWN = 0.08
 STEP_INTERVAL = 0.32
+# <NOTE>#824 pulse period for the charged hold-to-use white flash on held items
+USE_PULSE_PERIOD = 1.0
 
 PUFF_COUNT = 8
 PUFF_DURATION = 0.5
