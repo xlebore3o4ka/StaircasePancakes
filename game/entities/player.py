@@ -233,7 +233,9 @@ class Player:
         vx, vy = item.throw_vel
         item.release((vx, vy + SPAWN_BOUNCE_V))
         self.held[i] = None
-        self.grab_lock[i] = True
+        # <STRANGE>#881 only lock while button is held; unconditional lock never clears if mouse isn't down
+        if self.pressed[i]:
+          self.grab_lock[i] = True
         self.grab_cooldown[i] = 0.3
         if self.sound is not None:
           self.sound.play("peg_bounce")
