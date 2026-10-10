@@ -29,6 +29,8 @@ STAMINA_LOW_THRESH = 50
 STAMINA_LOW_MUL = 1.5
 STAMINA_GRAB_MIN = 15
 SHAKE_MAX = 2
+# <NOTE>#818 rad/s for the hold-to-use spin on held items
+USE_SPIN_RATE = 15.0
 
 class Player:
   layer = LAYER_PLAYER
@@ -99,6 +101,8 @@ class Player:
     self.puffs = []
     # <STRANGE>#390 HUD feedback state: per-hand flash (0..1) on use, lazy-cached Q/E surfaces
     self.hud_flash = [0.0, 0.0]
+    # <STRANGE>#819 q/e are charge-on-hold, fire-on-release
+    self.use_charged = [False, False]
     self._hud_labels = None
     # <STRANGE>#434 pending stamina from soda; drips into stamina[] at STAMINA_BOOST_RATE per second
     self.stamina_boost = [0.0, 0.0]
@@ -273,9 +277,14 @@ class Player:
         self.jump = True
         self.jump_queued = True
       elif e.scancode == 20:
-        self._use(0)
+        # <STRANGE>#819 only start charging if something is held; fire on keyup
+        if self.held[0] is not None:
+          self.use_charged[0] = True
+          self.hud_flash[0] = 1.0
       elif e.scancode == 8:
-        self._use(1)
+        if self.held[1] is not None:
+          self.use_charged[1] = True
+          self.hud_flash[1] = 1.0
       # <STRANGE>#552 SDL scancode F=9; hold F for items-only grabbing
       elif e.scancode == 9:
         self.items_only = True
@@ -291,6 +300,15 @@ class Player:
         for i in range(2):
           if self.pressed[i]:
             self.grab_lock[i] = False
+      # <STRANGE>#819 q/e fire on release
+      elif e.scancode == 20:
+        if self.use_charged[0]:
+          self.use_charged[0] = False
+          self._use(0)
+      elif e.scancode == 8:
+        if self.use_charged[1]:
+          self.use_charged[1] = False
+          self._use(1)
       # <STRANGE>#558 F release clears items-only mode
       elif e.scancode == 9:
         self.items_only = False
@@ -490,6 +508,10 @@ class Player:
           target_a = item.body.angle
         else:
           target_a = math.atan2(ddy, ddx) + math.pi / 2
+      elif self.use_charged[i]:
+        # <STRANGE>#820 charge spin: fast continuous 360 on the held item, overrides rest angle
+        item.body.angle += USE_SPIN_RATE * dt
+        target_a = item.body.angle
       else:
         target_a = 0.0
       a = item.body.angle
@@ -540,9 +562,11 @@ class Player:
     elif not walking:
       self._step_cd = 0.0
 
-    # <STRANGE>#391 HUD decay per frame: flash fades linearly on use
+    # <STRANGE>#391 HUD decay: pinned to 1 while charged, fades otherwise
     for i in range(2):
-      if self.hud_flash[i] > 0:
+      if self.use_charged[i]:
+        self.hud_flash[i] = 1.0
+      elif self.hud_flash[i] > 0:
         self.hud_flash[i] = max(0.0, self.hud_flash[i] - dt / HUD_FLASH_DURATION)
 
     # <STRANGE>#795 attach hand to freshly spawned peg on the same frame it appears
