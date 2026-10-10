@@ -21,6 +21,27 @@ class Background:
     return (self.x + min(xs), self.x + max(xs),
             self.y + min(ys), self.y + max(ys))
 
+  def contains(self, wx, wy):
+    # <STRANGE>#798 point-in-background test; rect vs polygon
+    if self.points is None:
+      l, r, b, t = (self.x - self.w / 2, self.x + self.w / 2,
+                    self.y - self.h / 2, self.y + self.h / 2)
+      return l <= wx <= r and b <= wy <= t
+    # <STRANGE>#798 even-odd ray cast; enough for convex and concave simple polygons
+    pts = self._world_points()
+    inside = False
+    n = len(pts)
+    j = n - 1
+    for i in range(n):
+      xi, yi = pts[i]
+      xj, yj = pts[j]
+      if (yi > wy) != (yj > wy):
+        xint = (xj - xi) * (wy - yi) / (yj - yi) + xi
+        if wx < xint:
+          inside = not inside
+      j = i
+    return inside
+
   def draw(self, screen, cam):
     # <SLOW>#198 cull: skip draw when fully off-screen
     sw, sh = screen.get_size()

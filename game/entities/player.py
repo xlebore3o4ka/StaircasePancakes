@@ -91,6 +91,8 @@ class Player:
     self.shake_t = [0.0, 0.0]
     self.throw_hist = [[], []]
     self.spawn_queue = []
+    # <STRANGE>#795 (peg, pos) set by game.py when a spawn produces a grabbable; consumed next update
+    self.pending_grab = None
     # <STRANGE>#413 visual fx from consumed items; player-owned, ticked in update
     self.consume_fx = []
     # <STRANGE>#775 one-shot particle bursts, own list so they don't tie to consume logic
@@ -160,7 +162,23 @@ class Player:
     if item is None:
       return
     self.hud_flash[i] = 1.0
+    self._pending_grab_hand = i
     # <STRANGE>#522 on_use can consume the action entirely (rebar shoot); "release" also drops it from the hand
+    # <STRANGE>#799 portable peg can only be planted if a background covers its position; otherwise it just launches out of the hand
+    if getattr(item, "use_sound", None) == "peg_place":
+      px, py = item.body.position
+      beneath = any(bg.contains(px, py) for bg in getattr(self, "_backgrounds", []))
+      if not beneath:
+        # <STRANGE>#805 pop out of hand like cube loot, with its own sfx
+        vx, vy = item.throw_vel
+        item.release((vx, vy + SPAWN_BOUNCE_V))
+        self.held[i] = None
+        self.grab_lock[i] = True
+        self.grab_cooldown[i] = 0.3
+        if self.sound is not None:
+          self.sound.play("peg_bounce")
+        return
+
     r = item.on_use(self, i)
     if r == "release":
       self.held[i] = None
@@ -182,8 +200,8 @@ class Player:
       if self.sound is not None and item.use_sound:
         # <STRANGE>#744 fire before item.destroy in case subclass cleanup nulls state
         self.sound.play(item.use_sound)
-      # <STRANGE>#775 dust puff at the item position for cubes
-      if getattr(item, "use_sound", None) == "open_cube":
+      # <STRANGE>#775 dust puff for any item whose use produces a world entity (cube loot, peg placement)
+      if getattr(item, "use_sound", None) in ("open_cube", "peg_place"):
         self.puffs.append(PuffBurst(item.body.position))
       # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
       pos = item.body.position
@@ -277,7 +295,9 @@ class Player:
       elif e.scancode == 9:
         self.items_only = False
 
-  def update(self, cam, pegs, items, dt):
+  def update(self, cam, pegs, items, dt, backgrounds=None):
+    # <STRANGE>#799 backgrounds are needed at use-time to check if a portable peg has ground beneath
+    self._backgrounds = backgrounds or []
     # <STRANGE>#592 new frame: clear the jump flag so post_step can clamp again unless we jump this frame
     self.jumped_this_frame = False
     num_grabbed = sum(1 for g in self.grabbed if g is not None)
@@ -524,6 +544,23 @@ class Player:
     for i in range(2):
       if self.hud_flash[i] > 0:
         self.hud_flash[i] = max(0.0, self.hud_flash[i] - dt / HUD_FLASH_DURATION)
+
+    # <STRANGE>#795 attach hand to freshly spawned peg on the same frame it appears
+    if self.pending_grab is not None:
+      peg, pos = self.pending_grab
+      i = self._pending_grab_hand
+      if self.grabbed[i] is None:
+        world_pt = pymunk.Vec2d(pos[0], pos[1])
+        cur = self.body.position.get_distance(world_pt)
+        self.grabbed[i] = (peg, pymunk.Vec2d(0, 0), world_pt)
+        peg.grab_count += 1
+        self.joints[i] = pymunk.SlideJoint(self.body, peg.body, (0, 0), (0, 0), 0, max(cur, ARM_DX))
+        self.joints[i].max_force = REEL_MAX_FORCE
+        self.rope_len[i] = max(cur, ARM_DX)
+        self.space.add(self.joints[i])
+        if self.sound is not None:
+          self.sound.play("peg_grab")
+      self.pending_grab = None
 
     # <STRANGE>#775 puff bursts tick
     self.puffs = [p for p in self.puffs if p.update(dt)]

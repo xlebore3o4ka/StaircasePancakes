@@ -320,9 +320,19 @@ def _on_screen(item, cam):
 
 
 class PortablePegItem(Item):
-  # <STRANGE>#778 carryable peg: same look and size as a static Peg, but a plain item (no grapplable hooks)
+  # <STRANGE>#783 carryable peg: orange so it reads as different from the static red one
+  FILL = (230, 140, 40)
+  use_sound = "peg_place"
+
+  def use(self):
+    # <STRANGE>#790 signals "consume and place a static Peg at pos"; spec type tells Level what to build
+    return (True, {"type": "peg_static"}, 0)
+
   def __init__(self, space, pos):
     super().__init__(space, pos, PEG_R * 2, PEG_R * 2)
+    # <STRANGE>#785 low friction on this shape -> floor has friction 1.0, effective = 0.05 -> rolls freely
+    # <STRANGE>#788 high friction on this shape -> effective 0.5 with floor, stops quickly
+    self.shape.friction = 0.5
 
   def draw_at(self, screen, cam, pos, angle, alpha, scale):
     sc = cam.scale * scale
@@ -330,11 +340,11 @@ class PortablePegItem(Item):
     r = max(1, int(PEG_R * sc))
     if alpha < 255:
       surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-      pygame.draw.circle(surf, (*PEG_FILL, alpha), (r, r), r)
+      pygame.draw.circle(surf, (*self.FILL, alpha), (r, r), r)
       pygame.draw.circle(surf, (*PEG_EDGE, alpha), (r, r), r, max(1, int(PEG_EDGE_W * sc)))
       screen.blit(surf, (int(x) - r, int(y) - r))
     else:
-      pygame.draw.circle(screen, PEG_FILL, (int(x), int(y)), r)
+      pygame.draw.circle(screen, self.FILL, (int(x), int(y)), r)
       pygame.draw.circle(screen, PEG_EDGE, (int(x), int(y)), r, max(1, int(PEG_EDGE_W * sc)))
 
 

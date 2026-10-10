@@ -2,13 +2,16 @@ import pygame
 import pymunk
 from shared.const import (
   PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, PEG_EDGE_W, LAYER_PEG,
+  PEG_EDGE_FROM_ITEM,
 )
 
 class Peg:
   layer = LAYER_PEG
 
-  def __init__(self, space, pos):
+  def __init__(self, space, pos, from_item=False):
     self.grab_count = 0
+    # <STRANGE>#807 true when the peg was created by planting a portable peg; edge stays orange
+    self.from_item = from_item
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
     self.body.position = pos
     shape = pymunk.Circle(self.body, PEG_R)
@@ -28,5 +31,6 @@ class Peg:
     pygame.draw.circle(screen, PEG_FILL, (ix, iy), int(PEG_R * sc))
     # <STRANGE>#87 gray edge lerps with grab_count; two hands on same peg -> fully gray
     t = min(self.grab_count, 2) / 2
-    edge = tuple(int(a + (b - a) * t) for a, b in zip(PEG_EDGE, PEG_EDGE_GRABBED))
+    base = PEG_EDGE_FROM_ITEM if self.from_item else PEG_EDGE
+    edge = tuple(int(a + (b - a) * t) for a, b in zip(base, PEG_EDGE_GRABBED))
     pygame.draw.circle(screen, edge, (ix, iy), int(PEG_R * sc), max(1, int(PEG_EDGE_W * sc)))

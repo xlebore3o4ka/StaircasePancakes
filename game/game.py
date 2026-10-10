@@ -45,11 +45,14 @@ class Game:
           elif e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
             running = False
           player.handle_event(e)
-        player.update(cam, level.grabbables(), level.items, dt)
+        player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:
           for pos, spec, vel in player.spawn_queue:
-            level.spawn_item(pos, spec, vel)
+            result = level.spawn_item(pos, spec, vel)
+            # <STRANGE>#795 if the spawned entity is grabbable, tell Player to latch the source hand
+            if result is not None:
+              player.pending_grab = (result, pos)
           player.spawn_queue.clear()
         for _ in range(substeps):
           player.record_pre_step()

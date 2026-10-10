@@ -98,6 +98,14 @@ class Level:
     full = dict(spec)
     full["x"] = pos[0]
     full["y"] = pos[1]
+    # <STRANGE>#790 "peg_static" is not a carryable item: create a real static Peg here instead
+    if full.get("type") == "peg_static":
+      peg = Peg(self.space, (full["x"], full["y"]), from_item=True)
+      if "layer" in spec:
+        peg.layer = int(spec["layer"])
+      self.pegs.append(peg)
+      # <STRANGE>#795 return so Player can attach a hand immediately
+      return peg
     it = make_item(self.space, full)
     if "layer" in spec:
       it.layer = int(spec["layer"])
