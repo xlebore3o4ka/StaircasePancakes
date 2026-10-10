@@ -72,6 +72,11 @@ class Item:
   def on_use(self, player, hand):
     # <STRANGE>#521 default: return False to fall through to use() (consume/shake)
     return False
+
+  def on_consume(self, player):
+    # <STRANGE>#887 hook invoked right after consume, before destroy; subclasses can mutate player state
+    pass
+
   # <STRANGE>#883 true for items that cannot go into pocket slots (rebar)
   no_pocket = False
   # <NOTE>#461 local-space offset from body center to the grab point; when held, body.position = arm.pos - R(angle) * hold_offset
@@ -377,6 +382,36 @@ class PortablePegItem(Item):
       pygame.draw.circle(screen, edge, (int(x), int(y)), r, max(1, int(PEG_EDGE_W * sc)))
 
 
+class BagItem(Item):
+  # <STRANGE>#888 unlockable pockets: red square for now, no visual on player once consumed
+  FILL = (200, 40, 40)
+  EDGE = (255, 255, 255)
+  EDGE_W = 2
+  pickup_sound = "pickup_bag"
+  use_sound = "put_bag"
+
+  def __init__(self, space, pos):
+    super().__init__(space, pos, 30, 30)
+
+  def use(self):
+    return (True, None, 0)
+
+  def on_consume(self, player):
+    # <STRANGE>#889 grants pockets; player fills slots with soda + empty cube
+    player.grant_pockets()
+
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
+    sc = cam.scale * scale
+    hw, hh = self.w / 2 * scale, self.h / 2 * scale
+    pts = _corners(pos, angle, hw, hh)
+    bf = _tint(self.FILL, whiten)
+    be = _tint(self.EDGE, whiten)
+    fill = (*bf, alpha) if alpha < 255 else bf
+    edge = (*be, alpha) if alpha < 255 else be
+    w_edge = max(1, int(self.EDGE_W * sc))
+    _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
+
+
 def make_item(space, spec):
   t = spec.get("type", "cube")
   pos = (spec["x"], spec["y"])
@@ -386,6 +421,8 @@ def make_item(space, spec):
     return RebarItem(space, pos)
   if t == "peg":
     return PortablePegItem(space, pos)
+  if t == "bag":
+    return BagItem(space, pos)
   if t == "cube":
     return CubeItem(space, pos, contents=spec.get("contents"))
   return CubeItem(space, pos)

@@ -27,7 +27,7 @@ class Game:
       spawn_y = BODY_R
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
-      level = Level(space, self.map_path, sound=sound)
+      level = Level(space, self.map_path, sound=sound, cheats=self.cheats)
       floor_fill = FloorFill()
       hud_info = HudInfo()
       clock = pygame.time.Clock()

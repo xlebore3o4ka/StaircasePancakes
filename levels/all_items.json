@@ -1,4 +1,5 @@
 {
+  "bag": [400, 120],
   "platforms": [],
   "items": [
     {"x": -200, "y": 120, "type": "cube"},

@@ -103,6 +103,12 @@ class Player:
     self.use_charged = [False, False]
     # <STRANGE>#850 pocket slots (1 and 3): hold a spare item per hand; hidden from world, shown in HUD ring
     self.pocket = [None, None]
+    # <STRANGE>#890 cheats turn pockets on from the start; otherwise a bag unlocks them mid-run
+    self.has_pockets = cheats
+    self.pocket_hint_active = False
+    self.pocket_hint_alpha = 0.0
+    self.pocket_hint_t = 0.0
+    self._hint_font = None
     # <STRANGE>#856 per-hand list of shrink/grow animations for pocket transitions
     self.pocket_anim = [[], []]
     # <STRANGE>#864 hold '2' to converge both hands on the cursor; release swaps hand contents
@@ -166,6 +172,30 @@ class Player:
         self._hit_cd = HIT_COOLDOWN
     if self._hit_cd > 0:
       self._hit_cd -= dt
+
+  def grant_pockets(self):
+    # <STRANGE>#889 fills both slots with soda and an empty cube, random order; idempotent
+    if self.has_pockets:
+      return
+    self.has_pockets = True
+    from .item import make_item
+    soda = make_item(self.space, {"x": 0, "y": 0, "type": "soda"})
+    cube = make_item(self.space, {"x": 0, "y": 0, "type": "cube", "contents": [{"type": "nothing", "count": 1}]})
+    # <STRANGE>#898 keep bodies in space but frozen; destroy() breaks later hold() because body is detached
+    for it in (soda, cube):
+      it.body.body_type = pymunk.Body.STATIC
+      it.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
+      it.body.position = (0, 0)
+      it.held_by = -1
+    if random.random() < 0.5:
+      self.pocket[0] = soda
+      self.pocket[1] = cube
+    else:
+      self.pocket[0] = cube
+      self.pocket[1] = soda
+    self.pocket_hint_active = True
+    self.pocket_hint_alpha = 0.0
+    self.pocket_hint_t = 0.0
 
   def _swap_hands(self):
     # <STRANGE>#864 move item from one hand to the other (or swap both); grow fx on each receiving hand
@@ -273,6 +303,8 @@ class Player:
       return
     consumed, spawn_spec, stamina_gain = item.use()
     if consumed:
+      # <STRANGE>#887 on_consume runs before destroy so the item can still inspect its state
+      item.on_consume(self)
       if self.sound is not None and item.use_sound:
         # <STRANGE>#744 fire before item.destroy in case subclass cleanup nulls state
         self.sound.play(item.use_sound)
@@ -371,9 +403,13 @@ class Player:
         self.items_only = True
       # <STRANGE>#850 key "1" (scancode 30) and "3" (scancode 32) toggle pocket slots
       elif e.scancode == 30:
-        self._pocket_toggle(0)
+        if self.has_pockets:
+          self._pocket_toggle(0)
+          self.pocket_hint_active = False
       elif e.scancode == 32:
-        self._pocket_toggle(1)
+        if self.has_pockets:
+          self._pocket_toggle(1)
+          self.pocket_hint_active = False
       # <STRANGE>#864 key "2" (scancode 31) — hand merge
       elif e.scancode == 31:
         self.converge = True
@@ -664,6 +700,12 @@ class Player:
         fx["t"] += dt
       self.pocket_anim[i] = [fx for fx in self.pocket_anim[i] if fx["t"] < fx["dur"]]
 
+    # <STRANGE>#890 hint: fade toward target alpha, pulse while visible
+    target = 1.0 if self.pocket_hint_active else 0.0
+    self.pocket_hint_alpha += (target - self.pocket_hint_alpha) * smooth(0.3, dt)
+    if self.pocket_hint_alpha > 0.005:
+      self.pocket_hint_t += dt
+
     # <STRANGE>#391 HUD decay: pinned to 1 while charged, fades otherwise
     for i in range(2):
       if self.use_charged[i]:
@@ -763,6 +805,21 @@ class Player:
         else:
           t = max(2, r // 4)
           pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, t)
+    self._draw_pocket_hint(screen, cam)
+
+  def _draw_pocket_hint(self, screen, cam):
+    if self.pocket_hint_alpha <= 0.01:
+      return
+    if self._hint_font is None:
+      self._hint_font = pygame.font.SysFont(None, 28)
+    pulse = 0.5 - 0.5 * math.cos(math.tau * self.pocket_hint_t / 1.0)
+    a = int(255 * self.pocket_hint_alpha * (0.5 + 0.5 * pulse))
+    surf = self._hint_font.render("Press 1 or 2", True, (255, 255, 255))
+    surf.set_alpha(a)
+    wx = self.body.position.x
+    wy = self.body.position.y + BODY_R + 30
+    sx, sy = cam.to_screen(wx, wy)
+    screen.blit(surf, surf.get_rect(center=(int(sx), int(sy))))
 
   def _ensure_hud_labels(self):
     # <STRANGE>#392 lazy cache; Q/E rendered once with white, alpha applied per blit via set_alpha

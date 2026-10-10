@@ -7,7 +7,7 @@ from .entities.item import make_item
 import pymunk
 
 class Level:
-  def __init__(self, space, path, sound=None):
+  def __init__(self, space, path, sound=None, cheats=False):
     self.space = space
     self.sound = sound
     data = json.load(open(path))
@@ -97,6 +97,17 @@ class Level:
       if self.sound is not None:
         sp_item.sound = self.sound
       self.items.append(sp_item)
+    # <STRANGE>#892 bag is a single top-level [x, y]; skipped with cheats (pockets already on)
+    bag_data = data.get("bag")
+    if bag_data and not cheats:
+      if isinstance(bag_data[0], (int, float)):
+        bx, by = bag_data[0], bag_data[1]
+      else:
+        bx, by = bag_data[0][0], bag_data[0][1]
+      bag = make_item(space, {"x": bx, "y": by, "type": "bag"})
+      if self.sound is not None:
+        bag.sound = self.sound
+      self.items.append(bag)
 
   def spawn_item(self, pos, spec, vel=(0, 0)):
     # <STRANGE>#575 spec is a full dict (type + extras); fill in x/y and pass through
