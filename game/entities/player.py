@@ -103,6 +103,8 @@ class Player:
     self.use_charged = [False, False]
     # <STRANGE>#850 pocket slots (1 and 3): hold a spare item per hand; hidden from world, shown in HUD ring
     self.pocket = [None, None]
+    # <STRANGE>#856 per-hand list of shrink/grow animations for pocket transitions
+    self.pocket_anim = [[], []]
     # <STRANGE>#824 time held on q/e, drives the white pulse on the item sprite
     self.use_charge_t = [0.0, 0.0]
     self._hud_labels = None
@@ -175,13 +177,23 @@ class Player:
       self.held[i] = None
       self.grab_lock[i] = True
       self.grab_cooldown[i] = 0.3
+      # <STRANGE>#856 shrink fx for the item that just left the hand
+      self.pocket_anim[i].append({"item": item, "t": 0.0, "dur": 0.25, "grow": False})
+      if self.sound is not None:
+        self.sound.play("pickup_item")
     else:
       hand = self.held[i]
       if hand is not None:
         hand.held_by = -1
+        self.pocket_anim[i].append({"item": hand, "t": 0.0, "dur": 0.25, "grow": False})
       stashed, self.pocket[i] = self.pocket[i], hand
       self.held[i] = stashed
-      self.held[i].hold(i)
+      if stashed is not None:
+        stashed.hold(i)
+        # <STRANGE>#856 grow fx for the item arriving into the hand
+        self.pocket_anim[i].append({"item": stashed, "t": 0.0, "dur": 0.25, "grow": True})
+      if self.sound is not None:
+        self.sound.play("pickup_item")
 
   def _use(self, i):
     item = self.held[i]
@@ -595,6 +607,12 @@ class Player:
     elif not walking:
       self._step_cd = 0.0
 
+    # <STRANGE>#856 pocket transition animations tick
+    for i in range(2):
+      for fx in self.pocket_anim[i]:
+        fx["t"] += dt
+      self.pocket_anim[i] = [fx for fx in self.pocket_anim[i] if fx["t"] < fx["dur"]]
+
     # <STRANGE>#391 HUD decay: pinned to 1 while charged, fades otherwise
     for i in range(2):
       if self.use_charged[i]:
@@ -654,7 +672,8 @@ class Player:
         amp = ITEM_USE_SHAKE_AMP * sc
         ax += random.uniform(-amp, amp)
         ay += random.uniform(-amp, amp)
-      if self.held[i] is not None:
+      # <STRANGE>#856 during pocket animation the item is drawn by the fx loop, not by held
+      if self.held[i] is not None and not self.pocket_anim[i]:
         it = self.held[i]
         # <STRANGE>#824 whiten pulse while q/e is held; skipped for portable peg because its use is a placement, not a charged action
         if self.use_charged[i] and not getattr(it, "skip_use_pulse", False):
@@ -667,6 +686,15 @@ class Player:
           it.draw_at(screen, cam, (it.body.position.x + shx, it.body.position.y + shy), it.body.angle, 255, 1.0, whiten)
         else:
           it.draw_at(screen, cam, it.body.position, it.body.angle, 255, 1.0, whiten)
+      # <STRANGE>#856 pocket fx: item shrinks into or grows out of the hand position, follows live hand
+      for fx in self.pocket_anim[i]:
+        k = fx["t"] / fx["dur"]
+        scale = k if fx["grow"] else (1.0 - k)
+        if scale <= 0.01:
+          continue
+        hx = arm.position.x + ITEM_OFFSET * (-1 if i == 0 else 1)
+        hy = arm.position.y
+        fx["item"].draw_at(screen, cam, (hx, hy), 0.0, 255, scale)
       arm_color = (223, int(223 * s_t), int(223 * s_t))
       if self.held[i] is not None:
         r = int(self.arm_r[i] * ARM_HOLD_SCALE * sc)
