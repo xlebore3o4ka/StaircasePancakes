@@ -535,11 +535,17 @@ class Player:
         for i in range(2):
           self.arm_dir[i] = (self.arm_dir[i] + (c_target - self.arm_dir[i]) * smooth(0.5, dt)).normalized()
 
+    # <STRANGE>#868 while converge use the exact edge-to-edge angle so arms meet, not overlap
+    if self.converge:
+      min_ang = 2.0 * math.asin(min(1.0, ARM_R / ARM_DX))
+    else:
+      min_ang = ARM_MIN_ANG
+
     a0, a1 = self.arm_dir[0].angle, self.arm_dir[1].angle
     diff = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi
-    if abs(diff) < ARM_MIN_ANG:
+    if abs(diff) < min_ang:
       sign = 1 if diff >= 0 else -1
-      push = (ARM_MIN_ANG - abs(diff)) / 2
+      push = (min_ang - abs(diff)) / 2
       a0 -= sign * push
       a1 += sign * push
       self.arm_dir[0] = pymunk.Vec2d(1, 0).rotated(a0)
