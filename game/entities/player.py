@@ -105,6 +105,8 @@ class Player:
     self.pocket = [None, None]
     # <STRANGE>#856 per-hand list of shrink/grow animations for pocket transitions
     self.pocket_anim = [[], []]
+    # <STRANGE>#864 hold '2' to converge both hands on the cursor; release swaps hand contents
+    self.converge = False
     # <STRANGE>#824 time held on q/e, drives the white pulse on the item sprite
     self.use_charge_t = [0.0, 0.0]
     self._hud_labels = None
@@ -164,6 +166,23 @@ class Player:
         self._hit_cd = HIT_COOLDOWN
     if self._hit_cd > 0:
       self._hit_cd -= dt
+
+  def _swap_hands(self):
+    # <STRANGE>#864 move item from one hand to the other (or swap both); grow fx on each receiving hand
+    a, b = self.held[0], self.held[1]
+    if a is None and b is None:
+      return
+    self.held[0], self.held[1] = b, a
+    self.throw_hist[0].clear()
+    self.throw_hist[1].clear()
+    for i in range(2):
+      it = self.held[i]
+      if it is None:
+        continue
+      it.hold(i)
+      self.pocket_anim[i].append({"item": it, "t": 0.0, "dur": 0.25, "grow": True})
+    if self.sound is not None:
+      self.sound.play("pickup_item")
 
   def _pocket_toggle(self, i):
     # <STRANGE>#850 if empty pocket and something in hand -> stash; if pocket filled -> take out (swap with hand item)
@@ -335,6 +354,9 @@ class Player:
         self._pocket_toggle(0)
       elif e.scancode == 32:
         self._pocket_toggle(1)
+      # <STRANGE>#864 key "2" (scancode 31) — hand merge
+      elif e.scancode == 31:
+        self.converge = True
     elif e.type == pygame.KEYUP:
       if e.scancode == 4:
         self.move[0] = False
@@ -347,6 +369,11 @@ class Player:
         for i in range(2):
           if self.pressed[i]:
             self.grab_lock[i] = False
+      # <STRANGE>#864 release '2' -> swap hand contents with grow fx
+      elif e.scancode == 31:
+        if self.converge:
+          self.converge = False
+          self._swap_hands()
       # <STRANGE>#819 q/e fire on release
       elif e.scancode == 20:
         if self.use_charged[0]:
@@ -499,6 +526,14 @@ class Player:
       self.arm_dir[i] = (self.arm_dir[i] + (target - self.arm_dir[i]) * smooth(self.lerp_t, dt)).normalized()
       target_r = PRESS_R if self.pressed[i] and not self.grab_lock[i] and self.grabbed[i] is None and self.stamina[i] > STAMINA_GRAB_MIN else ARM_R
       self.arm_r[i] += (target_r - self.arm_r[i]) * smooth(self.lerp_t, dt)
+
+    # <STRANGE>#864 while converge, both arms point at the cursor
+    if self.converge:
+      c_target = pymunk.Vec2d(mx - self.body.position.x, wy - self.body.position.y)
+      if c_target.length > 0:
+        c_target = c_target.normalized()
+        for i in range(2):
+          self.arm_dir[i] = (self.arm_dir[i] + (c_target - self.arm_dir[i]) * smooth(0.5, dt)).normalized()
 
     a0, a1 = self.arm_dir[0].angle, self.arm_dir[1].angle
     diff = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi
