@@ -71,7 +71,7 @@ HUD_FLASH_DURATION = 0.35
 HUD_ITEMSMODE_RING_ALPHA = 60
 HUD_ITEMSMODE_RING_W = 2
 # <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
-ITEM_TYPES = ["cube", "soda", "rebar"]
+ITEM_TYPES = ["cube", "soda", "rebar", "peg"]
 CUBE_ELASTICITY = 0.0
 CUBE_LINEAR_DAMPING = 0.2
 THROW_MAX_SPEED = 1400

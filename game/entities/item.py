@@ -6,6 +6,7 @@ from shared.const import (
   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
   CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
+  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_W,
   REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
@@ -318,6 +319,25 @@ def _on_screen(item, cam):
   return -50 <= sx <= vw + 50 and -50 <= sy <= vh + 50
 
 
+class PortablePegItem(Item):
+  # <STRANGE>#778 carryable peg: same look and size as a static Peg, but a plain item (no grapplable hooks)
+  def __init__(self, space, pos):
+    super().__init__(space, pos, PEG_R * 2, PEG_R * 2)
+
+  def draw_at(self, screen, cam, pos, angle, alpha, scale):
+    sc = cam.scale * scale
+    x, y = cam.to_screen(pos[0], pos[1])
+    r = max(1, int(PEG_R * sc))
+    if alpha < 255:
+      surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+      pygame.draw.circle(surf, (*PEG_FILL, alpha), (r, r), r)
+      pygame.draw.circle(surf, (*PEG_EDGE, alpha), (r, r), r, max(1, int(PEG_EDGE_W * sc)))
+      screen.blit(surf, (int(x) - r, int(y) - r))
+    else:
+      pygame.draw.circle(screen, PEG_FILL, (int(x), int(y)), r)
+      pygame.draw.circle(screen, PEG_EDGE, (int(x), int(y)), r, max(1, int(PEG_EDGE_W * sc)))
+
+
 def make_item(space, spec):
   t = spec.get("type", "cube")
   pos = (spec["x"], spec["y"])
@@ -325,6 +345,8 @@ def make_item(space, spec):
     return SodaItem(space, pos)
   if t == "rebar":
     return RebarItem(space, pos)
+  if t == "peg":
+    return PortablePegItem(space, pos)
   if t == "cube":
     return CubeItem(space, pos, contents=spec.get("contents"))
   return CubeItem(space, pos)
