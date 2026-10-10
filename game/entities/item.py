@@ -343,6 +343,8 @@ class PortablePegItem(Item):
   FILL = (230, 140, 40)
   pickup_sound = "pickup_peg"
   use_sound = "peg_place"
+  # <STRANGE>#830 no charge pulse; placement fires on release regardless
+  skip_use_pulse = True
 
   def use(self):
     # <STRANGE>#790 signals "consume and place a static Peg at pos"; spec type tells Level what to build

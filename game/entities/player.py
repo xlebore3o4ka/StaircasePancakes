@@ -619,9 +619,8 @@ class Player:
         ay += random.uniform(-amp, amp)
       if self.held[i] is not None:
         it = self.held[i]
-        # <STRANGE>#824 whiten pulse while q/e is held; cosine gives smooth in/out
-        if self.use_charged[i]:
-          # <STRANGE>#828 scale to ~0.4 so the pulse reads as a soft white glow, not a full repaint
+        # <STRANGE>#824 whiten pulse while q/e is held; skipped for portable peg because its use is a placement, not a charged action
+        if self.use_charged[i] and not getattr(it, "skip_use_pulse", False):
           whiten = 0.6 * (0.5 - 0.5 * math.cos(math.tau * self.use_charge_t[i] / USE_PULSE_PERIOD))
         else:
           whiten = 0.0
