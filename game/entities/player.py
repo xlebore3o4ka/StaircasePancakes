@@ -101,6 +101,8 @@ class Player:
     self.hud_flash = [0.0, 0.0]
     # <STRANGE>#819 q/e are charge-on-hold, fire-on-release
     self.use_charged = [False, False]
+    # <STRANGE>#850 pocket slots (1 and 3): hold a spare item per hand; hidden from world, shown in HUD ring
+    self.pocket = [None, None]
     # <STRANGE>#824 time held on q/e, drives the white pulse on the item sprite
     self.use_charge_t = [0.0, 0.0]
     self._hud_labels = None
@@ -160,6 +162,26 @@ class Player:
         self._hit_cd = HIT_COOLDOWN
     if self._hit_cd > 0:
       self._hit_cd -= dt
+
+  def _pocket_toggle(self, i):
+    # <STRANGE>#850 if empty pocket and something in hand -> stash; if pocket filled -> take out (swap with hand item)
+    if self.pocket[i] is None:
+      item = self.held[i]
+      if item is None:
+        return
+      # <STRANGE>#851 held_by = -1 marks "hidden in pocket": Level.drawables skips it, grab loop skips it
+      item.held_by = -1
+      self.pocket[i] = item
+      self.held[i] = None
+      self.grab_lock[i] = True
+      self.grab_cooldown[i] = 0.3
+    else:
+      hand = self.held[i]
+      if hand is not None:
+        hand.held_by = -1
+      stashed, self.pocket[i] = self.pocket[i], hand
+      self.held[i] = stashed
+      self.held[i].hold(i)
 
   def _use(self, i):
     item = self.held[i]
@@ -296,6 +318,11 @@ class Player:
       # <STRANGE>#552 SDL scancode F=9; hold F for items-only grabbing
       elif e.scancode == 9:
         self.items_only = True
+      # <STRANGE>#850 key "1" (scancode 30) and "3" (scancode 32) toggle pocket slots
+      elif e.scancode == 30:
+        self._pocket_toggle(0)
+      elif e.scancode == 32:
+        self._pocket_toggle(1)
     elif e.type == pygame.KEYUP:
       if e.scancode == 4:
         self.move[0] = False
@@ -339,14 +366,16 @@ class Player:
           step = self.stamina_boost[i]
         self.stamina_boost[i] -= step
         self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + step)
+      # <STRANGE>#852 pocket weight: while a hand's pocket holds an item, drain is +10% and regen is -10%
+      pocket_mul = 1.1 if self.pocket[i] is not None else 1.0
       if self.grabbed[i] is not None:
-        self.stamina[i] -= per_sec(STAMINA_HOLD_DRAIN, dt) / max(num_grabbed, 1)
+        self.stamina[i] -= per_sec(STAMINA_HOLD_DRAIN * pocket_mul, dt) / max(num_grabbed, 1)
         if self.stamina[i] <= 0:
           self.stamina[i] = 0.0
           self._release(i)
       else:
         mul = STAMINA_LOW_MUL if self.stamina[i] > STAMINA_LOW_THRESH else 1.0
-        self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + per_sec(STAMINA_REGEN * mul, dt))
+        self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + per_sec(STAMINA_REGEN * mul / pocket_mul, dt))
     grounded = self._is_grounded()
     # <TODO>#385 diagnostic: only fire on a truly anomalous spike; legit swings exceed JUMP_V all the time
     if (self.body.velocity.y > JUMP_V * 1.6
@@ -672,14 +701,17 @@ class Player:
     offset = 4 * BODY_R * sc
     r = int(BODY_R * sc)
     self._ensure_hud_labels()
-    # <STRANGE>#846 outer decorative circles: half radius, same base alpha, no stamina tint or item icon
+    # <STRANGE>#850 pocket rings: drawn only when the slot has an item; icon rendered at half alpha
     outer_r = max(1, int(r * 0.75))
     outer_gap = offset + r + int(50 * sc)
-    for side in (-1, 1):
+    for i, side in enumerate((-1, 1)):
+      if self.pocket[i] is None:
+        continue
       ox = cx + side * outer_gap
       surf = pygame.Surface((outer_r * 2, outer_r * 2), pygame.SRCALPHA)
       pygame.draw.circle(surf, (223, 223, 223, HUD_BASE_ALPHA_EMPTY), (outer_r, outer_r), outer_r)
       screen.blit(surf, (int(ox) - outer_r, int(cy) - outer_r))
+      self.pocket[i].draw_at(screen, _HUDScreenCam(sc), (ox, cy), 0.0, 128, 1.0)
 
     for i in range(2):
       hx = cx + (-offset if i == 0 else offset)
