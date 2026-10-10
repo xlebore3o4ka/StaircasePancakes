@@ -72,6 +72,8 @@ class Item:
   def on_use(self, player, hand):
     # <STRANGE>#521 default: return False to fall through to use() (consume/shake)
     return False
+  # <STRANGE>#883 true for items that cannot go into pocket slots (rebar)
+  no_pocket = False
   # <NOTE>#461 local-space offset from body center to the grab point; when held, body.position = arm.pos - R(angle) * hold_offset
   hold_offset = (0, 0)
   # <NOTE>#462 override when max(w,h) is a bad reach metric (long thin items); None means use max/2
@@ -252,6 +254,7 @@ class SodaItem(Item):
 
 class RebarItem(Item):
   pickup_sound = "pickup_rebar"
+  no_pocket = True
   # <STRANGE>#513 hold offset toward the near end: local -Y is the end facing away from cursor
   hold_offset = (0, REBAR_H / 6)
   grab_radius = REBAR_GRAB_R

@@ -182,13 +182,25 @@ class Player:
       it.hold(i)
       self.pocket_anim[i].append({"item": it, "t": 0.0, "dur": 0.25, "grow": True})
     if self.sound is not None:
-      self.sound.play("pickup_item")
+      # <STRANGE>#884 swap plays pickup_sound of whichever item landed in a hand
+      played = False
+      for i in range(2):
+        it = self.held[i]
+        if it is not None and it.pickup_sound:
+          self.sound.play(it.pickup_sound)
+          played = True
+          break
+      if not played:
+        self.sound.play("pickup_item")
 
   def _pocket_toggle(self, i):
     # <STRANGE>#850 if empty pocket and something in hand -> stash; if pocket filled -> take out (swap with hand item)
     if self.pocket[i] is None:
       item = self.held[i]
       if item is None:
+        return
+      # <STRANGE>#883 rebar cannot be pocketed
+      if getattr(item, "no_pocket", False):
         return
       # <STRANGE>#851 held_by = -1 marks "hidden in pocket": Level.drawables skips it, grab loop skips it
       item.held_by = -1
@@ -199,8 +211,8 @@ class Player:
       self.grab_lock[i] = False
       # <STRANGE>#856 shrink fx for the item that just left the hand
       self.pocket_anim[i].append({"item": item, "t": 0.0, "dur": 0.25, "grow": False})
-      if self.sound is not None:
-        self.sound.play("pickup_item")
+      if self.sound is not None and item.pickup_sound:
+        self.sound.play(item.pickup_sound)
     else:
       hand = self.held[i]
       if hand is not None:
@@ -214,8 +226,8 @@ class Player:
         stashed.hold(i)
         # <STRANGE>#856 grow fx for the item arriving into the hand
         self.pocket_anim[i].append({"item": stashed, "t": 0.0, "dur": 0.25, "grow": True})
-      if self.sound is not None:
-        self.sound.play("pickup_item")
+      if self.sound is not None and stashed is not None and stashed.pickup_sound:
+        self.sound.play(stashed.pickup_sound)
 
   def _use(self, i):
     item = self.held[i]
