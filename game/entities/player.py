@@ -672,6 +672,15 @@ class Player:
     offset = 4 * BODY_R * sc
     r = int(BODY_R * sc)
     self._ensure_hud_labels()
+    # <STRANGE>#846 outer decorative circles: half radius, same base alpha, no stamina tint or item icon
+    outer_r = max(1, r // 2)
+    outer_gap = offset + r + int(10 * sc)
+    for side in (-1, 1):
+      ox = cx + side * outer_gap
+      surf = pygame.Surface((outer_r * 2, outer_r * 2), pygame.SRCALPHA)
+      pygame.draw.circle(surf, (223, 223, 223, HUD_BASE_ALPHA_EMPTY), (outer_r, outer_r), outer_r)
+      screen.blit(surf, (int(ox) - outer_r, int(cy) - outer_r))
+
     for i in range(2):
       hx = cx + (-offset if i == 0 else offset)
       hy = cy
