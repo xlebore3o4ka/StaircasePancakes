@@ -621,7 +621,8 @@ class Player:
         it = self.held[i]
         # <STRANGE>#824 whiten pulse while q/e is held; cosine gives smooth in/out
         if self.use_charged[i]:
-          whiten = 0.5 - 0.5 * math.cos(math.tau * self.use_charge_t[i] / USE_PULSE_PERIOD)
+          # <STRANGE>#828 scale to ~0.4 so the pulse reads as a soft white glow, not a full repaint
+          whiten = 0.4 * (0.5 - 0.5 * math.cos(math.tau * self.use_charge_t[i] / USE_PULSE_PERIOD))
         else:
           whiten = 0.0
         if s_t < 0.5:
