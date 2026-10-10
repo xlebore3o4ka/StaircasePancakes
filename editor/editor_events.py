@@ -333,9 +333,9 @@ class EventsMixin:
       kind = type(obj).__name__.replace("Editor", "")
       title = f"{kind}  ·  layer {cur}" + ("  (default)" if is_default else "")
 
-    from .objects import EditorBackground
+    from .objects import EditorBackground, EditorPlatform
     options = []
-    if not is_group and isinstance(obj, EditorBackground):
+    if not is_group and isinstance(obj, (EditorBackground, EditorPlatform)):
       if getattr(obj, "polygon", False):
         options.append(("Edit points", ("edit_points", None)))
         options.append(("Convert to rect", ("to_rect", None)))

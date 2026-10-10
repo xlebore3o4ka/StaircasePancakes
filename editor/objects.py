@@ -156,12 +156,70 @@ class EditorPlatform:
     self.edge = PLAT_EDGE
     self.locked = False
     self.layer = None
+    # platform polygon mode
+    self.polygon = False
+    self.points = []
+    self.active_points = set()
 
   def world_rect(self):
+    if self.polygon and len(self.points) >= 1:
+      xs = [p[0] for p in self.points]
+      ys = [p[1] for p in self.points]
+      return (self.x + min(xs), self.x + max(xs),
+              self.y + min(ys), self.y + max(ys))
     return (self.x - self.w / 2, self.x + self.w / 2,
             self.y - self.h / 2, self.y + self.h / 2)
 
+  def world_points(self):
+    return [(self.x + p[0], self.y + p[1]) for p in self.points]
+
+  def to_polygon(self):
+    if self.polygon:
+      return
+    l = self.x - self.w / 2
+    r = self.x + self.w / 2
+    b = self.y - self.h / 2
+    t = self.y + self.h / 2
+    self.points = [
+      [int(l - self.x), int(b - self.y)],
+      [int(r - self.x), int(b - self.y)],
+      [int(r - self.x), int(t - self.y)],
+      [int(l - self.x), int(t - self.y)],
+    ]
+    self.polygon = True
+    self.active_points = set()
+
+  def to_rect(self):
+    if not self.polygon or not self.points:
+      self.polygon = False
+      self.points = []
+      return
+    xs = [p[0] for p in self.points]
+    ys = [p[1] for p in self.points]
+    l, r = min(xs), max(xs)
+    b, t = min(ys), max(ys)
+    self.w = max(1, int(r - l))
+    self.h = max(1, int(t - b))
+    self.x = self.x + (l + r) / 2
+    self.y = self.y + (b + t) / 2
+    self.polygon = False
+    self.points = []
+    self.active_points = set()
+
+  def rotate_around_center(self, degrees):
+    import math as _m
+    if not self.polygon:
+      self.to_polygon()
+    rad = _m.radians(degrees)
+    c, sn = _m.cos(rad), _m.sin(rad)
+    for p in self.points:
+      x, y = p[0], p[1]
+      p[0] = x * c - y * sn
+      p[1] = x * sn + y * c
+
   def hit(self, wx, wy):
+    if self.polygon and len(self.points) >= 3:
+      return _point_in_poly(wx, wy, self.world_points())
     l, r, b, t = self.world_rect()
     return l <= wx <= r and b <= wy <= t
 
@@ -170,6 +228,8 @@ class EditorPlatform:
     return not (orr < l or ol > r or ot < b or ob > t)
 
   def edge_hit(self, wx, wy, zone=RESIZE_ZONE):
+    if self.polygon:
+      return None
     l, r, b, t = self.world_rect()
     in_x = l - zone <= wx <= r + zone
     in_y = b - zone <= wy <= t + zone
@@ -188,12 +248,17 @@ class EditorPlatform:
   def to_json(self):
     d = {
       "x": int(self.x), "y": int(self.y),
-      "w": int(self.w), "h": int(self.h),
       "fill": list(self.fill), "edge": list(self.edge),
       "locked": bool(self.locked),
     }
     if self.layer is not None:
       d["layer"] = int(self.layer)
+    if self.polygon and len(self.points) >= 3:
+      d["polygon"] = True
+      d["points"] = [[int(p[0]), int(p[1])] for p in self.points]
+    else:
+      d["w"] = int(self.w)
+      d["h"] = int(self.h)
     return d
 
   def badge_screen_pos(self, ed):
@@ -203,6 +268,25 @@ class EditorPlatform:
     return x1 - 12, y0 + 12
 
   def draw(self, screen, ed):
+    if self.polygon and len(self.points) >= 3:
+      pts = [ed.to_screen(wx, wy) for wx, wy in self.world_points()]
+      ipts = [(int(sx), int(sy)) for sx, sy in pts]
+      pygame.draw.polygon(screen, self.fill, ipts)
+      pygame.draw.polygon(screen, self.edge, ipts, PLAT_EDGE_W)
+      if self.locked:
+        xs = [p[0] for p in ipts]
+        ys = [p[1] for p in ipts]
+        bx0, by0 = min(xs), min(ys)
+        bx1, by1 = max(xs), max(ys)
+        w, h = bx1 - bx0, by1 - by0
+        if w > 0 and h > 0:
+          local = [(px - bx0, py - by0) for px, py in ipts]
+          stripes = make_stripe_surface(w, h).copy()
+          mask = pygame.Surface((w, h), pygame.SRCALPHA)
+          pygame.draw.polygon(mask, (255, 255, 255, 255), local)
+          stripes.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+          screen.blit(stripes, (bx0, by0))
+      return
     l, r, b, t = self.world_rect()
     x0, y0 = ed.to_screen(l, t)
     x1, y1 = ed.to_screen(r, b)

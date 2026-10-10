@@ -101,9 +101,9 @@ class CoreMixin:
 
   def _rotate_arc_hit(self, pos):
     """???????? pos ?????????? ?? ???????? ???? ?????? ??? ???????????? 'tl'/'br', ?????????? None."""
-    from .objects import EditorBackground
+    from .objects import EditorBackground, EditorPlatform
     bg = self.selected
-    if not isinstance(bg, EditorBackground):
+    if not isinstance(bg, (EditorBackground, EditorPlatform)):
       return None
     if bg.locked:
       return None
@@ -139,9 +139,9 @@ class CoreMixin:
     if self.polygon_edit is not None:
       self.exit_polygon_edit()
       return
-    from .objects import EditorBackground
+    from .objects import EditorBackground, EditorPlatform
     b = self.selected
-    if not isinstance(b, EditorBackground):
+    if not isinstance(b, (EditorBackground, EditorPlatform)):
       return
     if not b.polygon:
       b.to_polygon()

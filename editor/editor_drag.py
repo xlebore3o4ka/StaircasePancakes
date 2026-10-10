@@ -93,7 +93,8 @@ class DragMixin:
       refs.append((l + r) / 2)
       refs.append(r)
       # <STRANGE>#561: ???????? ?????????????????? ??? ???????? ???????? ????????????????
-      if isinstance(obj, EditorBackground) and getattr(obj, "polygon", False):
+      if isinstance(obj, (EditorBackground, EditorPlatform)) \
+         and getattr(obj, "polygon", False):
         for wx, wy in obj.world_points():
           refs.append(wx)
     return refs
@@ -111,7 +112,8 @@ class DragMixin:
       refs.append(b)
       refs.append((b + t) / 2)
       refs.append(t)
-      if isinstance(obj, EditorBackground) and getattr(obj, "polygon", False):
+      if isinstance(obj, (EditorBackground, EditorPlatform)) \
+         and getattr(obj, "polygon", False):
         for wx, wy in obj.world_points():
           refs.append(wy)
     return refs
@@ -482,8 +484,9 @@ class DragMixin:
       moved_x = [pl + raw_dx, (pl + pr) / 2 + raw_dx, pr + raw_dx]
       moved_y = [pb + raw_dy, (pb + pt) / 2 + raw_dy, pt + raw_dy]
       # <STRANGE>#562: ???????? ?????????? ?????????????? ??? ?????? ?????? ???????? ???????? ??????????????????
-      if anchor is not None and isinstance(anchor, EditorBackground) \
-         and getattr(anchor, "polygon", False):
+      if anchor is not None and \
+         isinstance(anchor, (EditorBackground, EditorPlatform)) and \
+         getattr(anchor, "polygon", False):
         for vx, vy in anchor.world_points():
           moved_x.append(vx + raw_dx)
           moved_y.append(vy + raw_dy)
