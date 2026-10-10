@@ -1,105 +1,132 @@
 #!/bin/sh
 set -e
 
+cat > game/entities/puff.py <<'EOF'
+import random
+import pygame
+from shared.const import PUFF_COUNT, PUFF_DURATION, PUFF_R_MIN, PUFF_R_MAX, PUFF_SPEED_MIN, PUFF_SPEED_MAX, PUFF_COLOR
+
+
+class PuffBurst:
+  # <STRANGE>#775 one-shot particle burst; player-owned, ticked every frame, removed when lifetime ends
+  def __init__(self, pos):
+    self.t = 0.0
+    self.particles = []
+    for _ in range(PUFF_COUNT):
+      ang = random.uniform(0, 6.28318)
+      spd = random.uniform(PUFF_SPEED_MIN, PUFF_SPEED_MAX)
+      self.particles.append({
+        "x": pos[0], "y": pos[1],
+        "vx": spd * pygame.math.Vector2(1, 0).rotate_rad(ang).x,
+        "vy": spd * pygame.math.Vector2(1, 0).rotate_rad(ang).y,
+        "r": random.uniform(PUFF_R_MIN, PUFF_R_MAX),
+      })
+
+  def update(self, dt):
+    self.t += dt
+    if self.t >= PUFF_DURATION:
+      return False
+    for p in self.particles:
+      p["x"] += p["vx"] * dt
+      p["y"] += p["vy"] * dt
+    return True
+
+  def draw(self, screen, cam):
+    k = self.t / PUFF_DURATION
+    alpha = int(220 * (1.0 - k))
+    if alpha <= 0:
+      return
+    for p in self.particles:
+      r = p["r"] * (1.0 - k * 0.7)
+      if r < 0.5:
+        continue
+      sx, sy = cam.to_screen(p["x"], p["y"])
+      rr = max(1, int(r * cam.scale))
+      surf = pygame.Surface((rr * 2, rr * 2), pygame.SRCALPHA)
+      pygame.draw.circle(surf, (*PUFF_COLOR, alpha), (rr, rr), rr)
+      screen.blit(surf, (int(sx) - rr, int(sy) - rr))
+EOF
+
 python - <<'PYEOF'
-p = "game/entities/background.py"
+p = "shared/const.py"
 s = open(p).read()
 
-old = """class Background:
-  layer = LAYER_BG
+old = "STEP_INTERVAL = 0.32\n"
+new = """STEP_INTERVAL = 0.32
 
-  def __init__(self, pos, w, h, color=BG_FILL):
-    self.x, self.y = pos
-    self.w, self.h = w, h
-    self.color = color
-
-  def draw(self, screen, cam):
-    x0, y0 = cam.to_screen(self.x - self.w / 2, self.y + self.h / 2)
-    x1, y1 = cam.to_screen(self.x + self.w / 2, self.y - self.h / 2)
-    r = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
-    # <SLOW>#198 cull: skip draw when fully off-screen; free win on large levels
-    sw, sh = screen.get_size()
-    if r.right < 0 or r.left > sw or r.bottom < 0 or r.top > sh:
-      return
-    pygame.draw.rect(screen, self.color, r)"""
-new = """class Background:
-  layer = LAYER_BG
-
-  def __init__(self, pos, w, h, color=BG_FILL, points=None):
-    self.x, self.y = pos
-    self.w = w
-    self.h = h
-    self.color = color
-    # <STRANGE>#771 polygon mode: points are offsets from the (x, y) centre, given in world units; None = plain rect
-    self.points = points
-
-  def _world_points(self):
-    return [(self.x + px, self.y + py) for px, py in self.points]
-
-  def _bbox(self):
-    xs = [p[0] for p in self.points]
-    ys = [p[1] for p in self.points]
-    return (self.x + min(xs), self.x + max(xs),
-            self.y + min(ys), self.y + max(ys))
-
-  def draw(self, screen, cam):
-    # <SLOW>#198 cull: skip draw when fully off-screen
-    sw, sh = screen.get_size()
-    if self.points is None:
-      x0, y0 = cam.to_screen(self.x - self.w / 2, self.y + self.h / 2)
-      x1, y1 = cam.to_screen(self.x + self.w / 2, self.y - self.h / 2)
-      r = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
-      if r.right < 0 or r.left > sw or r.bottom < 0 or r.top > sh:
-        return
-      pygame.draw.rect(screen, self.color, r)
-      return
-    l, r, b, t = self._bbox()
-    sx0, sy0 = cam.to_screen(l, t)
-    sx1, sy1 = cam.to_screen(r, b)
-    lo_x, hi_x = (sx0, sx1) if sx0 < sx1 else (sx1, sx0)
-    lo_y, hi_y = (sy0, sy1) if sy0 < sy1 else (sy1, sy0)
-    if hi_x < 0 or lo_x > sw or hi_y < 0 or lo_y > sh:
-      return
-    pts = [cam.to_screen(wx, wy) for wx, wy in self._world_points()]
-    pygame.draw.polygon(screen, self.color, pts)"""
-assert old in s, "Background"
+PUFF_COUNT = 8
+PUFF_DURATION = 0.5
+PUFF_R_MIN = 4
+PUFF_R_MAX = 10
+PUFF_SPEED_MIN = 60
+PUFF_SPEED_MAX = 220
+PUFF_COLOR = (220, 220, 220)
+"""
+assert old in s, "STEP_INTERVAL"
 s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
 PYEOF
 
 python - <<'PYEOF'
-p = "game/level.py"
+p = "game/entities/player.py"
 s = open(p).read()
 
-old = """    self.backgrounds = []
-    for bd in data.get("backgrounds", []):
-      bg = Background((bd["x"], bd["y"]), bd["w"], bd["h"], tuple(bd.get("color", BG_FILL)))
-      if "layer" in bd:
-        bg.layer = int(bd["layer"])
-      self.backgrounds.append(bg)"""
-new = """    self.backgrounds = []
-    for bd in data.get("backgrounds", []):
-      points = None
-      # <STRANGE>#771 polygon mode: points relative to centre; at least 3 required, fewer is ignored
-      if bd.get("polygon") and isinstance(bd.get("points"), list) and len(bd["points"]) >= 3:
-        points = [(float(p[0]), float(p[1])) for p in bd["points"]]
-      bg = Background(
-        (bd["x"], bd["y"]),
-        bd.get("w", 0), bd.get("h", 0),
-        tuple(bd.get("color", BG_FILL)),
-        points=points,
-      )
-      if "layer" in bd:
-        bg.layer = int(bd["layer"])
-      self.backgrounds.append(bg)"""
-assert old in s, "backgrounds load"
+old = "from .consume_fx import SodaConsumeFx\n"
+new = "from .consume_fx import SodaConsumeFx\nfrom .puff import PuffBurst\n"
+if old in s and "PuffBurst" not in s:
+  s = s.replace(old, new, 1)
+
+if "self.puffs = []" not in s:
+  old = "    self.consume_fx = []\n"
+  new = "    self.consume_fx = []\n    # <STRANGE>#775 one-shot particle bursts, own list so they don't tie to consume logic\n    self.puffs = []\n"
+  assert old in s, "consume_fx init"
+  s = s.replace(old, new, 1)
+
+# spawn puff on cube use
+old = """    consumed, spawn_spec, stamina_gain = item.use()
+    if consumed:
+      if self.sound is not None and item.use_sound:
+        # <STRANGE>#744 fire before item.destroy in case subclass cleanup nulls state
+        self.sound.play(item.use_sound)"""
+new = """    consumed, spawn_spec, stamina_gain = item.use()
+    if consumed:
+      if self.sound is not None and item.use_sound:
+        # <STRANGE>#744 fire before item.destroy in case subclass cleanup nulls state
+        self.sound.play(item.use_sound)
+      # <STRANGE>#775 dust puff at the item position for cubes
+      if getattr(item, "use_sound", None) == "open_cube":
+        self.puffs.append(PuffBurst(item.body.position))"""
+assert old in s, "use consume"
+s = s.replace(old, new, 1)
+
+# tick puffs in update
+old = """    # <STRANGE>#415 fx tick: soda completion applies stamina; dead fx also destroy their item ref
+    for fx in self.consume_fx:"""
+new = """    # <STRANGE>#775 puff bursts tick
+    self.puffs = [p for p in self.puffs if p.update(dt)]
+
+    # <STRANGE>#415 fx tick: soda completion applies stamina; dead fx also destroy their item ref
+    for fx in self.consume_fx:"""
+assert old in s, "fx tick"
+s = s.replace(old, new, 1)
+
+# draw puffs (above body, below arms feels right — same loop as consume_fx)
+old = """    # <STRANGE>#416 consume fx draws on top of the body so the fly-in reads clearly
+    for fx in self.consume_fx:
+      fx.draw(screen, cam)"""
+new = """    # <STRANGE>#416 consume fx draws on top of the body so the fly-in reads clearly
+    for fx in self.consume_fx:
+      fx.draw(screen, cam)
+    for p in self.puffs:
+      p.draw(screen, cam)"""
+assert old in s, "fx draw"
 s = s.replace(old, new, 1)
 
 open(p, "w").write(s)
 PYEOF
 
-python -c "import ast; [ast.parse(open(f).read()) for f in ['game/entities/background.py','game/level.py']]; print('syntax ok')"
+python -c "import ast; [ast.parse(open(f).read()) for f in ['shared/const.py','game/entities/puff.py','game/entities/player.py']]; print('syntax ok')"
 
 git add -A
-git commit -m "background: optional polygon mode with center-relative points"
+git commit -m "fx: dust puff burst on cube open"

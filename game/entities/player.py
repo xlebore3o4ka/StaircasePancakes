@@ -6,6 +6,7 @@ from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM
 from shared.smooth import smooth, per_sec
 from shared.physics_util import has_ground_contact
 from .consume_fx import SodaConsumeFx
+from .puff import PuffBurst
 
 ARM_MASS = 0.1
 ARM_MIN_ANG = math.radians(15)
@@ -92,6 +93,8 @@ class Player:
     self.spawn_queue = []
     # <STRANGE>#413 visual fx from consumed items; player-owned, ticked in update
     self.consume_fx = []
+    # <STRANGE>#775 one-shot particle bursts, own list so they don't tie to consume logic
+    self.puffs = []
     # <STRANGE>#390 HUD feedback state: per-hand flash (0..1) on use, lazy-cached Q/E surfaces
     self.hud_flash = [0.0, 0.0]
     self._hud_labels = None
@@ -111,14 +114,15 @@ class Player:
     self._pre_v = pymunk.Vec2d(self.body.velocity.x, self.body.velocity.y)
 
   def post_step(self, dt):
-    # <STRANGE>#736 bias means vy was ~0 before step and became large after: solver kicked, not gameplay
-    if self.jumped_this_frame:
-      return
     v = self.body.velocity.y
-    # <TODO>#741 diagnostic: log any positive vy jump; remove when filters are solid
-    if v > 200 and (v - self._pre_vy) > 100:
-      print(f"JUMP vy={v:.0f} pre_vy={self._pre_vy:.0f} dv={v - self._pre_vy:.0f} grabbed={[g is not None for g in self.grabbed]} jumped={self.jumped_this_frame}")
-    if v > JUMP_V * 1.05 and self._pre_vy < 50 and not any(g is not None for g in self.grabbed):
+    if self.jumped_this_frame:
+      # <STRANGE>#746 trim bias that piles on top of JUMP_V in the take-off frame
+      if v > JUMP_V * 1.05:
+        self.body.velocity = (self.body.velocity.x, JUMP_V)
+      return
+    # <STRANGE>#773 no peg, positive vy, and we were already moving upward at most ~200: this is ground chatter, kill it
+    if (v > 0 and not any(g is not None for g in self.grabbed)
+        and self._pre_vy < 200 and has_ground_contact(self.body)):
       self.body.velocity = (self.body.velocity.x, 0.0)
     # <STRANGE>#694 impact sfx: any new contact with floor/platform while moving into it fast
     if self.sound is not None and self._hit_cd <= 0:
@@ -178,6 +182,9 @@ class Player:
       if self.sound is not None and item.use_sound:
         # <STRANGE>#744 fire before item.destroy in case subclass cleanup nulls state
         self.sound.play(item.use_sound)
+      # <STRANGE>#775 dust puff at the item position for cubes
+      if getattr(item, "use_sound", None) == "open_cube":
+        self.puffs.append(PuffBurst(item.body.position))
       # <STRANGE>#344 pos captured BEFORE destroy; reading body after removal crashes or returns garbage
       pos = item.body.position
       angle = item.body.angle
@@ -518,6 +525,9 @@ class Player:
       if self.hud_flash[i] > 0:
         self.hud_flash[i] = max(0.0, self.hud_flash[i] - dt / HUD_FLASH_DURATION)
 
+    # <STRANGE>#775 puff bursts tick
+    self.puffs = [p for p in self.puffs if p.update(dt)]
+
     # <STRANGE>#415 fx tick: soda completion applies stamina; dead fx also destroy their item ref
     for fx in self.consume_fx:
       fx.update(dt)
@@ -534,6 +544,8 @@ class Player:
     # <STRANGE>#416 consume fx draws on top of the body so the fly-in reads clearly
     for fx in self.consume_fx:
       fx.draw(screen, cam)
+    for p in self.puffs:
+      p.draw(screen, cam)
     for i, arm in enumerate(self.arms):
       ax, ay = cam.to_screen(*arm.position)
       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
