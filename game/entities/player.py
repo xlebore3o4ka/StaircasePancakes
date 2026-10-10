@@ -109,6 +109,8 @@ class Player:
     self.pocket_hint_alpha = 0.0
     self.pocket_hint_t = 0.0
     self._hint_font = None
+    # <STRANGE>#900 set by Game; pockets use this to register spawned items in the level list
+    self.level = None
     # <STRANGE>#856 per-hand list of shrink/grow animations for pocket transitions
     self.pocket_anim = [[], []]
     # <STRANGE>#864 hold '2' to converge both hands on the cursor; release swaps hand contents
@@ -187,6 +189,10 @@ class Player:
       it.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
       it.body.position = (0, 0)
       it.held_by = -1
+      it.sound = self.sound
+      # <STRANGE>#900 register so throw/release shows the item in the world later
+      if self.level is not None:
+        self.level.items.append(it)
     if random.random() < 0.5:
       self.pocket[0] = soda
       self.pocket[1] = cube
