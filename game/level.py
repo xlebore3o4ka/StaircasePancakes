@@ -29,12 +29,17 @@ class Level:
         self.pegs.append(Peg(space, tuple(p)))
     self.platforms = []
     for pd in data.get("platforms", []):
+      points = None
+      # <STRANGE>#841 same polygon convention as backgrounds: centre-relative points, minimum 3
+      if pd.get("polygon") and isinstance(pd.get("points"), list) and len(pd["points"]) >= 3:
+        points = [(float(p[0]), float(p[1])) for p in pd["points"]]
       plat = Platform(
         space, (pd["x"], pd["y"]),
         w=pd.get("w", PLAT_W),
         h=pd.get("h", PLAT_H),
         fill=tuple(pd.get("fill", PLAT_FILL)),
         edge=tuple(pd.get("edge", PLAT_EDGE)),
+        points=points,
       )
       if "layer" in pd:
         plat.layer = int(pd["layer"])
