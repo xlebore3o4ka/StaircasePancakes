@@ -18,7 +18,9 @@ class UndoMixin:
     if isinstance(o, EditorPlatform):
       return {"t": "plat", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
               "fill": tuple(o.fill), "edge": tuple(o.edge),
-              "locked": o.locked, "layer": o.layer}
+              "locked": o.locked, "layer": o.layer,
+              "polygon": bool(getattr(o, "polygon", False)),
+              "points": [list(p) for p in getattr(o, "points", [])]}
     if isinstance(o, EditorBackground):
       return {"t": "bg", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
               "fill": tuple(o.fill), "locked": o.locked, "layer": o.layer,
@@ -42,6 +44,8 @@ class UndoMixin:
     elif t == "plat":
       o = EditorPlatform(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"]); o.edge = tuple(s["edge"])
+      o.polygon = bool(s.get("polygon", False))
+      o.points = [list(p) for p in s.get("points", [])]
     elif t == "bg":
       o = EditorBackground(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"])

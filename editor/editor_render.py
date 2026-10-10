@@ -101,7 +101,8 @@ class RenderMixin:
       r = max(1, int(obj.r * self.zoom))
       pygame.draw.circle(self.screen, col, (int(sx), int(sy)), r, 1)
       return
-    if isinstance(obj, EditorBackground) and obj.polygon and len(obj.points) >= 3:
+    if isinstance(obj, (EditorBackground, EditorPlatform)) \
+       and getattr(obj, "polygon", False) and len(obj.points) >= 3:
       pts = [self.to_screen(*wp) for wp in obj.world_points()]
       ipts = [(int(x), int(y)) for x, y in pts]
       pygame.draw.polygon(self.screen, col, ipts, 1)
@@ -132,10 +133,10 @@ class RenderMixin:
                          (int(sx), int(sy)), POLY_VERTEX_R, 2)
 
   def _draw_rotate_arcs(self):
-    from .objects import EditorBackground
+    from .objects import EditorBackground, EditorPlatform
     import math as _m
     bg = self.selected
-    if not isinstance(bg, EditorBackground):
+    if not isinstance(bg, (EditorBackground, EditorPlatform)):
       return
     if bg.locked or self.polygon_edit is not None:
       return
