@@ -80,6 +80,9 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       obj.locked = bool(bd.get("locked", False))
       if "layer" in bd:
         obj.layer = int(bd["layer"])
+      if bd.get("polygon"):
+        obj.polygon = True
+        obj.points = [[int(p[0]), int(p[1])] for p in bd.get("points", [])]
       self.objects.append(obj)
     for it in data.get("items", []):
       obj = EditorItem(it["x"], it["y"], it.get("type", DEFAULT_ITEM_TYPE),

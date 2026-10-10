@@ -88,6 +88,9 @@ class EventsMixin:
 
       if self.drag is not None and self.drag[0] == "select_rect":
         self._finalize_select_rect(ctrl)
+      if self.drag is not None and self.drag[0] == "poly_select_rect":
+        # <STRANGE>#552: additive = shift, ???????????????????????? ?? drag data
+        self._finalize_polygon_select_rect(self.drag[1])
       if self.drag is not None and self.drag[0] == "zone_unlock":
         self._apply_zone_unlock()
       if self.drag is not None and self.drag[0] == "create" and self.selected is not None:
@@ -121,6 +124,8 @@ class EventsMixin:
         self.cam_y += dy / self.zoom
         self.pan_last = e.pos
       elif self.drag is not None and self.drag[0] == "select_rect":
+        self.select_now = self.from_screen(*e.pos)
+      elif self.drag is not None and self.drag[0] == "poly_select_rect":
         self.select_now = self.from_screen(*e.pos)
       elif self.drag is not None and self.drag[0] == "zone_unlock":
         self.zone_now = self.from_screen(*e.pos)
@@ -169,12 +174,23 @@ class EventsMixin:
       return
 
     if e.key == pygame.K_ESCAPE:
-      if self.inspector_stack:
+      if self.polygon_edit is not None:
+        self.exit_polygon_edit()
+      elif self.inspector_stack:
         self.pop_inspector()
       else:
         self.running = False
     elif e.key in (pygame.K_DELETE, pygame.K_BACKSPACE):
-      self.delete_selected()
+      # <STRANGE>#523: ?? polygon_edit ?????????????? ?????? ???????????????????? ??????????????
+      if self.polygon_edit is not None and self.polygon_edit.active_points:
+        bg = self.polygon_edit
+        for p in sorted(bg.active_points, reverse=True):
+          if 0 <= p < len(bg.points):
+            del bg.points[p]
+        bg.active_points = set()
+        self._mark_scene_dirty()
+      else:
+        self.delete_selected()
     elif e.key == pygame.K_SPACE:
       self.cam_x, self.cam_y = self.ghost[0], self.ghost[1]
     elif e.key == pygame.K_1:
@@ -198,6 +214,8 @@ class EventsMixin:
 
   # ---------- context menus ----------
   def _try_open_context_menu(self, pos):
+    if self.polygon_edit is not None:
+      return self._try_polygon_edit_menu(pos)
     x, y = pos
     sh = self.screen.get_height()
     if y < self.panel.height() or y >= sh - BOT_H:
@@ -216,6 +234,93 @@ class EventsMixin:
       return True
     return False
 
+  def _try_polygon_edit_menu(self, pos):
+    # <STRANGE>#524: ?????????????????????? ???????? ???????????? ???????????? ????????????????
+    bg = self.polygon_edit
+    if bg is None:
+      return False
+    kind, idx = self._polygon_edit_pick(pos)
+    wx, wy = self.from_screen(*pos)
+    options = []
+    if kind == "vertex":
+      title = "Vertex #%d" % idx
+      options.append(("Delete vertex", ("del_vertex", idx)))
+      options.append(("Split edge", ("split_edge", idx)))
+    elif kind == "edge":
+      title = "Edge #%d" % idx
+      options.append(("Add vertex on edge", ("add_edge", idx)))
+    else:
+      title = "Polygon"
+      options.append(("Add vertex here", ("add_here", None)))
+    options.append(None)
+    options.append(("Select all vertices", ("sel_all", None)))
+    options.append(("Clear selection", ("sel_none", None)))
+    options.append(None)
+    options.append(("Convert to rect", ("to_rect", None)))
+    options.append(("Exit edit", ("exit_edit", None)))
+
+    before = self._snapshot()
+
+    def _reindex_after_remove(removed):
+      new_set = set()
+      for p in bg.active_points:
+        if p == removed:
+          continue
+        new_set.add(p if p < removed else p - 1)
+      bg.active_points = new_set
+
+    def on_select(value):
+      act, data = value
+      if act == "add_here":
+        bg.points.append([int(wx - bg.x), int(wy - bg.y)])
+        bg.active_points = {len(bg.points) - 1}
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+      elif act == "add_edge":
+        vpts = bg.world_points()
+        n = len(vpts)
+        x0, y0 = vpts[data]
+        x1, y1 = vpts[(data + 1) % n]
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        bg.points.insert(data + 1, [int(mx - bg.x), int(my - bg.y)])
+        bg.active_points = {data + 1}
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+      elif act == "split_edge":
+        vpts = bg.world_points()
+        n = len(vpts)
+        x0, y0 = vpts[data]
+        x1, y1 = vpts[(data + 1) % n]
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        bg.points.insert(data + 1, [int(mx - bg.x), int(my - bg.y)])
+        bg.active_points = {data + 1}
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+      elif act == "del_vertex":
+        p = data
+        if 0 <= p < len(bg.points) and len(bg.points) > 3:
+          del bg.points[p]
+          _reindex_after_remove(p)
+          self._push_undo_now(before)
+          self._mark_scene_dirty()
+      elif act == "sel_all":
+        bg.active_points = set(range(len(bg.points)))
+        self._mark_scene_dirty()
+      elif act == "sel_none":
+        bg.active_points = set()
+        self._mark_scene_dirty()
+      elif act == "to_rect":
+        self.exit_polygon_edit()
+        bg.to_rect()
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+      elif act == "exit_edit":
+        self.exit_polygon_edit()
+
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+    return True
+
   def _open_object_menu(self, obj, pos):
     is_group = len(self.selection) > 1 and obj in self.selection
     targets = list(self.selection) if is_group else [obj]
@@ -228,7 +333,15 @@ class EventsMixin:
       kind = type(obj).__name__.replace("Editor", "")
       title = f"{kind}  ·  layer {cur}" + ("  (default)" if is_default else "")
 
+    from .objects import EditorBackground
     options = []
+    if not is_group and isinstance(obj, EditorBackground):
+      if getattr(obj, "polygon", False):
+        options.append(("Edit points", ("edit_points", None)))
+        options.append(("Convert to rect", ("to_rect", None)))
+      else:
+        options.append(("Convert to polygon", ("to_polygon", None)))
+      options.append(None)
     if not is_group and isinstance(obj, EditorItem):
       options.append(("Change type...", ("change_type", None)))
     if not is_group and isinstance(obj, EditorSpawner):
@@ -253,6 +366,24 @@ class EventsMixin:
 
     def on_select(value):
       act, delta = value
+      if act == "to_polygon":
+        obj.to_polygon()
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+        self.enter_polygon_edit(obj)
+        return
+      if act == "to_rect":
+        if self.polygon_edit is obj:
+          self.exit_polygon_edit()
+        obj.to_rect()
+        self._push_undo_now(before)
+        self._mark_scene_dirty()
+        return
+      if act == "edit_points":
+        if not obj.polygon:
+          obj.to_polygon()
+        self.enter_polygon_edit(obj)
+        return
       if act == "change_type":
         self._open_change_type_menu(obj, pos)
         return

@@ -123,13 +123,45 @@ class UIToggleButton(UIButton):
     return False
 
 
+class UILabel(Widget):
+  """???????????? ??????????. ???? ?????????? ??????????????, ?????????? ???????????? ?????? ?????????????? ?????????? ?? ??????????."""
+  def __init__(self, text, w, h):
+    super().__init__(0, 0, w, h)
+    self.text = text
+    self.align = "right"
+
+  def draw(self, screen, font, origin=(0, 0)):
+    if not self.visible:
+      return
+    r = self.screen_rect(origin)
+    surf = render_text(font, self.text, BTN_TEXT)
+    if self.align == "right":
+      x = r.right - surf.get_width()
+    elif self.align == "center":
+      x = r.centerx - surf.get_width() // 2
+    else:
+      x = r.x
+    y = r.centery - surf.get_height() // 2
+    screen.blit(surf, (x, y))
+
+  def on_event(self, e, origin=(0, 0)):
+    return False
+
+
 class UITextInput(Widget):
-  def __init__(self, x, y, w, h, placeholder="", text=""):
+  def __init__(self, x, y, w, h, placeholder="", text="", on_commit=None):
     super().__init__(x, y, w, h)
     self.text = text
     self.placeholder = placeholder
     self.focused = False
     self.cursor_blink = 0.0
+    self.on_commit = on_commit
+    self._last_committed = text
+
+  def _commit(self):
+    if self.on_commit and self.text != self._last_committed:
+      self._last_committed = self.text
+      self.on_commit(self.text)
 
   def update(self, dt):
     self.cursor_blink = (self.cursor_blink + dt) % 1.0
@@ -162,6 +194,7 @@ class UITextInput(Widget):
         return True
       if self.focused:
         self.focused = False
+        self._commit()
       return False
     if self.focused and e.type == pygame.KEYDOWN:
       if e.key == pygame.K_BACKSPACE:
@@ -169,6 +202,7 @@ class UITextInput(Widget):
         return True
       if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
         self.focused = False
+        self._commit()
         return True
       if e.unicode and e.unicode.isprintable():
         self.text += e.unicode

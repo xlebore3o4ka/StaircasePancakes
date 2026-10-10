@@ -2,12 +2,21 @@
 import pygame
 
 from .const import (
-  BG, GOLD, GREEN, SEL_BLUE, SNAP_COLOR, UI_BG, GREY,
+  SMART_CENTER_COLOR, SMART_CORNER_COLOR, SMART_TOUCH_COLOR,
+  ROTATE_ARC_R, ROTATE_ARC_OFF, ROTATE_ARC_THICK,
+  ROTATE_ARC_FILL, ROTATE_ARC_HOVER, ROTATE_ARC_SHADOW,
+
+  BG, GOLD, GREEN, SEL_BLUE, SNAP_COLOR, SMART_MIRROR_COLOR, UI_BG, GREY,
   BOT_H, JUMP_H, JUMP_ALPHA,
   PEG_FILL, PEG_EDGE, PEG_R,
   PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W,
   BG_DEFAULT_COLOR,
   ARM_R, PLAYER_R,
+  POLY_VERTEX_R, POLY_VERTEX_FILL, POLY_VERTEX_EDGE,
+  POLY_ACTIVE_FILL, POLY_EDGE_HINT,
+)
+from .const import (
+  SMART_CENTER_COLOR, SMART_CORNER_COLOR, SMART_TOUCH_COLOR,
 )
 from .helpers import render_text, draw_lock_badge
 from .objects import make_fake_item
@@ -31,26 +40,42 @@ class RenderMixin:
 
     self.screen.fill(BG)
 
-    for _layer, _order, kind, obj in self._render_order:
-      if kind == "floor":
-        self.draw_floor_line()
-      elif kind == "ghost":
-        self.draw_ghost()
-      else:
-        if self._visible(obj, sw, sh):
-          obj.draw(self.screen, self)
+    if self.polygon_edit is not None:
+      # <STRANGE>#525: ghosted-?????????? ??? ?????? ??????????????, ?????????? ????????????????????????????, ????????????????
+      for _layer, _order, kind, obj in self._render_order:
+        if kind == "floor":
+          self.draw_floor_line()
+        elif kind == "ghost":
+          continue
+        else:
+          if not self._visible(obj, sw, sh):
+            continue
+          if obj is self.polygon_edit:
+            obj.draw(self.screen, self)
+          else:
+            self._draw_ghosted(obj)
+    else:
+      for _layer, _order, kind, obj in self._render_order:
+        if kind == "floor":
+          self.draw_floor_line()
+        elif kind == "ghost":
+          self.draw_ghost()
+        else:
+          if self._visible(obj, sw, sh):
+            obj.draw(self.screen, self)
 
-    for obj in self.selection:
-      sx, sy = self.to_screen(obj.x, obj.y)
-      pygame.draw.circle(self.screen, GREEN, (int(sx), int(sy)), 6)
+      for obj in self.selection:
+        sx, sy = self.to_screen(obj.x, obj.y)
+        pygame.draw.circle(self.screen, GREEN, (int(sx), int(sy)), 6)
 
-    self.draw_zone_preview()
-    self.draw_select_rect_preview()
-    self.draw_snap_guides()
+      self.draw_zone_preview()
+      self.draw_select_rect_preview()
+      self.draw_snap_guides()
+      self._draw_rotate_arcs()
 
-    for obj in self._locked_list:
-      bx, by = obj.badge_screen_pos(self)
-      draw_lock_badge(self.screen, bx, by)
+      for obj in self._locked_list:
+        bx, by = obj.badge_screen_pos(self)
+        draw_lock_badge(self.screen, bx, by)
 
     self.draw_bottom_bar()
     self.panel.draw(self.screen)
@@ -58,8 +83,103 @@ class RenderMixin:
     for p in self.inspector_stack:
       p.draw(self.screen)
 
+    if self.polygon_edit is not None:
+      self.draw_select_rect_preview()
+      self.draw_polygon_edit()
+
     if self.context_menu is not None:
       self.context_menu.draw(self.screen)
+
+  def _draw_ghosted(self, obj):
+    # <STRANGE>#526: ???????????????????????????? ???????????? ?????? ???????????????? ?????? ???????????? ????????????
+    from .objects import (
+      EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
+    )
+    col = (255, 255, 255, 70)
+    if isinstance(obj, (EditorPeg, EditorSpawner)):
+      sx, sy = self.to_screen(obj.x, obj.y)
+      r = max(1, int(obj.r * self.zoom))
+      pygame.draw.circle(self.screen, col, (int(sx), int(sy)), r, 1)
+      return
+    if isinstance(obj, EditorBackground) and obj.polygon and len(obj.points) >= 3:
+      pts = [self.to_screen(*wp) for wp in obj.world_points()]
+      ipts = [(int(x), int(y)) for x, y in pts]
+      pygame.draw.polygon(self.screen, col, ipts, 1)
+      return
+    l, r, b, t = obj.world_rect()
+    x0, y0 = self.to_screen(l, t)
+    x1, y1 = self.to_screen(r, b)
+    rr = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                     int(abs(x1 - x0)), int(abs(y1 - y0)))
+    pygame.draw.rect(self.screen, col, rr, 1)
+
+  def draw_polygon_edit(self):
+    bg = self.polygon_edit
+    if bg is None:
+      return
+    wpts = bg.world_points()
+    n = len(wpts)
+    for i in range(n):
+      x0, y0 = self.to_screen(*wpts[i])
+      x1, y1 = self.to_screen(*wpts[(i + 1) % n])
+      pygame.draw.line(self.screen, POLY_EDGE_HINT,
+                       (int(x0), int(y0)), (int(x1), int(y1)), 2)
+    for i, (wx, wy) in enumerate(wpts):
+      sx, sy = self.to_screen(wx, wy)
+      col = POLY_ACTIVE_FILL if i in bg.active_points else POLY_VERTEX_FILL
+      pygame.draw.circle(self.screen, col, (int(sx), int(sy)), POLY_VERTEX_R)
+      pygame.draw.circle(self.screen, POLY_VERTEX_EDGE,
+                         (int(sx), int(sy)), POLY_VERTEX_R, 2)
+
+  def _draw_rotate_arcs(self):
+    from .objects import EditorBackground
+    import math as _m
+    bg = self.selected
+    if not isinstance(bg, EditorBackground):
+      return
+    if bg.locked or self.polygon_edit is not None:
+      return
+    c_tl, c_br, rr = self._rotate_arc_centers(bg)
+    mx, my = pygame.mouse.get_pos()
+
+    # <STRANGE>#610: ???????? ??? ?????????? ?????????? ?????????????? ?? ????????.
+    # ???????????? ?????? ????????, ???????????? ???????? ???????? ?? ??????????????.
+    for key, c in (("tl", c_tl), ("br", c_br)):
+      hover = (mx - c[0]) ** 2 + (my - c[1]) ** 2 <= rr * rr
+      col = ROTATE_ARC_HOVER if hover else ROTATE_ARC_FILL
+
+      # ???????? ???? ???????????? ???????? ???? ???????? ??????????????
+      ang_to_corner = _m.atan2(0 - c[1], 0 - c[0])
+      # ?????????????? ???????????? ??????????????
+      gap = _m.radians(80)
+      # ???????? ???????????????? ?? ??????????????, ?????????????????????????????? ?????????????????????? ???? ????????
+      a_start = ang_to_corner + gap / 2
+      a_end = ang_to_corner + (2 * _m.pi - gap / 2)
+
+      steps = 32
+      pts = []
+      for i in range(steps + 1):
+        a = a_start + (a_end - a_start) * i / steps
+        pts.append((c[0] + _m.cos(a) * rr, c[1] + _m.sin(a) * rr))
+
+      if len(pts) >= 2:
+        pygame.draw.lines(self.screen, col, False,
+                          [(int(x), int(y)) for x, y in pts],
+                          ROTATE_ARC_THICK)
+
+      # ?????????????? ???? ?????????? ???????????? ???????? ??? ???????????????????? ?????????????????????? ????????????????
+      for idx, other in ((0, 1), (-1, -2)):
+        end = pts[idx]
+        prev = pts[other]
+        ang = _m.atan2(end[1] - prev[1], end[0] - prev[0])
+        ah = 7
+        for side in (-1, 1):
+          ea = ang + side * _m.radians(150)
+          ex = end[0] + _m.cos(ea) * ah
+          ey = end[1] + _m.sin(ea) * ah
+          pygame.draw.line(self.screen, col, (int(end[0]), int(end[1])),
+                           (int(ex), int(ey)), ROTATE_ARC_THICK)
+
 
   def draw_snap_guides(self):
     sw, sh = self.screen.get_size()
@@ -69,6 +189,27 @@ class RenderMixin:
     for gy in self.snap_guides_y:
       _, sy = self.to_screen(0, gy)
       pygame.draw.line(self.screen, SNAP_COLOR, (0, int(sy)), (sw, int(sy)), 1)
+    # <STRANGE>#591: smart-?????????????????? ??? ?????????? ?????? ?? ???????????????? snap, ???? ???????????? ????????????
+    for kind, wx, wy, text in self.smart_guides:
+      sx, sy = self.to_screen(wx, wy)
+      if kind.startswith("mirror"):
+        col = SMART_MIRROR_COLOR
+      elif kind.startswith("center"):
+        col = SMART_CENTER_COLOR
+      elif kind == "corner":
+        col = SMART_CORNER_COLOR
+      else:
+        col = SMART_TOUCH_COLOR
+      # ?????????? ?????????? ???????? ??????????
+      if kind.endswith("_x"):
+        pygame.draw.line(self.screen, col, (int(sx), 0), (int(sx), sh), 1)
+      elif kind.endswith("_y"):
+        pygame.draw.line(self.screen, col, (0, int(sy)), (sw, int(sy)), 1)
+      # ???????????? ?? ??????????????
+      pygame.draw.circle(self.screen, col, (int(sx), int(sy)), 5, 2)
+      surf = render_text(self.font, text, col)
+      self.screen.blit(surf, (int(sx) + 8,
+                              int(sy) - surf.get_height() // 2))
 
   def draw_zone_preview(self):
     rect = self._zone_rect()

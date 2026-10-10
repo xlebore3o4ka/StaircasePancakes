@@ -29,6 +29,16 @@ class DragMixin:
       return None
 
   def update_cursor(self):
+    # <STRANGE>#603: ?????? ???????????? ??? crosshair, ?????????????????? ???????? ??????????????????
+    try:
+      mx, my = pygame.mouse.get_pos()
+      if self._rotate_arc_hit((mx, my)) is not None:
+        if self.cursor != "rotate":
+          pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_CROSSHAIR)
+          self.cursor = "rotate"
+        return
+    except Exception:
+      pass
     if self.tool == "lock":
       if self.cursor != "lock":
         if self._lock_cursor is not None:
@@ -70,7 +80,6 @@ class DragMixin:
     return (l, r, b, t)
 
   def _gather_x_refs(self, exclude=(), near=None):
-    """near = (l, r, b, t) — расширенный AABB. Объекты вне него игнорируются."""
     refs = []
     for obj in self.objects:
       if obj in exclude:
@@ -83,10 +92,14 @@ class DragMixin:
       refs.append(l)
       refs.append((l + r) / 2)
       refs.append(r)
+      # <STRANGE>#561: ???????? ?????????????????? ??? ???????? ???????? ????????????????
+      if isinstance(obj, EditorBackground) and getattr(obj, "polygon", False):
+        for wx, wy in obj.world_points():
+          refs.append(wx)
     return refs
 
   def _gather_y_refs(self, exclude=(), near=None):
-    refs = [0.0]  # пол — всегда доступен
+    refs = [0.0]  # ?????? ??? ???????????? ????????????????
     for obj in self.objects:
       if obj in exclude:
         continue
@@ -98,6 +111,9 @@ class DragMixin:
       refs.append(b)
       refs.append((b + t) / 2)
       refs.append(t)
+      if isinstance(obj, EditorBackground) and getattr(obj, "polygon", False):
+        for wx, wy in obj.world_points():
+          refs.append(wy)
     return refs
 
   @staticmethod
@@ -113,8 +129,94 @@ class DragMixin:
       return best, True
     return value, False
 
+  # ---------- polygon edit helpers ----------
+  def _polygon_edit_pick(self, pos):
+    # <STRANGE>#511: ?????????????? ('vertex', i) / ('edge', i) / (None, None)
+    bg = self.polygon_edit
+    if bg is None:
+      return None, None
+    wx, wy = self.from_screen(*pos)
+    r_world = 8 / max(0.01, self.zoom)
+    vpts = bg.world_points()
+    for i, (vx, vy) in enumerate(vpts):
+      if (wx - vx) ** 2 + (wy - vy) ** 2 <= r_world ** 2:
+        return "vertex", i
+    n = len(vpts)
+    if n >= 2:
+      for i in range(n):
+        x0, y0 = vpts[i]
+        x1, y1 = vpts[(i + 1) % n]
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        if (wx - mx) ** 2 + (wy - my) ** 2 <= r_world ** 2:
+          return "edge", i
+    return None, None
+
+  def _polygon_edit_down(self, pos):
+    bg = self.polygon_edit
+    if bg is None:
+      return
+    wx, wy = self.from_screen(*pos)
+    kind, idx = self._polygon_edit_pick(pos)
+    shift = bool(pygame.key.get_mods() & pygame.KMOD_SHIFT)
+    if kind == "vertex":
+      if shift:
+        if idx in bg.active_points:
+          bg.active_points.discard(idx)
+        else:
+          bg.active_points.add(idx)
+      else:
+        if idx not in bg.active_points:
+          bg.active_points = {idx}
+      vpts = bg.world_points()
+      data = []
+      for i in bg.active_points:
+        if 0 <= i < len(vpts):
+          vx, vy = vpts[i]
+          data.append((i, wx - vx, wy - vy))
+      self.drag = ("poly_vertex", data)
+      return
+    if kind == "edge":
+      vpts = bg.world_points()
+      n = len(vpts)
+      x0, y0 = vpts[idx]
+      x1, y1 = vpts[(idx + 1) % n]
+      mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+      new_dx = int(mx - bg.x)
+      new_dy = int(my - bg.y)
+      bg.points.insert(idx + 1, [new_dx, new_dy])
+      bg.active_points = {idx + 1}
+      self.drag = ("poly_vertex", [(idx + 1, wx - mx, wy - my)])
+      self._mark_scene_dirty()
+      return
+    # <STRANGE>#550: ???????? ???? ?????????????? ???????????? ?????????????????? ?????????? ??????????????????.
+    # ?????? ?????????????? ?????????? ?????? ???????????????? ???? ???????????????????? ?????????? < CLICK_THRESHOLD,
+    # ?? ???? ???????????? ???????????? ?????????????????? (shift = ???????????????? ?? ????????????????).
+    self.select_start = (wx, wy)
+    self.select_now = (wx, wy)
+    self.drag = ("poly_select_rect", bool(shift))
+
+
   # ---------- mouse down ----------
   def on_mouse_down(self, pos):
+    if self.polygon_edit is not None:
+      self._polygon_edit_down(pos)
+      return
+
+    # <STRANGE>#601: ????????-?????????????? ?????????????????? ?????? ??????????????????
+    arc = self._rotate_arc_hit(pos)
+    if arc is not None:
+      bg = self.selected
+      mx, my = self.from_screen(*pos)
+      import math as _m
+      cx, cy = bg.x, bg.y
+      start_ang = _m.degrees(_m.atan2(my - cy, mx - cx))
+      self.drag = ("rotate", {"arc": arc, "start_ang": start_ang,
+                              "start_points": [list(p) for p in
+                                               (bg.points if bg.polygon else [])],
+                              "start_polygon": bg.polygon,
+                              "start_w": bg.w, "start_h": bg.h})
+      return
+
     x, y = pos
     sh = self.screen.get_height()
 
@@ -262,9 +364,67 @@ class DragMixin:
 
     self.snap_guides_x = []
     self.snap_guides_y = []
+    self.smart_guides = []
     alt = bool(pygame.key.get_mods() & pygame.KMOD_ALT)
     snap = self.snap_enabled and not alt
 
+    if mode == "rotate":
+      bg = self.selected
+      if bg is None:
+        return
+      import math as _m
+      cx, cy = bg.x, bg.y
+      cur_ang = _m.degrees(_m.atan2(wy - cy, wx - cx))
+      delta = cur_ang - data["start_ang"]
+
+      # <STRANGE>#620: snap ?? ?????????????? 45?? ?????? ???????????????????? Snap (???????????? 7??)
+      snapped_delta = delta
+      if self.snap_enabled:
+        target = round(delta / 45.0) * 45.0
+        if abs(target - delta) <= 7.0:
+          snapped_delta = target
+      # <STRANGE>#621: ???????? Snap ???? ???????????????? ??? ?????????????? grid_step_angle
+      if abs(snapped_delta - delta) < 1e-6 and \
+         getattr(self, "grid_enabled", False) and \
+         getattr(self, "grid_step_angle", 0) > 0:
+        step = float(self.grid_step_angle)
+        target = round(delta / step) * step
+        if abs(target - delta) > 1e-6:
+          snapped_delta = target
+
+      # ?????????????????????????????? ?????????????????? ??????????????????
+      if not data["start_polygon"]:
+        bg.w = data["start_w"]
+        bg.h = data["start_h"]
+        bg.polygon = False
+        bg.points = []
+        bg.to_polygon()
+      else:
+        bg.polygon = True
+        bg.points = [list(p) for p in data["start_points"]]
+
+      bg.rotate_around_center(snapped_delta)
+      self._mark_scene_dirty()
+      return
+    if mode == "poly_select_rect":
+      self.select_now = (wx, wy)
+      return
+    if mode == "poly_select_rect":
+      self.select_now = (wx, wy)
+      return
+    if mode == "poly_select_rect":
+      self.select_now = (wx, wy)
+      return
+    if mode == "poly_vertex":
+      bg = self.polygon_edit
+      if bg is None:
+        return
+      for idx, off_x, off_y in data:
+        if 0 <= idx < len(bg.points):
+          bg.points[idx][0] = int(wx - bg.x - off_x)
+          bg.points[idx][1] = int(wy - bg.y - off_y)
+      self._mark_scene_dirty()
+      return
     if mode == "move":
       self._apply_move(wx, wy, snap)
     elif mode == "ghost":
@@ -298,9 +458,10 @@ class DragMixin:
 
     snap_dx = raw_dx
     snap_dy = raw_dy
+    edge_x = False
+    edge_y = False
 
     if snap and primary_orig is not None:
-      # near считаем по "было бы" позиции всех перемещаемых объектов
       l0, r0, b0, t0 = None, None, None, None
       for obj, ox, oy, (bl, br, bb, bt) in self._move_data:
         nl = bl + raw_dx
@@ -320,6 +481,12 @@ class DragMixin:
       pl, pr, pb, pt = primary_orig
       moved_x = [pl + raw_dx, (pl + pr) / 2 + raw_dx, pr + raw_dx]
       moved_y = [pb + raw_dy, (pb + pt) / 2 + raw_dy, pt + raw_dy]
+      # <STRANGE>#562: ???????? ?????????? ?????????????? ??? ?????? ?????? ???????? ???????? ??????????????????
+      if anchor is not None and isinstance(anchor, EditorBackground) \
+         and getattr(anchor, "polygon", False):
+        for vx, vy in anchor.world_points():
+          moved_x.append(vx + raw_dx)
+          moved_y.append(vy + raw_dy)
 
       best_x_diff = 0
       best_x_dist = SNAP_DIST + 1
@@ -333,6 +500,7 @@ class DragMixin:
             best_x_guide = rx
       if best_x_guide is not None:
         snap_dx = raw_dx + best_x_diff
+        edge_x = True
         self.snap_guides_x.append(best_x_guide)
 
       best_y_diff = 0
@@ -347,13 +515,26 @@ class DragMixin:
             best_y_guide = ry
       if best_y_guide is not None:
         snap_dy = raw_dy + best_y_diff
+        edge_y = True
         self.snap_guides_y.append(best_y_guide)
+
+    # <STRANGE>#563: grid step ??? ???????? edge-snap ???? ???????????????? ???? ???????? ??????
+    if getattr(self, "grid_enabled", False) and \
+       getattr(self, "grid_step", 0) > 0 and anchor is not None:
+      step = float(self.grid_step)
+      if not edge_x:
+        tx = round((anchor.x + snap_dx) / step) * step
+        snap_dx = tx - anchor.x
+      if not edge_y:
+        ty = round((anchor.y + snap_dy) / step) * step
+        snap_dy = ty - anchor.y
 
     for obj, ox, oy, _ in self._move_data:
       if obj.locked:
         continue
       obj.x = ox + snap_dx
       obj.y = oy + snap_dy
+
 
   # ---------- create ----------
   def _apply_create(self, wx, wy, ox, oy, snap):
@@ -389,6 +570,35 @@ class DragMixin:
     if guide_y is not None:
       self.snap_guides_y.append(guide_y)
 
+  # ---------- smart refs (mirror) ----------
+  def _smart_refs_x(self, fixed_edge):
+    """??????????-??????????????: 2*center_neighbor - fixed_edge. ???????????????? ?????? ??????????????
+    ???????? ????????????????, ???? ???????????????? ?????? SMART ?????? ?????????????????? ???????????? ????????????."""
+    out = []
+    for obj in self.objects:
+      if obj in self.selection:
+        continue
+      bl, br, bb, bt = self._obj_bounds(obj)
+      bcx = (bl + br) / 2
+      mirror_x = 2 * bcx - fixed_edge
+      y_top = bt
+      y_bot = bb
+      out.append((mirror_x, obj, y_top, y_bot))
+    return out
+
+  def _smart_refs_y(self, fixed_edge):
+    out = []
+    for obj in self.objects:
+      if obj in self.selection:
+        continue
+      bl, br, bb, bt = self._obj_bounds(obj)
+      bcy = (bb + bt) / 2
+      mirror_y = 2 * bcy - fixed_edge
+      x_l = bl
+      x_r = br
+      out.append((mirror_y, obj, x_l, x_r))
+    return out
+
   # ---------- resize ----------
   def _apply_resize(self, wx, wy, edge, snap):
     if not self._resize_data:
@@ -410,14 +620,61 @@ class DragMixin:
               pb - SNAP_RANGE, pt + SNAP_RANGE)
       x_refs = self._gather_x_refs(exclude=self.selection, near=near)
       y_refs = self._gather_y_refs(exclude=self.selection, near=near)
+
       if edge in ("left", "right"):
-        wx, hit = self._snap_value(wx, x_refs)
-        if hit:
-          guide_x = wx
+        # <STRANGE>#590: mirror-???????? ???????????????????????? ???????????? ????????????
+        # fixed = ?????????????????????????????? ????????, ?? ???????????????? ?????????????????????? ??????????????
+        fixed = pr if edge == "left" else pl
+        smart = self._smart_refs_x(fixed)
+        best_d = SNAP_DIST + 1
+        best_x = None
+        best_smart = None
+        for rx in x_refs:
+          d = abs(rx - wx)
+          if d < best_d:
+            best_d = d
+            best_x = rx
+            best_smart = None
+        for mx, mobj, mt, mb in smart:
+          d = abs(mx - wx)
+          if d < best_d:
+            best_d = d
+            best_x = mx
+            best_smart = (mobj, mt, mb)
+        if best_x is not None:
+          wx = best_x
+          if best_smart is not None:
+            mobj, mt, mb = best_smart
+            self.smart_guides.append(
+              ("mirror_x", best_x, (mt + mb) / 2, "MIRROR"))
+          else:
+            guide_x = best_x
       elif edge in ("top", "bottom"):
-        wy, hit = self._snap_value(wy, y_refs)
-        if hit:
-          guide_y = wy
+        fixed = pt if edge == "bottom" else pb
+        smart = self._smart_refs_y(fixed)
+        best_d = SNAP_DIST + 1
+        best_y = None
+        best_smart = None
+        for ry in y_refs:
+          d = abs(ry - wy)
+          if d < best_d:
+            best_d = d
+            best_y = ry
+            best_smart = None
+        for my, mobj, ml, mr in smart:
+          d = abs(my - wy)
+          if d < best_d:
+            best_d = d
+            best_y = my
+            best_smart = (mobj, ml, mr)
+        if best_y is not None:
+          wy = best_y
+          if best_smart is not None:
+            mobj, ml, mr = best_smart
+            self.smart_guides.append(
+              ("mirror_y", (ml + mr) / 2, best_y, "MIRROR"))
+          else:
+            guide_y = best_y
 
     if edge == "right":
       delta = max(wx, pl + MIN_SIZE) - pr
@@ -487,6 +744,37 @@ class DragMixin:
     if self.selected is not None:
       settings.set_panel_size(kind, int(self.selected.w), int(self.selected.h))
     self._editor_save_size_kind = None
+
+
+
+
+  def _finalize_polygon_select_rect(self, additive):
+    # <STRANGE>#551: ?????????????????? ?????????? ?? ???????????????? ???????????????????????????? ????????????????
+    bg = self.polygon_edit
+    if bg is None:
+      return
+    if self.select_start is None or self.select_now is None:
+      return
+    x0, y0 = self.select_start
+    x1, y1 = self.select_now
+    l, r = min(x0, x1), max(x0, x1)
+    b, t = min(y0, y1), max(y0, y1)
+    if (r - l) < CLICK_THRESHOLD and (t - b) < CLICK_THRESHOLD:
+      # ???????? ?????? ???????????????? ??? ?????????? ?????????????????? (shift ???? ????????????????????)
+      if not additive:
+        bg.active_points = set()
+        self._mark_scene_dirty()
+      return
+    vpts = bg.world_points()
+    hits = set()
+    for i, (vx, vy) in enumerate(vpts):
+      if l <= vx <= r and b <= vy <= t:
+        hits.add(i)
+    if additive:
+      bg.active_points = bg.active_points | hits
+    else:
+      bg.active_points = hits
+    self._mark_scene_dirty()
 
   def _begin_select_rect(self, wx, wy):
     self.select_start = (wx, wy)

@@ -21,7 +21,9 @@ class UndoMixin:
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorBackground):
       return {"t": "bg", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
-              "fill": tuple(o.fill), "locked": o.locked, "layer": o.layer}
+              "fill": tuple(o.fill), "locked": o.locked, "layer": o.layer,
+              "polygon": bool(getattr(o, "polygon", False)),
+              "points": [list(p) for p in getattr(o, "points", [])]}
     if isinstance(o, EditorItem):
       return {"t": "item", "x": o.x, "y": o.y, "item_type": o.item_type,
               "contents": [dict(e) for e in o.contents],
@@ -43,6 +45,8 @@ class UndoMixin:
     elif t == "bg":
       o = EditorBackground(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"])
+      o.polygon = bool(s.get("polygon", False))
+      o.points = [list(p) for p in s.get("points", [])]
     elif t == "item":
       o = EditorItem(s["x"], s["y"], s.get("item_type", DEFAULT_ITEM_TYPE),
                      s.get("contents"))
@@ -184,11 +188,18 @@ class UndoMixin:
       xs = [o.x for o in objs]
       c = (min(xs) + max(xs)) / 2
       for o in objs:
+        # <STRANGE>#564: ?? ???????????????? ???????????????? ?? ?????????????????? ??????????
+        if isinstance(o, EditorBackground) and getattr(o, "polygon", False):
+          for p in o.points:
+            p[0] = -p[0]
         o.x = 2 * c - o.x
     else:
       ys = [o.y for o in objs]
       c = (min(ys) + max(ys)) / 2
       for o in objs:
+        if isinstance(o, EditorBackground) and getattr(o, "polygon", False):
+          for p in o.points:
+            p[1] = -p[1]
         o.y = 2 * c - o.y
 
   # ---------- selection helpers ----------
