@@ -322,6 +322,7 @@ def _on_screen(item, cam):
 class PortablePegItem(Item):
   # <STRANGE>#783 carryable peg: orange so it reads as different from the static red one
   FILL = (230, 140, 40)
+  pickup_sound = "pickup_peg"
   use_sound = "peg_place"
 
   def use(self):
