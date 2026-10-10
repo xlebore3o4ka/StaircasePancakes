@@ -1,0 +1,9 @@
+{
+  "platforms": [],
+  "items": [
+    {"x": -200, "y": 120, "type": "cube"},
+    {"x":  -60, "y": 120, "type": "soda"},
+    {"x":   60, "y": 120, "type": "rebar"},
+    {"x":  200, "y": 120, "type": "peg"}
+  ]
+}

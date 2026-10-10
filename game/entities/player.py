@@ -739,7 +739,15 @@ class Player:
       surf = pygame.Surface((outer_r * 2, outer_r * 2), pygame.SRCALPHA)
       pygame.draw.circle(surf, (223, 223, 223, HUD_BASE_ALPHA_EMPTY), (outer_r, outer_r), outer_r)
       screen.blit(surf, (int(ox) - outer_r, int(cy) - outer_r))
-      self.pocket[i].draw_at(screen, _HUDScreenCam(sc), (ox, cy), 0.0, 128, 1.0)
+      # <STRANGE>#862 HUD icon mirrors the stash fx: grows into the ring while the hand copy shrinks away
+      hud_scale = 1.0
+      for fx in self.pocket_anim[i]:
+        if fx["item"] is self.pocket[i] and not fx["grow"]:
+          hud_scale = fx["t"] / fx["dur"]
+          break
+      if hud_scale <= 0.01:
+        continue
+      self.pocket[i].draw_at(screen, _HUDScreenCam(sc), (ox, cy), 0.0, 128, hud_scale)
 
     for i in range(2):
       hx = cx + (-offset if i == 0 else offset)
