@@ -239,7 +239,9 @@ class Player:
     r = item.on_use(self, i)
     if r == "release":
       self.held[i] = None
-      self.grab_lock[i] = True
+      # <STRANGE>#875 grab_lock only meaningful while the button is still held; otherwise it never clears
+      if self.pressed[i]:
+        self.grab_lock[i] = True
       # <STRANGE>#647 rebar shoots out of hand; block re-grab for a moment so it clears the arm radius
       self.grab_cooldown[i] = 0.5
       # <STRANGE>#650 recoil kicks the body away from any peg it was holding; release both hands like a jump does
@@ -267,8 +269,9 @@ class Player:
       vx, vy = item.throw_vel
       vy += SPAWN_BOUNCE_V
       self.held[i] = None
-      # <STRANGE>#362 lock this hand until mouse is released; otherwise the freshly spawned item lands in the arm and gets grabbed next frame
-      self.grab_lock[i] = True
+      # <STRANGE>#875 same: only lock while button is held
+      if self.pressed[i]:
+        self.grab_lock[i] = True
       if item.center_anim:
         # <STRANGE>#414 defer stamina to fx completion; item must be alive for draw_at during the anim
         self.consume_fx.append(SodaConsumeFx(self, item, angle, stamina_gain))
