@@ -196,6 +196,7 @@ class Player:
       self.held[i] = None
       # <STRANGE>#873 cooldown alone is enough; grab_lock would persist until mouseup and eat the next click
       self.grab_cooldown[i] = 0.3
+      self.grab_lock[i] = False
       # <STRANGE>#856 shrink fx for the item that just left the hand
       self.pocket_anim[i].append({"item": item, "t": 0.0, "dur": 0.25, "grow": False})
       if self.sound is not None:
@@ -207,6 +208,8 @@ class Player:
         self.pocket_anim[i].append({"item": hand, "t": 0.0, "dur": 0.25, "grow": False})
       stashed, self.pocket[i] = self.pocket[i], hand
       self.held[i] = stashed
+      # <STRANGE>#878 retrieve clears any lingering lock so the next click re-grabs normally
+      self.grab_lock[i] = False
       if stashed is not None:
         stashed.hold(i)
         # <STRANGE>#856 grow fx for the item arriving into the hand
