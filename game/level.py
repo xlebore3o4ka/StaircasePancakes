@@ -41,7 +41,16 @@ class Level:
       self.platforms.append(plat)
     self.backgrounds = []
     for bd in data.get("backgrounds", []):
-      bg = Background((bd["x"], bd["y"]), bd["w"], bd["h"], tuple(bd.get("color", BG_FILL)))
+      points = None
+      # <STRANGE>#771 polygon mode: points relative to centre; at least 3 required, fewer is ignored
+      if bd.get("polygon") and isinstance(bd.get("points"), list) and len(bd["points"]) >= 3:
+        points = [(float(p[0]), float(p[1])) for p in bd["points"]]
+      bg = Background(
+        (bd["x"], bd["y"]),
+        bd.get("w", 0), bd.get("h", 0),
+        tuple(bd.get("color", BG_FILL)),
+        points=points,
+      )
       if "layer" in bd:
         bg.layer = int(bd["layer"])
       self.backgrounds.append(bg)
