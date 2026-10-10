@@ -673,8 +673,8 @@ class Player:
     r = int(BODY_R * sc)
     self._ensure_hud_labels()
     # <STRANGE>#846 outer decorative circles: half radius, same base alpha, no stamina tint or item icon
-    outer_r = max(1, r // 2)
-    outer_gap = offset + r + int(10 * sc)
+    outer_r = max(1, int(r * 0.75))
+    outer_gap = offset + r + int(50 * sc)
     for side in (-1, 1):
       ox = cx + side * outer_gap
       surf = pygame.Surface((outer_r * 2, outer_r * 2), pygame.SRCALPHA)
