@@ -194,7 +194,7 @@ class Player:
       item.held_by = -1
       self.pocket[i] = item
       self.held[i] = None
-      self.grab_lock[i] = True
+      # <STRANGE>#873 cooldown alone is enough; grab_lock would persist until mouseup and eat the next click
       self.grab_cooldown[i] = 0.3
       # <STRANGE>#856 shrink fx for the item that just left the hand
       self.pocket_anim[i].append({"item": item, "t": 0.0, "dur": 0.25, "grow": False})
@@ -535,7 +535,7 @@ class Player:
     diff = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi
     if abs(diff) < ARM_MIN_ANG:
       sign = 1 if diff >= 0 else -1
-      push = (min_ang - abs(diff)) / 2
+      push = (ARM_MIN_ANG - abs(diff)) / 2
       a0 -= sign * push
       a1 += sign * push
       self.arm_dir[0] = pymunk.Vec2d(1, 0).rotated(a0)
