@@ -18,7 +18,7 @@ def load(path, name):
     return None
 
 
-def call(mod, path, handler, ctx):
+def call(mod, path, handler, ctx, *extra):
   # <STRANGE>#1023 missing handler is silent; exception is logged and swallowed so level keeps running
   if mod is None:
     return
@@ -26,7 +26,7 @@ def call(mod, path, handler, ctx):
   if fn is None:
     return
   try:
-    fn(ctx)
+    fn(ctx, *extra)
   except Exception as e:
     _err(path, e)
 
