@@ -84,6 +84,10 @@ class Game:
           if net_accum >= 1.0 / NET_TICK_HZ:
             net_accum = 0.0
             net.send(to_wire(player.state))
+          # <STRANGE>#973 drain one-shot world events (peg placement, rebar stick)
+          for ev in level.net_events:
+            net.send(ev)
+          level.net_events.clear()
           for ev in net.poll():
             t = ev.get("t")
             if t == "joined":
@@ -103,6 +107,20 @@ class Game:
               st = from_wire(ev)
               rp.apply_state(st)
               ghost_items.apply(st.items)
+            elif t == "place_peg":
+              # <STRANGE>#973 remote peg; _from_net stops us from re-broadcasting
+              level.spawn_item((float(ev["x"]), float(ev["y"])),
+                               {"type": "peg_static", "_from_net": True})
+            elif t == "place_rebar":
+              # <STRANGE>#974 remote stuck rebar: spawn a rebar, angle it, force it into stuck state
+              spec = {"x": float(ev["x"]), "y": float(ev["y"]), "type": "rebar"}
+              it = level.spawn_item((float(ev["x"]), float(ev["y"])), spec)
+              it.body.angle = float(ev.get("angle", 0.0))
+              it.stick(cam=None)
+              # <STRANGE>#975 kill the lingering ghost of this item if it was in flight on our side
+              gid = ev.get("id")
+              if gid:
+                ghost_items.items.pop(gid, None)
 
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:

@@ -151,6 +151,9 @@ class Player:
     for it in self.level.items:
       if it.held_by is not None:
         continue
+      # <STRANGE>#973 stuck items live as static world objects and are broadcast via place_* events
+      if getattr(it, "stuck", False):
+        continue
       if it.net_id is None or it.owner != me:
         continue
       nx = getattr(it, "net_type", None)

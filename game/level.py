@@ -10,6 +10,8 @@ class Level:
   def __init__(self, space, path, sound=None, cheats=False):
     self.space = space
     self.sound = sound
+    # <STRANGE>#973 one-shot world events to broadcast; drained each frame by game.py
+    self.net_events = []
     data = json.load(open(path))
     # <STRANGE>#560 seed drives any random spawning; missing field means a fresh random seed each run
     self.seed = data.get("seed")
@@ -120,6 +122,9 @@ class Level:
       if "layer" in spec:
         peg.layer = int(spec["layer"])
       self.pegs.append(peg)
+      # <STRANGE>#973 broadcast to peers unless this spawn came from the network
+      if not spec.get("_from_net"):
+        self.net_events.append({"t": "place_peg", "x": full["x"], "y": full["y"]})
       # <STRANGE>#795 return so Player can attach a hand immediately
       return peg
     it = make_item(self.space, full)
@@ -146,6 +151,12 @@ class Level:
         hits = self.space.shape_query(it.shape)
         if hits:
           it.stick(cam)
+          # <STRANGE>#973 broadcast stuck rebar with its net_id so peers can drop the lingering ghost
+          self.net_events.append({
+            "t": "place_rebar",
+            "x": it.body.position.x, "y": it.body.position.y,
+            "angle": it.body.angle, "id": it.net_id,
+          })
           continue
       # <STRANGE>#654 per-item bias clamp after physics; cam passed for sfx visibility check
       it.post_step(cam)
