@@ -33,6 +33,10 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       filetypes=[("Level", "*.json *.tar"), ("JSON", "*.json"), ("TAR", "*.tar")],
     )
     root.destroy()
+    try:
+      self._flush_pygame_events()
+    except Exception:
+      pass
     if not path:
       return
     pegs = [o.to_json() for o in self.objects if isinstance(o, EditorPeg)]
@@ -88,6 +92,10 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       filetypes=[("Level", "*.json *.tar"), ("JSON", "*.json"), ("TAR", "*.tar")],
     )
     root.destroy()
+    try:
+      self._flush_pygame_events()
+    except Exception:
+      pass
     if not path:
       return
     try:

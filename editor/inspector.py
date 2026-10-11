@@ -416,6 +416,10 @@ class InspectorPanel:
           filetypes=[("Python", "*.py"), ("All files", "*.*")],
       )
       root.destroy()
+      try:
+        self.editor._flush_pygame_events()
+      except Exception:
+        pass
       if not path:
         return
       base = _os.path.basename(path)

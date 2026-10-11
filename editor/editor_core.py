@@ -117,6 +117,8 @@ class CoreMixin:
     self.messages = MessageStore()
     # <STRANGE>#1061: files embedded into the level tar (name -> bytes)
     self.embedded_files = {}
+    # <STRANGE>#1091: ignore input until this timestamp (ms)
+    self._swallow_events_until = 0
     # <STRANGE>#1031: per-artifact-type history of past positions
     self._artifact_history = {}
     # list of {kind, x, y, t} markers drawn in the world (info dots etc)
@@ -326,6 +328,17 @@ class CoreMixin:
     if self.version_warning_t > 0.0:
       self.version_warning_t = max(0.0, self.version_warning_t - dt)
 
+  def _flush_pygame_events(self):
+    # <STRANGE>#1090: after tkinter dialogs SDL has queued events.
+    # Drop them all and swallow the first frames of input.
+    try:
+      pygame.event.clear()
+      pygame.event.pump()
+      pygame.event.clear()
+    except Exception:
+      pass
+    self._swallow_events_until = pygame.time.get_ticks() + 150
+
   def _tick_world_markers(self, dt):
     alive = []
     for m in self.world_markers:
@@ -372,7 +385,13 @@ class CoreMixin:
       # before the user sees them.
       if dt > 0.5:
         dt = 0.0
+      _now_ms = pygame.time.get_ticks()
+      _swallow = _now_ms < getattr(self, "_swallow_events_until", 0)
       for e in pygame.event.get():
+        if _swallow and e.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP,
+                                   pygame.KEYDOWN, pygame.KEYUP,
+                                   pygame.MOUSEMOTION):
+          continue
         self.handle_event(e)
       self.update_cursor()
       self.update_ghost()
