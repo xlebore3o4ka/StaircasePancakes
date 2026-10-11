@@ -1,5 +1,8 @@
 import json
+import os
 import random
+import tarfile
+import tempfile
 from shared.version import read as _read_version, parse as _parse_version
 from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
@@ -8,12 +11,28 @@ from .entities.item import make_item
 import pymunk
 
 class Level:
+  def _resolve_path(self, path):
+    # <STRANGE>#1010 .tar levels unpack into a tempdir; TemporaryDirectory cleans up on GC
+    if not path.endswith(".tar"):
+      return path
+    self._tmpdir = tempfile.TemporaryDirectory(prefix="staircase_")
+    # <STRANGE>#1011 filter='data' blocks path traversal, absolute paths and symlinks
+    with tarfile.open(path, "r") as tf:
+      tf.extractall(self._tmpdir.name, filter="data")
+    inner = os.path.join(self._tmpdir.name, "level.json")
+    if not os.path.exists(inner):
+      raise RuntimeError(f"{path}: no level.json inside archive")
+    return inner
+
   def __init__(self, space, path, sound=None, cheats=False):
     self.space = space
     self.sound = sound
     # <STRANGE>#973 one-shot world events to broadcast; drained each frame by game.py
     self.net_events = []
-    data = json.load(open(path))
+    # <STRANGE>#1010 tempdir for tar-unpacked levels; kept alive for the level's lifetime
+    self._tmpdir = None
+    json_path = self._resolve_path(path)
+    data = json.load(open(json_path))
     # <STRANGE>#999 level may declare a minimum game version; hard-fail if we're older
     required = data.get("version")
     if required is not None:
