@@ -1,7 +1,7 @@
 import pygame
 import pymunk
 from shared.const import (
-  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, LINE_W, CIRCLE_LINE_W, LAYER_PEG,
+  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, CIRCLE_LINE_W, LAYER_PEG,
   PEG_FILL_FROM_ITEM,
 )
 

@@ -3,18 +3,15 @@ import os
 import random
 import tarfile
 import tempfile
-import pymunk
 from shared.version import read as _read_version, parse as _parse_version
 from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
-from shared.const import LINE_W
-from shared.const import LINE_W
+from shared.const import LINE_W, BUTTON_R
 from .entities.trigger import Trigger
 from .entities.button import Button
 from .debug_view import DebugArrows
-import pymunk
 
 class Level:
   def _resolve_path(self, path):
