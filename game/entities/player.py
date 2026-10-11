@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W
 from shared.smooth import smooth, per_sec
 from shared.physics_util import has_ground_contact
 from .consume_fx import SodaConsumeFx
@@ -809,8 +809,7 @@ class Player:
         if self.grabbed[i] is not None:
           pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.6)
         else:
-          t = max(2, r // 4)
-          pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, t)
+          pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, CIRCLE_LINE_W)
     self._draw_pocket_hint(screen, cam)
 
   def _draw_pocket_hint(self, screen, cam):
@@ -820,7 +819,7 @@ class Player:
       self._hint_font = pygame.font.SysFont(None, 28)
     pulse = 0.5 - 0.5 * math.cos(math.tau * self.pocket_hint_t / 1.0)
     a = int(255 * self.pocket_hint_alpha * (0.5 + 0.5 * pulse))
-    surf = self._hint_font.render("Press 1 or 2", True, (255, 255, 255))
+    surf = self._hint_font.render("Press 1 or 3", True, (255, 255, 255))
     surf.set_alpha(a)
     wx = self.body.position.x
     wy = self.body.position.y + BODY_R + 30
@@ -861,7 +860,8 @@ class Player:
           break
       if hud_scale <= 0.01:
         continue
-      self.pocket[i].draw_at(screen, _HUDScreenCam(sc), (ox, cy), 0.0, 128, hud_scale)
+      hox, hoy = self.pocket[i].hud_offset
+      self.pocket[i].draw_at(screen, _HUDScreenCam(sc), (ox + hox * sc, cy + hoy * sc), 0.0, 128, hud_scale, y_up=False)
 
     for i in range(2):
       hx = cx + (-offset if i == 0 else offset)
@@ -881,8 +881,8 @@ class Player:
       pygame.draw.circle(surf, (*arm_color, alpha), (r, r), r)
       # <STRANGE>#555 f-mode indicator: semi-transparent white ring around each hud circle
       if self.items_only:
-        ring_w = max(1, int(HUD_ITEMSMODE_RING_W * sc))
-        pygame.draw.circle(surf, (255, 255, 255, HUD_ITEMSMODE_RING_ALPHA), (r, r), r - ring_w // 2, ring_w)
+        ring_w = max(1, int(LINE_W * sc))
+        pygame.draw.circle(surf, (255, 255, 255, HUD_ITEMSMODE_RING_ALPHA), (r, r), r - ring_w // 2, CIRCLE_LINE_W)
       screen.blit(surf, (int(hx) - r, int(hy) - r))
       # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
       lbl = self._hud_labels[i]
@@ -891,7 +891,8 @@ class Player:
         screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
       else:
         # <STRANGE>#353 identity cam: to_screen returns coords unchanged so item renders in HUD space; scale 1.0
-        it.draw_at(screen, _HUDScreenCam(sc), (hx, hy), 0.0, 160, 1.0)
+        hox, hoy = it.hud_offset
+        it.draw_at(screen, _HUDScreenCam(sc), (hx + hox * sc, hy + hoy * sc), 0.0, 160, 1.0, y_up=False)
         # <STRANGE>#403 small label at bottom of the circle outline, alpha slightly higher than the empty variant
         sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
         sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))
