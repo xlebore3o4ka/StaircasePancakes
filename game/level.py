@@ -9,6 +9,7 @@ from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
 from .entities.trigger import Trigger
+from .debug_view import DebugArrows
 import pymunk
 
 class Level:
@@ -32,6 +33,8 @@ class Level:
     self.net_events = []
     # <STRANGE>#1010 tempdir for tar-unpacked levels; kept alive for the level's lifetime
     self._tmpdir = None
+    # <STRANGE>#1017 lazy debug arrow helper (only used with --debugview)
+    self._arrows = DebugArrows()
     json_path = self._resolve_path(path)
     data = json.load(open(json_path))
     # <STRANGE>#999 level may declare a minimum game version; hard-fail if we're older
@@ -208,11 +211,16 @@ class Level:
       it.post_step(cam)
 
 
+  def debug_objects(self):
+    # <STRANGE>#1017 every id-bearing object in the level; order doesn't matter for arrow drawing
+    return self.pegs + self.platforms + self.backgrounds + self.items + self.triggers
+
   def draw_debug(self, screen, cam, player_pos):
-    # <STRANGE>#1015 debug overlay: spawners + triggers, only under --debugview
+    # <STRANGE>#1015 debug overlay: spawners + triggers + id arrows, only under --debugview
     self.draw_spawners(screen, cam, player_pos)
     for t in self.triggers:
       t.draw_debug(screen, cam)
+    self._arrows.draw(screen, cam, self.debug_objects())
 
   def draw_spawners(self, screen, cam, player_pos):
     # <STRANGE>#563 debug only: draws marker at each spawner; shows entries when player is nearby
