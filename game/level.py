@@ -37,6 +37,8 @@ class Level:
     self._tmpdir = None
     # <STRANGE>#1017 lazy debug arrow helper (only used with --debugview)
     self._arrows = DebugArrows()
+    # <STRANGE>#1041 active smooth-move animations; each entry drives one object over time
+    self.movers = []
     json_path = self._resolve_path(path)
     # <STRANGE>#1027 scripts resolve relative to the json's directory; works for both json and tar layouts
     self.base_dir = os.path.dirname(json_path)
@@ -233,6 +235,81 @@ class Level:
   def debug_objects(self):
     # <STRANGE>#1017 every id-bearing object in the level; order doesn't matter for arrow drawing
     return self.pegs + self.platforms + self.backgrounds + self.items + self.triggers
+
+  def move_to(self, uid, x=None, y=None, dur=0.5, ease="out"):
+    # <STRANGE>#1042 start a smooth move; cancels existing movers on the same object
+    obj = self.by_id.get(uid)
+    if obj is None:
+      return False
+    self.movers = [m for m in self.movers if m["obj"] is not obj]
+    entry = {"obj": obj, "t": 0.0, "dur": max(0.01, dur), "ease": ease, "axis": {}}
+    if x is not None:
+      entry["axis"]["x"] = (self._current(obj, "x"), x)
+    if y is not None:
+      entry["axis"]["y"] = (self._current(obj, "y"), y)
+    if entry["axis"]:
+      self.movers.append(entry)
+    return True
+
+  def cancel_move(self, uid):
+    obj = self.by_id.get(uid)
+    if obj is None:
+      return
+    self.movers = [m for m in self.movers if m["obj"] is not obj]
+
+  @staticmethod
+  def _current(obj, axis):
+    if hasattr(obj, "body"):
+      v = getattr(obj.body.position, axis)
+      return v
+    return getattr(obj, axis)
+
+  @staticmethod
+  def _write(obj, x=None, y=None):
+    if hasattr(obj, "body"):
+      p = obj.body.position
+      obj.body.position = (x if x is not None else p.x,
+                           y if y is not None else p.y)
+    else:
+      if x is not None:
+        obj.x = x
+      if y is not None:
+        obj.y = y
+
+  @staticmethod
+  def _ease(name, k):
+    if k <= 0.0:
+      return 0.0
+    if k >= 1.0:
+      return 1.0
+    if name == "in":
+      return k * k
+    if name == "out":
+      return 1.0 - (1.0 - k) * (1.0 - k)
+    if name == "inout":
+      return k * k * (3 - 2 * k)
+    return k
+
+  def update_movers(self, dt):
+    if not self.movers:
+      return
+    keep = []
+    for m in self.movers:
+      m["t"] += dt
+      k = min(1.0, m["t"] / m["dur"])
+      e = self._ease(m["ease"], k)
+      nx = None
+      ny = None
+      if "x" in m["axis"]:
+        a, b = m["axis"]["x"]
+        nx = a + (b - a) * e
+      if "y" in m["axis"]:
+        a, b = m["axis"]["y"]
+        ny = a + (b - a) * e
+      self._write(m["obj"], nx, ny)
+      if m["t"] < m["dur"]:
+        keep.append(m)
+    self.movers = keep
 
   def update_triggers(self, dt, player_pos):
     for t in self.triggers:
