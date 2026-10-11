@@ -820,7 +820,7 @@ class Player:
       self._hint_font = pygame.font.SysFont(None, 28)
     pulse = 0.5 - 0.5 * math.cos(math.tau * self.pocket_hint_t / 1.0)
     a = int(255 * self.pocket_hint_alpha * (0.5 + 0.5 * pulse))
-    surf = self._hint_font.render("Press 1 or 2", True, (255, 255, 255))
+    surf = self._hint_font.render("Press 1 or 3", True, (255, 255, 255))
     surf.set_alpha(a)
     wx = self.body.position.x
     wy = self.body.position.y + BODY_R + 30
