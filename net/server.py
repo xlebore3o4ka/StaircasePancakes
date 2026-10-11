@@ -5,6 +5,7 @@ import websockets
 
 
 _clients = {}  # name -> websocket
+_map_path = None
 
 
 async def handler(ws):
@@ -17,6 +18,12 @@ async def handler(ws):
         continue
       t = msg.get("t")
       if t == "hello":
+        req_map = msg.get("map")
+        # <STRANGE>#995 reject mismatched map before registering; close the socket so client sees the failure
+        if _map_path is not None and req_map != _map_path:
+          print(f"! reject {msg.get('name')}: map {req_map!r} != {_map_path!r}")
+          await ws.close(code=4000, reason="map mismatch")
+          return
         name = msg.get("name") or f"anon-{id(ws)}"
         _clients[name] = ws
         print(f"+ {name} connected, total={len(_clients)}")
@@ -52,9 +59,14 @@ async def run(port):
 
 
 def main():
+  global _map_path
   ap = argparse.ArgumentParser()
   ap.add_argument("--port", type=int, default=8765)
+  ap.add_argument("--map", default="levels/test.json",
+                  help="level json every client must be using")
   args = ap.parse_args()
+  _map_path = args.map
+  print(f"map: {_map_path}")
   try:
     asyncio.run(run(args.port))
   except KeyboardInterrupt:

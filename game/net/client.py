@@ -7,9 +7,10 @@ import websockets
 
 class NetClient:
   # <STRANGE>#950 websocket runs in a background thread with its own asyncio loop; main thread only touches queues
-  def __init__(self, url, name):
+  def __init__(self, url, name, map_path=None):
     self.url = url
     self.name = name
+    self.map_path = map_path
     self._in = queue.Queue()
     self._out = queue.Queue()
     self._stop = threading.Event()
@@ -47,7 +48,7 @@ class NetClient:
     try:
       async with websockets.connect(self.url) as ws:
         print(f"net: connected to {self.url} as {self.name}")
-        await ws.send(json.dumps({"t": "hello", "name": self.name}))
+        await ws.send(json.dumps({"t": "hello", "name": self.name, "map": self.map_path}))
         await asyncio.gather(self._sender(ws), self._receiver(ws))
     except Exception as e:
       print(f"net: connect failed: {e}")

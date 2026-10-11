@@ -49,7 +49,7 @@ class Game:
       # <STRANGE>#955 net is optional; without --server the rest of the loop is untouched
       net = None
       if self.server_url:
-        net = NetClient(self.server_url, self.name or "anon")
+        net = NetClient(self.server_url, self.name or "anon", map_path=self.map_path)
         net.connect()
         # <STRANGE>#983 broadcast local sfx with emitter position; receiver culls offscreen
         # <STRANGE>#989 field is "snd" because the server overwrites "name" with the sender name
