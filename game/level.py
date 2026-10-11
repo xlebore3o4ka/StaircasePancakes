@@ -164,8 +164,18 @@ class Level:
       self.items.append(bag)
 
     # <STRANGE>#1034 on_load runs only after every object exists, so scripts can query the whole level
+    # <STRANGE>#1036 id -> object index; duplicate ids keep the first, warn on the rest
+    self.by_id = {}
+    for o in self.debug_objects():
+      oid = getattr(o, "id", None)
+      if not oid:
+        continue
+      if oid in self.by_id:
+        print(f"level: duplicate id {oid!r}, ignoring later definition")
+        continue
+      self.by_id[oid] = o
     for t in self.triggers:
-      t.load(self.base_dir)
+      t.load(self.base_dir, self)
 
   def spawn_item(self, pos, spec, vel=(0, 0)):
     # <STRANGE>#575 spec is a full dict (type + extras); fill in x/y and pass through
