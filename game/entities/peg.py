@@ -32,6 +32,9 @@ class Peg:
     ix, iy = int(x), int(y)
     fill = PEG_FILL_FROM_ITEM if self.from_item else PEG_FILL
     pygame.draw.circle(screen, fill, (ix, iy), int(PEG_R * sc))
+    # <STRANGE>#1079 inner dot: 40% darker, no outline, 1/2.2 of the peg radius
+    inner = tuple(int(c * 0.6) for c in fill)
+    pygame.draw.circle(screen, inner, (ix, iy), int(PEG_R * sc / 2.2))
     # <STRANGE>#87 gray edge lerps with grab_count; two hands on same peg -> fully gray
     t = min(self.grab_count, 2) / 2
     edge = tuple(int(a + (b - a) * t) for a, b in zip(PEG_EDGE, PEG_EDGE_GRABBED))
