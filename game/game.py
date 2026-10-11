@@ -51,8 +51,11 @@ class Game:
       if self.server_url:
         net = NetClient(self.server_url, self.name or "anon")
         net.connect()
-        # <STRANGE>#983 broadcast local sfx so peers can echo them at half volume
-        sound.on_play = lambda n, v: net.send({"t": "sound", "name": n, "vol": v})
+        # <STRANGE>#983 broadcast local sfx with emitter position; receiver culls offscreen
+        sound.on_play = lambda n, v: net.send({
+          "t": "sound", "name": n, "vol": v,
+          "x": player.body.position.x, "y": player.body.position.y,
+        })
       net_accum = 0.0
 
       floor_fill = FloorFill()
@@ -114,11 +117,18 @@ class Game:
               level.spawn_item((float(ev["x"]), float(ev["y"])),
                                {"type": "peg_static", "_from_net": True})
             elif t == "sound":
-              # <STRANGE>#983 remote sfx at half volume; _from_net stops us from re-broadcasting
+              # <STRANGE>#983 remote sfx at half volume; play only when emitter is on our screen
               n = ev.get("name")
               v = float(ev.get("vol", 1.0))
               if n:
-                sound.play(n, volume=v * 0.5, _from_net=True)
+                ex = float(ev.get("x", 0))
+                ey = float(ev.get("y", 0))
+                sx, sy = cam.to_screen(ex, ey)
+                sw, sh = w.screen.get_size()
+                # <STRANGE>#987 100px margin so near-edge sounds aren't cut abruptly
+                m = 100
+                if -m <= sx <= sw + m and -m <= sy <= sh + m:
+                  sound.play(n, volume=v * 0.5, _from_net=True)
             elif t == "place_rebar":
               # <STRANGE>#974 remote stuck rebar: spawn a rebar, angle it, force it into stuck state
               spec = {"x": float(ev["x"]), "y": float(ev["y"]), "type": "rebar"}
