@@ -67,6 +67,10 @@ class Item:
   layer = LAYER_ITEM
   # <STRANGE>#930 short type tag used for network snapshots; subclasses override
   net_type = None
+  # <STRANGE>#964 network identity, assigned by Player the first time the item is touched
+  net_id = None
+  owner = None
+  touched_at = 0.0
   # <STRANGE>#702 sfx name played on pickup; each subclass overrides
   pickup_sound = None
   # <STRANGE>#744 sfx name played when use() consumes this item; None = silent

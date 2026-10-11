@@ -130,6 +130,8 @@ class Level:
     # <STRANGE>#370 initial velocity set after make_item so the body is already dynamic at spawn
     it.body.velocity = vel
     self.items.append(it)
+    # <STRANGE>#964 return so the caller can tag the freshly spawned item
+    return it
 
   def grabbables(self):
     # <STRANGE>#523 stuck rebars join the peg list so the player's existing grab loop handles them

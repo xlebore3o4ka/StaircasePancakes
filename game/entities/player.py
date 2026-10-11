@@ -1,3 +1,4 @@
+import time
 import math
 import random
 import pygame
@@ -112,6 +113,8 @@ class Player:
     self._hint_font = None
     # <STRANGE>#931 network snapshot, refreshed every frame; name set externally by Game
     self.state = PlayerState()
+    # <STRANGE>#964 monotonic counter for net_id per player
+    self._net_counter = 0
     # <STRANGE>#900 set by Game; pockets use this to register spawned items in the level list
     self.level = None
     # <STRANGE>#856 per-hand list of shrink/grow animations for pocket transitions
@@ -131,6 +134,38 @@ class Player:
     return len(hits) > 0
 
 
+  def tag_item(self, item):
+    # <STRANGE>#964 assign network identity on first touch; refresh timestamp on later touches
+    if item.net_id is None:
+      item.net_id = f"{self.state.name or 'anon'}:{self._net_counter}"
+      self._net_counter += 1
+      item.owner = self.state.name or 'anon'
+    item.touched_at = time.monotonic()
+
+  def _collect_free_items(self):
+    # <STRANGE>#965 only items this player has touched, currently free (not held, not pocketed); top 50 by recency
+    if self.level is None:
+      return []
+    out = []
+    me = self.state.name or 'anon'
+    for it in self.level.items:
+      if it.held_by is not None:
+        continue
+      if it.net_id is None or it.owner != me:
+        continue
+      nx = getattr(it, "net_type", None)
+      if nx is None:
+        continue
+      out.append({"id": it.net_id, "type": nx,
+                  "x": it.body.position.x, "y": it.body.position.y,
+                  "angle": it.body.angle,
+                  "_t": it.touched_at})
+    out.sort(key=lambda e: e["_t"], reverse=True)
+    out = out[:50]
+    for e in out:
+      del e["_t"]
+    return out
+
   def _write_state(self):
     st = self.state
     st.pos = (self.body.position.x, self.body.position.y)
@@ -143,6 +178,7 @@ class Player:
       st.stamina[i] = self.stamina[i]
     st.angle = self.body.angle
     st.jumped = self.jumped_this_frame
+    st.items = self._collect_free_items()
 
   def record_pre_step(self):
     # <STRANGE>#678 store pre-step velocity; post_step compares vy for bias and full v for impact volume
@@ -205,6 +241,7 @@ class Player:
       it.shape.filter = pymunk.ShapeFilter(categories=0b1000, mask=0)
       it.body.position = (0, 0)
       it.held_by = -1
+      self.tag_item(it)
       it.sound = self.sound
       # <STRANGE>#900 register so throw/release shows the item in the world later
       if self.level is not None:
@@ -548,6 +585,7 @@ class Player:
               item_hit = it
               break
           if item_hit is not None:
+            self.tag_item(item_hit)
             self.held[i] = item_hit
             item_hit.hold(i)
             # <STRANGE>#703 per-type pickup sfx, name from item class

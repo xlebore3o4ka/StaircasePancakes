@@ -10,6 +10,7 @@ from .entities.hud_info import HudInfo
 from .net.remote_player import RemotePlayer
 from .net.client import NetClient
 from .net.player_state import to_wire, from_wire
+from .net.ghost_item import GhostItems
 from shared.const import NET_TIMEOUT_SEC
 
 LOGICAL_W = 1920
@@ -42,6 +43,8 @@ class Game:
       player.level = level
       # <STRANGE>#942 remote ghosts: name -> RemotePlayer
       remotes = {}
+      # <STRANGE>#967 ghost items owned by other players
+      ghost_items = GhostItems()
 
       # <STRANGE>#955 net is optional; without --server the rest of the loop is untouched
       net = None
@@ -97,14 +100,19 @@ class Game:
               if rp is None:
                 rp = RemotePlayer(n)
                 remotes[n] = rp
-              rp.apply_state(from_wire(ev))
+              st = from_wire(ev)
+              rp.apply_state(st)
+              ghost_items.apply(st.items)
 
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:
           for pos, spec, vel in player.spawn_queue:
             result = level.spawn_item(pos, spec, vel)
+            # <STRANGE>#964 tag freshly spawned item so it can be ghosted by other clients
+            if result is not None and hasattr(result, "net_id"):
+              player.tag_item(result)
             # <STRANGE>#795 if the spawned entity is grabbable, tell Player to latch the source hand
-            if result is not None:
+            if result is not None and not hasattr(result, "net_id"):
               player.pending_grab = (result, pos)
           player.spawn_queue.clear()
         for _ in range(substeps):
@@ -121,6 +129,8 @@ class Game:
         drawables.sort(key=lambda o: o.layer)
         for d in drawables:
           d.draw(w.screen, cam)
+        ghost_items.update(dt)
+        ghost_items.draw(w.screen, cam)
         for rp in remotes.values():
           rp.draw(w.screen, cam)
         if self.spawninfo:
