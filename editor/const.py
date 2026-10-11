@@ -159,3 +159,27 @@ ROTATE_ARC_THICK = 3
 ROTATE_ARC_FILL = (255, 140, 60)
 ROTATE_ARC_HOVER = (255, 200, 60)
 ROTATE_ARC_SHADOW = (20, 20, 24, 160)
+
+# ---- bag ----
+BAG_R = 16
+BAG_FILL = (200, 130, 60)
+BAG_EDGE = (250, 235, 205)
+BAG_EDGE_W = 3
+BAG_STRAP = (90, 55, 25)
+
+# ---- artifacts ----
+# each artifact type is unique on level, stored as its own top-level key
+ARTIFACT_TYPES = ["bag"]
+DEFAULT_ARTIFACT_TYPE = ARTIFACT_TYPES[0] if ARTIFACT_TYPES else "bag"
+
+ARTIFACT_R = 16
+ARTIFACT_FILL = (200, 130, 60)
+ARTIFACT_EDGE = (250, 235, 205)
+ARTIFACT_EDGE_W = 3
+ARTIFACT_LETTER_FG = (255, 245, 220)
+
+# bag-specific visuals
+BAG_FILL = (200, 130, 60)
+BAG_EDGE = (250, 235, 205)
+BAG_EDGE_W = 3
+BAG_STRAP = (90, 55, 25)

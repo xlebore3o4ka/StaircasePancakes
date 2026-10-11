@@ -8,6 +8,8 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
+  EditorArtifact,
+  EditorArtifact,
 )
 from . import settings
 
@@ -74,7 +76,7 @@ class DragMixin:
 
   # ---------- bounds ----------
   def _obj_bounds(self, obj):
-    if isinstance(obj, (EditorPeg, EditorSpawner)):
+    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact)):
       return (obj.x - obj.r, obj.x + obj.r, obj.y - obj.r, obj.y + obj.r)
     l, r, b, t = obj.world_rect()
     return (l, r, b, t)
@@ -237,6 +239,8 @@ class DragMixin:
         self.set_tool("item")
       elif self.tab_spawner_rect().collidepoint(pos):
         self.set_tool("spawner")
+      elif self.tab_artifact_rect().collidepoint(pos):
+        self.set_tool("artifact")
       return
 
     wx, wy = self.from_screen(x, y)
@@ -352,6 +356,16 @@ class DragMixin:
       self._mark_scene_dirty()
     elif self.tool == "spawner":
       obj = EditorSpawner(wx, wy)
+      self.objects.append(obj)
+      self._set_selection([obj])
+      self._begin_move(wx, wy, obj)
+      self._mark_scene_dirty()
+    elif self.tool == "artifact":
+      cur_type = getattr(self, "current_artifact_type", "bag")
+      self.objects = [o for o in self.objects
+                      if not (isinstance(o, EditorArtifact)
+                              and o.artifact_type == cur_type)]
+      obj = EditorArtifact(wx, wy, cur_type)
       self.objects.append(obj)
       self._set_selection([obj])
       self._begin_move(wx, wy, obj)
@@ -862,7 +876,7 @@ class DragMixin:
 
   # ---------- visibility ----------
   def _visible(self, obj, sw, sh):
-    if isinstance(obj, (EditorPeg, EditorSpawner)):
+    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact)):
       sx, sy = self.to_screen(obj.x, obj.y)
       r = obj.r * self.zoom + 6
       return (sx + r >= 0 and sx - r <= sw and

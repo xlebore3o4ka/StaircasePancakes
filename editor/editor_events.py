@@ -3,8 +3,10 @@ import pygame
 
 from .const import (
   BOT_H, MIN_SIZE, ZOOM_STEP, ITEM_TYPES, PASTE_OFFSET,
+  ARTIFACT_TYPES,
+  DEFAULT_ARTIFACT_TYPE,
 )
-from .objects import EditorItem, EditorSpawner
+from .objects import EditorItem, EditorSpawner, EditorArtifact
 from .widgets import ContextMenu
 
 
@@ -207,6 +209,8 @@ class EventsMixin:
       self.set_tool("item")
     elif e.key == pygame.K_7:
       self.set_tool("spawner")
+    elif e.key == pygame.K_8:
+      self.set_tool("bag")
     elif e.key == pygame.K_l:
       self.set_tool("lock")
     elif e.key == pygame.K_u:
@@ -231,6 +235,9 @@ class EventsMixin:
 
     if self.tool == "item":
       self._open_pick_type_menu(pos)
+      return True
+    if self.tool == "artifact":
+      self._open_pick_artifact_menu(pos)
       return True
     return False
 
@@ -344,6 +351,8 @@ class EventsMixin:
       options.append(None)
     if not is_group and isinstance(obj, EditorItem):
       options.append(("Change type...", ("change_type", None)))
+    if not is_group and isinstance(obj, EditorArtifact):
+      options.append(("Change artifact type...", ("change_artifact_type", None)))
     if not is_group and isinstance(obj, EditorSpawner):
       options.append(("Open inspector", ("open_inspector", None)))
     if not is_group and isinstance(obj, EditorItem) and obj.item_type == "cube":
@@ -383,6 +392,9 @@ class EventsMixin:
         if not obj.polygon:
           obj.to_polygon()
         self.enter_polygon_edit(obj)
+        return
+      if act == "change_artifact_type":
+        self._open_change_artifact_type_menu(obj, pos)
         return
       if act == "change_type":
         self._open_change_type_menu(obj, pos)
@@ -431,6 +443,42 @@ class EventsMixin:
       self._sync_inspector()
     options = [(t, t) for t in ITEM_TYPES]
     title = f"Item type  ·  {item.item_type}"
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+
+
+  def _open_change_artifact_type_menu(self, artifact, pos):
+    # <STRANGE>#730: change artifact type of existing object
+    before = self._snapshot()
+
+    def on_select(t):
+      if t == artifact.artifact_type:
+        return
+      self.objects = [
+        o for o in self.objects
+        if not (isinstance(o, EditorArtifact)
+                and o is not artifact
+                and o.artifact_type == t)
+      ]
+      artifact.artifact_type = t
+      self.current_artifact_type = t
+      self._push_undo_now(before)
+      self._mark_scene_dirty()
+      self._sync_inspector()
+
+    options = [(t, t) for t in ARTIFACT_TYPES]
+    title = "Artifact type  \u00b7  %s" % artifact.artifact_type
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+
+  def _open_pick_artifact_menu(self, pos):
+    # <STRANGE>#731: pick artifact type to place (RMB on empty with artifact tool)
+    def on_select(t):
+      self.current_artifact_type = t
+
+    options = [(t, t) for t in ARTIFACT_TYPES]
+    cur = getattr(self, "current_artifact_type", DEFAULT_ARTIFACT_TYPE)
+    title = "Place artifact  \u00b7  current: %s" % cur
     self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
                                     on_select, title=title)
 

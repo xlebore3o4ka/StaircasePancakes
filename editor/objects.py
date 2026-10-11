@@ -15,6 +15,13 @@ from .const import (
   LAYER_BG, LAYER_PLATFORM, LAYER_PEG, LAYER_ITEM,
   DEFAULT_ITEM_TYPE,
   SPAWNER_R, SPAWNER_FILL, SPAWNER_EDGE, SPAWNER_EDGE_W, SPAWNER_TEXT_COLOR,
+  BAG_R, BAG_FILL, BAG_EDGE, BAG_EDGE_W, BAG_STRAP,
+  ARTIFACT_R,
+  ARTIFACT_FILL,
+  ARTIFACT_EDGE,
+  ARTIFACT_EDGE_W,
+  ARTIFACT_LETTER_FG,
+  DEFAULT_ARTIFACT_TYPE,
 )
 from .helpers import make_stripe_surface, make_circle_stripe_surface
 from . import settings
@@ -24,7 +31,8 @@ try:
     CubeItem as GameCubeItem,
     SodaItem as GameSodaItem,
     make_item as game_make_item,
-  )
+      BagItem as GameBagItem,
+)
   _GAME_ITEM_AVAILABLE = True
 except Exception:
   GameCubeItem = None
@@ -39,6 +47,8 @@ if GameCubeItem is not None:
   GAME_ITEM_CLASSES["cube"] = GameCubeItem
 if GameSodaItem is not None:
   GAME_ITEM_CLASSES["soda"] = GameSodaItem
+if GameBagItem is not None:
+  GAME_ITEM_CLASSES["bag"] = GameBagItem
 
 
 def make_fake_item(item_type):
@@ -91,7 +101,7 @@ def default_layer_for(obj):
     return LAYER_PLATFORM
   if isinstance(obj, EditorPeg):
     return LAYER_PEG
-  if isinstance(obj, (EditorItem, EditorSpawner)):
+  if isinstance(obj, (EditorItem, EditorSpawner, EditorArtifact)):
     return LAYER_ITEM
   return 0
 
@@ -615,3 +625,51 @@ class EditorSpawner:
 
     if self.locked:
       screen.blit(make_circle_stripe_surface(r), (cx - r, cy - r))
+
+# =========================================================
+# Bag ??? ???????????????????????? ?????????? ???????????? ????????????
+# =========================================================
+
+
+# =========================================================
+# Artifact - special single-instance objects
+# =========================================================
+class EditorArtifact:
+  def __init__(self, x, y, artifact_type=DEFAULT_ARTIFACT_TYPE):
+    self.x, self.y = x, y
+    self.artifact_type = artifact_type
+    self.r = ARTIFACT_R
+    self.locked = False
+    self.layer = None
+
+  def hit(self, wx, wy):
+    return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
+
+  def intersects_rect(self, l, r, b, t):
+    nx = max(l, min(self.x, r))
+    ny = max(b, min(self.y, t))
+    return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
+
+  def to_json(self):
+    return [int(self.x), int(self.y)]
+
+  def badge_screen_pos(self, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    r = self.r * ed.zoom
+    return sx + r + 2, sy - r - 2
+
+  def draw(self, screen, ed):
+    # <STRANGE>#740: prefer game draw_at so artifact looks exactly like in-game
+    game = make_fake_item(self.artifact_type)
+    if game is not None:
+      try:
+        game.draw_at(screen, ed, (self.x, self.y), 0.0, 255, 1.0)
+        if self.locked:
+          sx, sy = ed.to_screen(self.x, self.y)
+          r = max(1, int(self.r * ed.zoom))
+          screen.blit(make_circle_stripe_surface(r),
+                      (int(sx) - r, int(sy) - r))
+        return
+      except Exception:
+        pass
+    sx, sy = ed.to_screen(self.x, self.y)

@@ -6,9 +6,13 @@ from tkinter import filedialog
 from .const import (
   PLAT_DEFAULT_W, PLAT_DEFAULT_H, PLAT_FILL, PLAT_EDGE,
   BG_DEFAULT_COLOR, DEFAULT_ITEM_TYPE,
+  ARTIFACT_TYPES,
+  DEFAULT_ARTIFACT_TYPE,
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
+  EditorArtifact,
+  EditorArtifact,
 )
 from .editor_core import CoreMixin
 from .editor_undo import UndoMixin
@@ -35,14 +39,23 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     backgrounds = [o.to_json() for o in self.objects if isinstance(o, EditorBackground)]
     items = [o.to_json() for o in self.objects if isinstance(o, EditorItem)]
     spawners = [o.to_json() for o in self.objects if isinstance(o, EditorSpawner)]
+    # bag ??? ?????????????????? ????????????, ???????? ????????
+    bag = None
+    for o in self.objects:
+      if isinstance(o, EditorArtifact):
+        bag = [int(o.x), int(o.y)]
+        break
+    out = {
+      "pegs": pegs,
+      "platforms": platforms,
+      "backgrounds": backgrounds,
+      "items": items,
+      "itemSpawners": spawners,
+    }
+    if bag is not None:
+      out["bag"] = bag
     with open(path, "w") as f:
-      json.dump({
-        "pegs": pegs,
-        "platforms": platforms,
-        "backgrounds": backgrounds,
-        "items": items,
-        "itemSpawners": spawners,
-      }, f, indent=2)
+      json.dump(out, f, indent=2)
 
   def load(self):
     root = tk.Tk()
@@ -107,6 +120,14 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       if "layer" in sp:
         obj.layer = int(sp["layer"])
       self.objects.append(obj)
+    # bag ??? ??????????????????
+    bag_data = data.get("bag")
+    if bag_data:
+      if isinstance(bag_data, dict):
+        b = EditorArtifact(bag_data.get("x", 0), bag_data.get("y", 0))
+      else:
+        b = EditorArtifact(bag_data[0], bag_data[1])
+      self.objects.append(b)
     self._clear_selection()
     self._mark_scene_dirty()
     self._push_undo_now(before)

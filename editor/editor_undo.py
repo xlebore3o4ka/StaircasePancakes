@@ -3,9 +3,12 @@ from .const import (
   UNDO_LIMIT, PASTE_OFFSET,
   DEFAULT_ITEM_TYPE, PLAT_DEFAULT_W, PLAT_DEFAULT_H,
   PLAT_FILL, PLAT_EDGE, BG_DEFAULT_COLOR,
+  DEFAULT_ARTIFACT_TYPE,
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
+  EditorArtifact,
+  EditorArtifact,
 )
 
 
@@ -35,6 +38,9 @@ class UndoMixin:
                   "count": int(e.get("count", 1))} for e in o.items]
       return {"t": "spawner", "x": o.x, "y": o.y, "entries": entries,
               "locked": o.locked, "layer": o.layer}
+    if isinstance(o, EditorArtifact):
+      return {"t": "bag", "x": o.x, "y": o.y,
+              "locked": o.locked, "layer": o.layer}
     return None
 
   def _make_from_state(self, s):
@@ -57,6 +63,8 @@ class UndoMixin:
     elif t == "spawner":
       o = EditorSpawner(s["x"], s["y"])
       o.items = [dict(e) for e in s.get("entries", [])]
+    elif t == "bag":
+      o = EditorArtifact(s["x"], s["y"])
     else:
       return None
     o.locked = s.get("locked", False)

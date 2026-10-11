@@ -8,7 +8,7 @@ from .const import (
   GHOST_LERP, GHOST_SNAP, GHOST_RETURN_DELAY,
   BOT_H, LAYER_FLOOR, GHOST_LAYER,
   ZOOM_MIN, ZOOM_MAX,
-  DEFAULT_ITEM_TYPE,
+  DEFAULT_ITEM_TYPE, DEFAULT_ARTIFACT_TYPE,
 )
 from .objects import default_layer_for
 from .panel import TopPanel
@@ -60,6 +60,7 @@ class CoreMixin:
     self.clipboard = []
 
     self.current_item_type = DEFAULT_ITEM_TYPE
+    self.current_artifact_type = DEFAULT_ARTIFACT_TYPE
     self.context_menu = None
 
     self.snap_enabled = True

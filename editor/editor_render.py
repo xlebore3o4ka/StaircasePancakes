@@ -14,6 +14,11 @@ from .const import (
   ARM_R, PLAYER_R,
   POLY_VERTEX_R, POLY_VERTEX_FILL, POLY_VERTEX_EDGE,
   POLY_ACTIVE_FILL, POLY_EDGE_HINT,
+  BAG_FILL, BAG_EDGE, BAG_EDGE_W, BAG_STRAP,
+  ARTIFACT_FILL,
+  ARTIFACT_EDGE,
+  ARTIFACT_EDGE_W,
+  ARTIFACT_LETTER_FG,
 )
 from .const import (
   SMART_CENTER_COLOR, SMART_CORNER_COLOR, SMART_TOUCH_COLOR,
@@ -285,6 +290,7 @@ class RenderMixin:
     self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
     self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
     self.draw_tab(self.tab_spawner_rect(), "spawner", self.tool == "spawner")
+    self.draw_tab(self.tab_artifact_rect(), "artifact", self.tool == "artifact")
 
     z = f"{int(self.zoom * 100)}%"
     surf = render_text(self.font, z, GOLD)
@@ -326,6 +332,32 @@ class RenderMixin:
       f = pygame.font.SysFont(None, 20, bold=True)
       ts = f.render("S", True, (255, 255, 255))
       self.screen.blit(ts, ts.get_rect(center=rr.center))
+    elif name == "artifact":
+      # <STRANGE>#742: draw current artifact type; fallback to generic square
+      cur = getattr(self, "current_artifact_type", "bag")
+      game = make_fake_item(cur)
+      if game is not None:
+        self._draw_item_icon(self.screen, r, cur)
+      else:
+        # fallback: red square like BagItem, or generic letter circle
+        box = pygame.Rect(0, 0, 30, 30)
+        box.center = r.center
+        if cur == "bag":
+          pygame.draw.rect(self.screen, (200, 40, 40), box)
+          pygame.draw.rect(self.screen, (255, 255, 255), box, 2)
+        else:
+          pygame.draw.circle(self.screen, ARTIFACT_FILL, box.center, 14)
+          pygame.draw.circle(self.screen, ARTIFACT_EDGE, box.center, 14, 2)
+          f = pygame.font.SysFont(None, 18, bold=True)
+          letter = cur[:1].upper() if cur else "?"
+          ts = f.render(letter, True, ARTIFACT_LETTER_FG)
+          self.screen.blit(ts, ts.get_rect(center=box.center))
+    elif name == "bag":
+      rr = pygame.Rect(0, 0, 24, 24)
+      rr.center = r.center
+      pygame.draw.circle(self.screen, BAG_FILL, rr.center, 12)
+      pygame.draw.circle(self.screen, BAG_EDGE, rr.center, 12, 2)
+      pygame.draw.circle(self.screen, BAG_STRAP, rr.center, 4)
     else:
       rr = pygame.Rect(0, 0, 100, 40)
       rr.center = r.center
@@ -376,3 +408,9 @@ class RenderMixin:
   def tab_spawner_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(790, h - BOT_H + 6, 120, BOT_H - 12)
+
+  def tab_artifact_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(920, h - BOT_H + 6, 120, BOT_H - 12)
+
+ 
