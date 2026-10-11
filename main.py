@@ -6,8 +6,13 @@ def main():
   p.add_argument("--cheats", action="store_true", help="infinite stamina and free air jump while space is held")
   p.add_argument("--map", default="levels/test.json", help="path to level json (default: levels/test.json)")
   p.add_argument("--spawninfo", action="store_true", help="overlay item spawner markers and nearby entries")
+  p.add_argument("--name", default=None, help="player name for multiplayer")
+  p.add_argument("--server", default=None, help="websocket url, e.g. ws://example.com:8765")
   args = p.parse_args()
-  Game(cheats=args.cheats, map_path=args.map, spawninfo=args.spawninfo).run()
+  if args.server and not args.name:
+    p.error("--server requires --name")
+  Game(cheats=args.cheats, map_path=args.map, spawninfo=args.spawninfo,
+       name=args.name, server=args.server).run()
 
 if __name__ == "__main__":
   main()
