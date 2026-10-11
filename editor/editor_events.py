@@ -361,10 +361,9 @@ class EventsMixin:
       options.append(("Change type...", ("change_type", None)))
     if not is_group and isinstance(obj, EditorArtifact):
       options.append(("Change artifact type...", ("change_artifact_type", None)))
-    if not is_group and isinstance(obj, EditorSpawner):
+    # <STRANGE>#1080: Open inspector entry for every object
+    if not is_group:
       options.append(("Open inspector", ("open_inspector", None)))
-    if not is_group and isinstance(obj, EditorItem) and obj.item_type == "cube":
-      options.append(("Open contents...", ("open_inspector", None)))
     options.append(("Layer  +1", ("layer", 1)))
     options.append(("Layer  -1", ("layer", -1)))
     options.append(("Layer  +5", ("layer", 5)))
