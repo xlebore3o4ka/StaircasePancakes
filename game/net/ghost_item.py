@@ -16,6 +16,7 @@ def _proto(net_type):
   cls = {"cube": CubeItem, "soda": SodaItem, "rebar": RebarItem,
          "peg": PortablePegItem, "bag": BagItem}.get(net_type)
   if cls is None:
+    print(f"ghost_item: unknown net_type {net_type!r}")
     _proto_cache[net_type] = None
     return None
   dummy = pymunk.Space()

@@ -31,6 +31,7 @@ _proto_cache = {}
 
 def _proto(net_type):
   if net_type not in _NET_CLASSES:
+    print(f"remote_player: unknown net_type {net_type!r}")
     return None
   if net_type not in _proto_cache:
     dummy = pymunk.Space()
