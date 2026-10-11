@@ -1,14 +1,47 @@
 """Константы, цвета и настройки редактора."""
 from shared.const import (
-  BODY_R, ARM_R, ARM_DX, JUMP_V, GRAVITY,
-  PEG_R, PEG_FILL, PEG_EDGE,
-  PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W,
+  BODY_R,
+  ARM_R,
+  ARM_DX,
+  JUMP_V,
+  GRAVITY,
+  PEG_R,
+  PEG_FILL,
+  PEG_EDGE,
+  PLAT_FILL,
+  PLAT_EDGE,
   BG_FILL,
   ITEM_TYPES,
-  SODA_W, SODA_H, SODA_BLUE, SODA_WHITE,
-  CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W,
-  LAYER_BG, LAYER_FLOOR, LAYER_PLATFORM, LAYER_PEG, LAYER_ITEM, LAYER_PLAYER,
+  SODA_W,
+  SODA_H,
+  SODA_BLUE,
+  SODA_WHITE,
+  CUBE_FILL,
+  CUBE_EDGE,
+  LAYER_BG,
+  LAYER_FLOOR,
+  LAYER_PLATFORM,
+  LAYER_PEG,
+  LAYER_ITEM,
+  LAYER_PLAYER,
 )
+
+# <STRANGE>#750: shared.const renamed edge-width constants;
+# keep old editor names as aliases so nothing else has to change.
+try:
+  from shared.const import LINE_W as _SC_LINE_W
+except Exception:
+  _SC_LINE_W = 2
+try:
+  from shared.const import CIRCLE_LINE_W as _SC_CIRCLE_LINE_W
+except Exception:
+  _SC_CIRCLE_LINE_W = _SC_LINE_W + 1
+
+PLAT_EDGE_W = _SC_LINE_W
+CUBE_EDGE_W = _SC_LINE_W
+PEG_EDGE_W = _SC_CIRCLE_LINE_W
+REBAR_EDGE_W = _SC_LINE_W
+
 
 # ---- layout ----
 BOT_H = 70
