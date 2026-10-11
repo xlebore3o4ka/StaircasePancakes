@@ -4,6 +4,7 @@ import pygame
 import pymunk
 from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W
 from shared.smooth import smooth, per_sec
+from ..net.player_state import PlayerState
 from shared.physics_util import has_ground_contact
 from .consume_fx import SodaConsumeFx
 from .puff import PuffBurst
@@ -109,6 +110,8 @@ class Player:
     self.pocket_hint_alpha = 0.0
     self.pocket_hint_t = 0.0
     self._hint_font = None
+    # <STRANGE>#931 network snapshot, refreshed every frame; name set externally by Game
+    self.state = PlayerState()
     # <STRANGE>#900 set by Game; pockets use this to register spawned items in the level list
     self.level = None
     # <STRANGE>#856 per-hand list of shrink/grow animations for pocket transitions
@@ -127,6 +130,19 @@ class Player:
     hits = self.space.point_query(pt, 6, pymunk.ShapeFilter(mask=0b10))
     return len(hits) > 0
 
+
+  def _write_state(self):
+    st = self.state
+    st.pos = (self.body.position.x, self.body.position.y)
+    for i in range(2):
+      st.arms[i] = (self.arms[i].position.x, self.arms[i].position.y)
+      st.arm_dirs[i] = (self.arm_dir[i].x, self.arm_dir[i].y)
+      st.grabbed[i] = self.grabbed[i] is not None
+      it = self.held[i]
+      st.held[i] = getattr(it, "net_type", None) if it is not None else None
+      st.stamina[i] = self.stamina[i]
+    st.angle = self.body.angle
+    st.jumped = self.jumped_this_frame
 
   def record_pre_step(self):
     # <STRANGE>#678 store pre-step velocity; post_step compares vy for bias and full v for impact volume
@@ -688,6 +704,9 @@ class Player:
           self.shake_t[i] = 0.0
       if self.grab_cooldown[i] > 0:
         self.grab_cooldown[i] = max(0.0, self.grab_cooldown[i] - dt)
+
+    # <STRANGE>#931 snapshot the current player state for networking
+    self._write_state()
 
     # <STRANGE>#756 footsteps: on ground, one move key pressed, interval elapsed
     if self._step_cd > 0:

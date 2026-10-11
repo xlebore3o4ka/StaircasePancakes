@@ -13,5 +13,6 @@ class PlayerState:
   # <NOTE>#923 type names only; remote side decides how to render them
   held: list[str | None] = field(default_factory=lambda: [None, None])
   grabbed: list[bool] = field(default_factory=lambda: [False, False])
+  stamina: list[float] = field(default_factory=lambda: [0.0, 0.0])
   angle: float = 0.0
   jumped: bool = False

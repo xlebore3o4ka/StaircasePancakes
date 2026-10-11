@@ -65,6 +65,8 @@ def _blit_bands(screen, cam, bands):
 
 class Item:
   layer = LAYER_ITEM
+  # <STRANGE>#930 short type tag used for network snapshots; subclasses override
+  net_type = None
   # <STRANGE>#702 sfx name played on pickup; each subclass overrides
   pickup_sound = None
   # <STRANGE>#744 sfx name played when use() consumes this item; None = silent
@@ -190,6 +192,7 @@ class Item:
 
 
 class CubeItem(Item):
+  net_type = "cube"
   pickup_sound = "pickup_cube"
   use_sound = "open_cube"
 
@@ -237,6 +240,7 @@ class CubeItem(Item):
 
 
 class SodaItem(Item):
+  net_type = "soda"
   center_anim = True
   pickup_sound = "pickup_soda"
 
@@ -261,6 +265,7 @@ class SodaItem(Item):
 
 
 class RebarItem(Item):
+  net_type = "rebar"
   pickup_sound = "pickup_rebar"
   no_pocket = True
   # <STRANGE>#513 hold offset toward the near end: local -Y is the end facing away from cursor
@@ -350,6 +355,7 @@ def _on_screen(item, cam):
 
 
 class PortablePegItem(Item):
+  net_type = "peg"
   # <STRANGE>#783 carryable peg: orange so it reads as different from the static red one
   FILL = (230, 140, 40)
   pickup_sound = "pickup_peg"
@@ -386,6 +392,7 @@ class PortablePegItem(Item):
 
 
 class BagItem(Item):
+  net_type = "bag"
   # <STRANGE>#912 bag icon: body + flap + handle + button, drawn from local coords with per-piece rotation
   FILL_BODY = (139, 90, 43)
   FILL_FLAP = (100, 60, 25)
