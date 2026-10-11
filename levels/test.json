@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.4.0",
   "pegs": [
     {
       "x": 596,
@@ -5739,6 +5739,10 @@
       ]
     }
   ],
+<<<<<<< Updated upstream
+=======
+  "triggers": [],
+>>>>>>> Stashed changes
   "bag": {
     "x": -4378,
     "y": 10715

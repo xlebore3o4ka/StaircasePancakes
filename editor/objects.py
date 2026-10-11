@@ -132,6 +132,8 @@ class EditorPeg:
   def to_json(self):
     # <STRANGE>#702: ?????????? ?????? dict, ?????????? ?????????????????? layer/locked
     d = {"x": int(self.x), "y": int(self.y), "layer": int(self.layer)}
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
     if self.locked:
       d["locked"] = True
     return d
@@ -267,6 +269,8 @@ class EditorPlatform:
     }
     if self.layer is not None:
       d["layer"] = int(self.layer)
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
       d["points"] = [[int(p[0]), int(p[1])] for p in self.points]
@@ -432,7 +436,8 @@ class EditorBackground:
     }
     if self.layer is not None:
       d["layer"] = int(self.layer)
-    # <STRANGE>#506: ?? JSON ?????????? ?????????????? ???????????? ???????? ?????????? >= 3
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
       d["points"] = [[int(p[0]), int(p[1])] for p in self.points]
@@ -548,6 +553,8 @@ class EditorItem:
     }
     if self.layer is not None:
       d["layer"] = int(self.layer)
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
     if self.item_type == "cube" and self.contents:
       d["contents"] = [dict(e) for e in self.contents]
     return d
@@ -655,7 +662,11 @@ class EditorArtifact:
     return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
 
   def to_json(self):
-    return [int(self.x), int(self.y)]
+    # <STRANGE>#1001: bag is now a dict, old [x, y] migrates on load
+    d = {"x": int(self.x), "y": int(self.y)}
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
+    return d
 
   def badge_screen_pos(self, ed):
     sx, sy = ed.to_screen(self.x, self.y)

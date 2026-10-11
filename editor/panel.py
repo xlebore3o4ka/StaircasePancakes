@@ -82,8 +82,8 @@ class TopPanel:
         placeholder="0.0.0", text=str(getattr(editor, "level_version", "0.0.0")),
         on_commit=self._commit_version)
     self.version_input.visible = False
-    self.header_widgets = [self.toggle_btn, self.save_btn, self.load_btn,
-                           self.version_btn, self.version_input]
+    # <STRANGE>#1007: version is read-only, no editable widget
+    self.header_widgets = [self.toggle_btn, self.save_btn, self.load_btn]
     self.body_widgets[2].extend([self.grid_btn,
                                   self.grid_xy_lbl,
                                   self.grid_step_input,
@@ -155,9 +155,6 @@ class TopPanel:
     # Save/Load ??? ?????????? ?????????? ???????????? "Level editor"
     cx = 130
     cy = (PANEL_HEADER_H - self.save_btn.rect.h) // 2
-    self.version_btn.rect.topleft = (cx, cy)
-    self.version_input.rect.topleft = (cx, cy)
-    cx += self.version_btn.rect.w + 6
     self.save_btn.rect.topleft = (cx, cy)
     cx += self.save_btn.rect.w + 4
     self.load_btn.rect.topleft = (cx, cy)

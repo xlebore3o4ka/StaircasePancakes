@@ -16,20 +16,24 @@ class UndoMixin:
   def _obj_to_state(self, o):
     if isinstance(o, EditorPeg):
       return {"t": "peg", "x": o.x, "y": o.y,
+              "id": getattr(o, "id", ""),
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorPlatform):
       return {"t": "plat", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
+              "id": getattr(o, "id", ""),
               "fill": tuple(o.fill), "edge": tuple(o.edge),
               "locked": o.locked, "layer": o.layer,
               "polygon": bool(getattr(o, "polygon", False)),
               "points": [list(p) for p in getattr(o, "points", [])]}
     if isinstance(o, EditorBackground):
       return {"t": "bg", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
+              "id": getattr(o, "id", ""),
               "fill": tuple(o.fill), "locked": o.locked, "layer": o.layer,
               "polygon": bool(getattr(o, "polygon", False)),
               "points": [list(p) for p in getattr(o, "points", [])]}
     if isinstance(o, EditorItem):
       return {"t": "item", "x": o.x, "y": o.y, "item_type": o.item_type,
+              "id": getattr(o, "id", ""),
               "contents": [dict(e) for e in o.contents],
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorSpawner):
@@ -39,6 +43,7 @@ class UndoMixin:
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorArtifact):
       return {"t": "bag", "x": o.x, "y": o.y,
+              "id": getattr(o, "id", ""),
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorTrigger):
       return {"t": "trigger", "x": o.x, "y": o.y,
@@ -78,6 +83,8 @@ class UndoMixin:
       return None
     o.locked = s.get("locked", False)
     o.layer = s.get("layer", None)
+    if hasattr(o, "id"):
+      o.id = s.get("id", "")
     return o
 
   # ---------- snapshots ----------
@@ -256,11 +263,8 @@ class UndoMixin:
     self._sync_inspector()
 
   def _sync_inspector(self):
-    if isinstance(self.selected, EditorSpawner):
-      self.push_inspector(self.selected)
-    elif isinstance(self.selected, EditorTrigger):
-      self.push_inspector(self.selected)
-    elif isinstance(self.selected, EditorItem) and self.selected.item_type == "cube":
+    # <STRANGE>#1002: open inspector for any selected world object
+    if self.selected is not None:
       self.push_inspector(self.selected)
     else:
       self._close_all_inspectors()

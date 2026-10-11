@@ -369,6 +369,13 @@ class DragMixin:
       self._mark_scene_dirty()
     elif self.tool == "artifact":
       cur_type = getattr(self, "current_artifact_type", "bag")
+      # <STRANGE>#1032: collect previous positions of this artifact type
+      prev_positions = []
+      for o in self.objects:
+        if isinstance(o, EditorArtifact) and o.artifact_type == cur_type:
+          prev_positions.append((o.x, o.y))
+      hist = self._artifact_history.setdefault(cur_type, [])
+      all_targets_xy = list(prev_positions) + hist + [(wx, wy)]
       self.objects = [o for o in self.objects
                       if not (isinstance(o, EditorArtifact)
                               and o.artifact_type == cur_type)]
@@ -377,6 +384,21 @@ class DragMixin:
       self._set_selection([obj])
       self._begin_move(wx, wy, obj)
       self._mark_scene_dirty()
+      if prev_positions or hist:
+        self._artifact_history[cur_type] = all_targets_xy[:-1]
+        # info toast + world markers on all positions
+        try:
+          from .messages import INFO
+          from types import SimpleNamespace
+          targets = [SimpleNamespace(x=x, y=y) for (x, y) in all_targets_xy]
+          self.messages.set("artifact_moved:" + cur_type, INFO,
+                            "Artifact moved: " + cur_type,
+                            targets, duration=5.0, ttl=5.0)
+          for (x, y) in all_targets_xy:
+            self.world_markers.append({"kind": "info_artifact",
+                                       "x": x, "y": y, "t": 5.0})
+        except Exception:
+          pass
 
   # ---------- mouse move ----------
   def on_mouse_move(self, world):
