@@ -259,6 +259,17 @@ class Level:
       return
     self.movers = [m for m in self.movers if m["obj"] is not obj]
 
+  def _wake_constrained(self, body):
+    # <STRANGE>#1053 moving a static body doesn't wake dynamic partners connected by joints; do it manually
+    for c in self.space.constraints:
+      other = None
+      if c.a is body:
+        other = c.b
+      elif c.b is body:
+        other = c.a
+      if other is not None and other.body_type == pymunk.Body.DYNAMIC:
+        other.activate()
+
   @staticmethod
   def _current(obj, axis):
     if hasattr(obj, "body"):
@@ -274,6 +285,7 @@ class Level:
       # <STRANGE>#1049 static bodies keep their shape in the spatial hash; without reindex collisions stay at the old spot
       if obj.body.body_type == pymunk.Body.STATIC:
         self.space.reindex_shapes_for_body(obj.body)
+        self._wake_constrained(obj.body)
     else:
       if x is not None:
         obj.x = x
