@@ -35,6 +35,8 @@ async def handler(ws):
         name = msg.get("name") or f"anon-{id(ws)}"
         _clients[name] = ws
         print(f"+ {name} connected, total={len(_clients)}")
+        # <STRANGE>#1007 ack to the joiner so it knows it passed map+version checks
+        await ws.send(json.dumps({"t": "welcome"}))
         # <STRANGE>#946 announce to everyone else so they can spawn a ghost immediately
         await _broadcast({"t": "joined", "name": name}, except_ws=ws)
       elif name is not None:

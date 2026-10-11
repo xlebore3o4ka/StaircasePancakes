@@ -51,6 +51,14 @@ class Game:
       if self.server_url:
         net = NetClient(self.server_url, self.name or "anon", map_path=self.map_path)
         net.connect()
+        # <STRANGE>#1007 block until server welcomes us or fails; better to crash early than drop into single
+        t0 = pygame.time.get_ticks()
+        while not net.welcome and net.fatal is None:
+          if pygame.time.get_ticks() - t0 > 3000:
+            raise RuntimeError("server did not answer hello (timeout)")
+          pygame.time.wait(20)
+        if net.fatal:
+          raise RuntimeError(net.fatal)
         # <STRANGE>#983 broadcast local sfx with emitter position; receiver culls offscreen
         # <STRANGE>#989 field is "snd" because the server overwrites "name" with the sender name
         sound.on_play = lambda n, v: net.send({

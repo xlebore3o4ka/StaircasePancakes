@@ -18,6 +18,10 @@ class NetClient:
     self._thread = None
     # <STRANGE>#1001 set on reject; game loop checks this and exits
     self.fatal = None
+    # <STRANGE>#1007 True once server acked our hello (map/version passed)
+    self.welcome = False
+    # <STRANGE>#1007 True once the websocket handshake completed
+    self.ready = False
 
   def connect(self):
     self._thread = threading.Thread(target=self._run, daemon=True)
@@ -51,12 +55,15 @@ class NetClient:
     try:
       async with websockets.connect(self.url) as ws:
         print(f"net: connected to {self.url} as {self.name}")
+        self.ready = True
         await ws.send(json.dumps({"t": "hello", "name": self.name,
                                      "map": self.map_path,
                                      "version": _read_version()}))
         await asyncio.gather(self._sender(ws), self._receiver(ws))
     except Exception as e:
-      print(f"net: connect failed: {e}")
+      # <STRANGE>#1007 hard fail on connect errors; game loop raises on fatal
+      self.fatal = f"connect failed: {e}"
+      print(f"net: {self.fatal}")
       self._stop.set()
 
   async def _sender(self, ws):
@@ -76,9 +83,13 @@ class NetClient:
     try:
       async for raw in ws:
         try:
-          self._in.put(json.loads(raw))
+          msg = json.loads(raw)
         except json.JSONDecodeError:
           continue
+        if msg.get("t") == "welcome":
+          self.welcome = True
+          continue
+        self._in.put(msg)
     except websockets.ConnectionClosed as e:
       # <STRANGE>#1002 4000/4001 are our intentional reject codes; anything else is a plain disconnect
       if e.code in (4000, 4001):
