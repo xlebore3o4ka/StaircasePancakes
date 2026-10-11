@@ -17,7 +17,8 @@ class Platform:
     self.edge = edge
     # <STRANGE>#841 polygon mode: centre-relative points; if set, w/h are ignored for both physics and draw
     self.points = points
-    self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
+    # <STRANGE>#1062 kinematic from start so move_to can set velocity; static->kinematic switch is forbidden when joints exist
+    self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     self.body.position = pos
     if points is None:
       # <STRANGE>#456 physics shape inset by INSET on each side; editor snap makes platforms share exact edges, solver can't pick a side at the seam

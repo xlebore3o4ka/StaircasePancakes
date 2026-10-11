@@ -251,11 +251,7 @@ class Level:
       entry["axis"]["y"] = (self._current(obj, "y"), y)
     if not entry["axis"]:
       return True
-    # <STRANGE>#1056 kinematic during the move so Chipmunk carries attached bodies (standing player, joints) along
-    body = getattr(obj, "body", None)
-    if body is not None and body.body_type == pymunk.Body.STATIC:
-      body.body_type = pymunk.Body.KINEMATIC
-      body.velocity = (0, 0)
+    # <STRANGE>#1062 platforms and pegs are kinematic from the start; nothing to switch here
     self.movers.append(entry)
     return True
 
@@ -265,9 +261,8 @@ class Level:
       return
     self.movers = [m for m in self.movers if m["obj"] is not obj]
     body = getattr(obj, "body", None)
-    if body is not None and body.body_type == pymunk.Body.KINEMATIC:
+    if body is not None:
       body.velocity = (0, 0)
-      body.body_type = pymunk.Body.STATIC
 
   @staticmethod
   def _current(obj, axis):
@@ -276,12 +271,13 @@ class Level:
     return getattr(obj, axis)
 
   def _snap(self, obj, x=None, y=None):
-    # <STRANGE>#1057 teleport, reindex, wake anything attached; only used for the final snap after a kinematic move
+    # <STRANGE>#1057 final snap after a move; kinematic bodies reindex automatically
     if hasattr(obj, "body"):
       p = obj.body.position
       obj.body.position = (x if x is not None else p.x,
                            y if y is not None else p.y)
-      self.space.reindex_shapes_for_body(obj.body)
+      if obj.body.body_type == pymunk.Body.STATIC:
+        self.space.reindex_shapes_for_body(obj.body)
     else:
       if x is not None:
         obj.x = x
@@ -319,7 +315,7 @@ class Level:
         a, b = m["axis"]["y"]
         ny = a + (b - a) * e
       body = getattr(m["obj"], "body", None)
-      if body is not None and body.body_type == pymunk.Body.KINEMATIC:
+      if body is not None:
         # <STRANGE>#1058 set velocity so Chipmunk integrates position this step and drags contacts/joints with it
         cur_x = body.position.x
         cur_y = body.position.y
@@ -329,7 +325,6 @@ class Level:
         if m["t"] >= m["dur"]:
           body.velocity = (0, 0)
           self._snap(m["obj"], nx, ny)
-          body.body_type = pymunk.Body.STATIC
       else:
         self._snap(m["obj"], nx, ny)
       if m["t"] < m["dur"]:
