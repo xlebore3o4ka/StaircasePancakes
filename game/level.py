@@ -3,6 +3,7 @@ import os
 import random
 import tarfile
 import tempfile
+import pymunk
 from shared.version import read as _read_version, parse as _parse_version
 from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
@@ -265,12 +266,14 @@ class Level:
       return v
     return getattr(obj, axis)
 
-  @staticmethod
-  def _write(obj, x=None, y=None):
+  def _write(self, obj, x=None, y=None):
     if hasattr(obj, "body"):
       p = obj.body.position
       obj.body.position = (x if x is not None else p.x,
                            y if y is not None else p.y)
+      # <STRANGE>#1049 static bodies keep their shape in the spatial hash; without reindex collisions stay at the old spot
+      if obj.body.body_type == pymunk.Body.STATIC:
+        self.space.reindex_shapes_for_body(obj.body)
     else:
       if x is not None:
         obj.x = x
