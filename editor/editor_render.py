@@ -27,6 +27,43 @@ from .helpers import render_text, draw_lock_badge
 from .objects import make_fake_item
 
 
+def _clip_line(p1, p2, clip_rect):
+  # Liang-Barsky segment clipping.
+  x1, y1 = p1
+  x2, y2 = p2
+  dx = x2 - x1
+  dy = y2 - y1
+  t0, t1 = 0.0, 1.0
+  for p, q in ((-dx, x1 - clip_rect.x),
+               (dx, clip_rect.right - x1),
+               (-dy, y1 - clip_rect.y),
+               (dy, clip_rect.bottom - y1)):
+    if p == 0:
+      if q < 0:
+        return
+    else:
+      r = q / p
+      if p < 0:
+        if r > t1: return
+        if r > t0: t0 = r
+      else:
+        if r < t0: return
+        if r < t1: t1 = r
+  if t0 > t1:
+    return
+  ax = x1 + t0 * dx
+  ay = y1 + t0 * dy
+  bx = x1 + t1 * dx
+  by = y1 + t1 * dy
+  painter = getattr(_clip_line, "PAINTER", None)
+  if painter is not None:
+    painter((int(ax), int(ay)), (int(bx), int(by)))
+
+def _make_painter(screen):
+  def paint(p1, p2):
+    pygame.draw.line(screen, (255, 60, 60), p1, p2, 2)
+  return paint
+
 class _IconCam:
   def __init__(self, center, scale):
     self._cx, self._cy = center
@@ -69,6 +106,10 @@ class RenderMixin:
           if self._visible(obj, sw, sh):
             obj.draw(self.screen, self)
 
+      self._draw_id_labels()
+      self._draw_problem_stripes()
+      self._draw_world_markers()
+
       for obj in self.selection:
         sx, sy = self.to_screen(obj.x, obj.y)
         pygame.draw.circle(self.screen, GREEN, (int(sx), int(sy)), 6)
@@ -94,7 +135,7 @@ class RenderMixin:
 
     if self.context_menu is not None:
       self.context_menu.draw(self.screen)
-    self._draw_version_toast()
+    self._draw_messages()
 
   def _draw_ghosted(self, obj):
     # <STRANGE>#526: ???????????????????????????? ???????????? ?????? ???????????????? ?????? ???????????? ????????????
@@ -188,45 +229,258 @@ class RenderMixin:
                            (int(ex), int(ey)), ROTATE_ARC_THICK)
 
 
-  def _draw_version_toast(self):
-    t = getattr(self, "version_warning_t", 0.0)
-    text = getattr(self, "version_warning", "")
-    if t <= 0.0 or not text:
+  def _blit_id_label(self, surf, x, y):
+    bg = pygame.Surface((surf.get_width() + 6, surf.get_height() + 2),
+                        pygame.SRCALPHA)
+    bg.fill((0, 0, 0, 160))
+    self.screen.blit(bg, (int(x), int(y)))
+    self.screen.blit(surf, (int(x) + 3, int(y) + 1))
+
+  def _draw_world_markers(self):
+    # <STRANGE>#1033: transient markers (info dots) in world space.
+    for m in self.world_markers:
+      try:
+        sx, sy = self.to_screen(m["x"], m["y"])
+      except Exception:
+        continue
+      kind = m.get("kind", "info_artifact")
+      if kind == "info_artifact":
+        col = (80, 160, 255)
+        pygame.draw.circle(self.screen, (24, 26, 32), (int(sx), int(sy)), 12)
+        pygame.draw.circle(self.screen, col, (int(sx), int(sy)), 10, 2)
+        f = pygame.font.SysFont(None, 18, bold=True)
+        t = f.render("i", True, col)
+        self.screen.blit(t, t.get_rect(center=(int(sx), int(sy) + 1)))
+
+  def _draw_id_labels(self):
+    # <STRANGE>#1012: zoom-scaled font; peg id centered on the body.
+    from .objects import EditorPeg, EditorSpawner, EditorArtifact
+    fs = max(9, int(16 * self.zoom))
+    font = pygame.font.SysFont(None, fs, bold=True)
+    sw, sh = self.screen.get_size()
+    for obj in self.objects:
+      oid = getattr(obj, "id", "")
+      if not oid:
+        continue
+      if not self._visible(obj, sw, sh):
+        continue
+      surf = font.render(str(oid), True, (240, 240, 240))
+      if isinstance(obj, EditorPeg):
+        sx, sy = self.to_screen(obj.x, obj.y)
+        px = sx - surf.get_width() / 2
+        py = sy - surf.get_height() / 2
+        self._blit_id_label(surf, px, py)
+      elif isinstance(obj, (EditorSpawner, EditorArtifact)):
+        sx, sy = self.to_screen(obj.x, obj.y)
+        px = sx - surf.get_width() / 2
+        py = sy - surf.get_height() / 2
+        self._blit_id_label(surf, px, py)
+      else:
+        try:
+          l, r2, b, t = obj.world_rect()
+        except Exception:
+          continue
+        x0, y0 = self.to_screen(l, t)
+        self._blit_id_label(surf, x0 + 3, y0 + 3)
+
+  def _draw_problem_stripes(self):
+    # <STRANGE>#1013: animated diagonal ticks around objects with issues.
+    store = getattr(self, "messages", None)
+    if store is None:
+      return
+    from .messages import WARN, ERROR
+    targets = set()
+    for m in store.active.values():
+      if m.kind in (WARN, ERROR):
+        for t in m.targets:
+          targets.add(id(t))
+    if not targets:
+      return
+    phase = pygame.time.get_ticks() / 1000.0
+    _clip_line.PAINTER = _make_painter(self.screen)
+    from .objects import EditorPeg, EditorSpawner, EditorArtifact
+    sw, sh = self.screen.get_size()
+    for obj in self.objects:
+      if id(obj) not in targets:
+        continue
+      if not self._visible(obj, sw, sh):
+        continue
+      if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact)):
+        sx, sy = self.to_screen(obj.x, obj.y)
+        r = max(2, int(obj.r * self.zoom))
+        rect = pygame.Rect(int(sx - r), int(sy - r), r * 2, r * 2)
+      else:
+        try:
+          l, r2, b, t = obj.world_rect()
+        except Exception:
+          continue
+        x0, y0 = self.to_screen(l, t)
+        x1, y1 = self.to_screen(r2, b)
+        rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                           int(abs(x1 - x0)), int(abs(y1 - y0)))
+      self._draw_stripes_around(rect, phase)
+
+  def _draw_stripes_around(self, rect, phase):
+    # <STRANGE>#1015: diagonal ticks clipped to the rect border.
+    if rect.w < 6 or rect.h < 6:
+      return
+    COLOR = (255, 60, 60)
+    THICK = 5
+    STEP = 9
+    shift = int((phase * 40.0) % STEP)
+    # we clip to the boundary band (THICK px thick)
+    band_top = pygame.Rect(rect.x, rect.y, rect.w, THICK)
+    band_bot = pygame.Rect(rect.x, rect.bottom - THICK, rect.w, THICK)
+    band_lft = pygame.Rect(rect.x, rect.y, THICK, rect.h)
+    band_rgt = pygame.Rect(rect.right - THICK, rect.y, THICK, rect.h)
+    # top strip
+    x = -STEP + shift
+    while x < rect.w + STEP:
+      p1 = (rect.x + x, rect.y + THICK)
+      p2 = (rect.x + x + THICK, rect.y)
+      _clip_line(p1, p2, band_top)
+      x += STEP
+    # bottom strip
+    x = -STEP + shift
+    while x < rect.w + STEP:
+      p1 = (rect.x + x, rect.bottom)
+      p2 = (rect.x + x + THICK, rect.bottom - THICK)
+      _clip_line(p1, p2, band_bot)
+      x += STEP
+    # left strip
+    y = -STEP + shift
+    while y < rect.h + STEP:
+      p1 = (rect.x, rect.y + y + THICK)
+      p2 = (rect.x + THICK, rect.y + y)
+      _clip_line(p1, p2, band_lft)
+      y += STEP
+    # right strip
+    y = -STEP + shift
+    while y < rect.h + STEP:
+      p1 = (rect.right - THICK, rect.y + y)
+      p2 = (rect.right, rect.y + y + THICK)
+      _clip_line(p1, p2, band_rgt)
+      y += STEP
+
+  def _draw_messages(self):
+    # <STRANGE>#1005: toasts on the right + corner widget with dropdown
+    from .messages import draw_icon, level_color
+    store = getattr(self, "messages", None)
+    if store is None:
       return
     sw, sh = self.screen.get_size()
-    SLIDE = 0.30
-    total = getattr(self, "version_warning_total", 3.6)
-    elapsed = total - t
-    if elapsed < SLIDE: p = elapsed / SLIDE
-    elif t < SLIDE: p = t / SLIDE
-    else: p = 1.0
-    p = max(0.0, min(1.0, p))
-    ease = 1.0 - (1.0 - p) ** 3
-    pad_x, pad_y, icon = 16, 12, 22
     font = getattr(self, "font", None)
     if font is None:
       return
-    warn_col = (255, 215, 0)
-    label = font.render(text, True, warn_col)
-    pw = pad_x * 2 + icon + 10 + label.get_width()
-    ph = max(pad_y * 2 + icon, pad_y * 2 + label.get_height())
-    x_vis = sw - pw - 16
-    x_hid = sw + 4
-    x = int(x_hid + (x_vis - x_hid) * ease)
-    y = int(sh * 0.35 - ph / 2)
-    panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
-    pygame.draw.rect(panel, (24, 26, 32, 210), panel.get_rect(), border_radius=8)
-    pygame.draw.rect(panel, (90, 96, 110, 230), panel.get_rect(), 1, border_radius=8)
-    ix = pad_x + icon // 2
-    iy = ph // 2
-    tri = [(ix, iy - icon // 2), (ix - icon // 2, iy + icon // 2), (ix + icon // 2, iy + icon // 2)]
-    pygame.draw.polygon(panel, warn_col, tri)
-    pygame.draw.polygon(panel, (20, 20, 20), tri, 2)
-    f_icon = pygame.font.SysFont(None, 20, bold=True)
-    bang = f_icon.render("!", True, (20, 20, 20))
-    panel.blit(bang, bang.get_rect(center=(ix, iy + 1)))
-    panel.blit(label, (pad_x + icon + 10, (ph - label.get_height()) // 2))
-    self.screen.blit(panel, (x, y))
+    y = self.panel.height() + 56
+    for t in store.toasts:
+      tt = t["t"]
+      total = t["max"]
+      SLIDE = 0.30
+      elapsed = total - tt
+      if elapsed < SLIDE: p = elapsed / SLIDE
+      elif tt < SLIDE: p = tt / SLIDE
+      else: p = 1.0
+      p = max(0.0, min(1.0, p))
+      ease = 1.0 - (1.0 - p) ** 3
+      text = t["text"]
+      kind = t["kind"]
+      col = level_color(kind)
+      pad_x, pad_y, icon = 16, 12, 22
+      label = font.render(text, True, col)
+      pw = pad_x * 2 + icon + 10 + label.get_width()
+      ph = max(pad_y * 2 + icon, pad_y * 2 + label.get_height())
+      x_vis = 16
+      x_hid = -pw - 4
+      x = int(x_hid + (x_vis - x_hid) * ease)
+      panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
+      pygame.draw.rect(panel, (24, 26, 32, 210), panel.get_rect(), border_radius=8)
+      pygame.draw.rect(panel, (90, 96, 110, 230), panel.get_rect(), 1, border_radius=8)
+      icx = pad_x + icon // 2
+      icy = ph // 2
+      icon_layer = pygame.Surface((icon + 4, icon + 4), pygame.SRCALPHA)
+      draw_icon(icon_layer, (icon + 4)//2, (icon + 4)//2, kind, r=9)
+      panel.blit(icon_layer, (icx - (icon + 4)//2, icy - (icon + 4)//2))
+      panel.blit(label, (pad_x + icon + 10, (ph - label.get_height()) // 2))
+      self.screen.blit(panel, (x, y))
+      y += ph + 6
+    # corner widget
+    top = store.top_level()
+    if top is None and not store.open:
+      return
+    cw, ch = 40, 40
+    cx = 14
+    cy = self.panel.height() + 8
+    widget = pygame.Surface((cw, ch), pygame.SRCALPHA)
+    pygame.draw.rect(widget, (24, 26, 32, 220), widget.get_rect(), border_radius=8)
+    pygame.draw.rect(widget, (90, 96, 110, 230), widget.get_rect(), 1, border_radius=8)
+    if top is not None:
+      draw_icon(widget, cw // 2, ch // 2, top.kind, r=10)
+    n = store.count()
+    if n > 1:
+      f = pygame.font.SysFont(None, 16, bold=True)
+      badge = f.render(str(n), True, (255, 255, 255))
+      br = pygame.Rect(cw - 16, 0, 16, 14)
+      pygame.draw.rect(widget, (60, 66, 78), br, border_radius=3)
+      widget.blit(badge, badge.get_rect(center=br.center))
+    self.screen.blit(widget, (cx, cy))
+    if store.open and store.active:
+      items = list(store.active.values())
+      row_h = 24
+      dh = len(items) * row_h + 8
+      dy = cy + ch + 4
+      dw = 260
+      dx = 14
+      drop = pygame.Surface((dw, dh), pygame.SRCALPHA)
+      pygame.draw.rect(drop, (18, 20, 26, 240), drop.get_rect(), border_radius=6)
+      pygame.draw.rect(drop, (90, 96, 110, 230), drop.get_rect(), 1, border_radius=6)
+      mx, my = pygame.mouse.get_pos()
+      hover_i = -1
+      for i, m in enumerate(items):
+        ry = 4 + i * row_h
+        rr = pygame.Rect(4, ry, dw - 8, row_h)
+        if pygame.Rect(dx, dy, dw, dh).collidepoint((mx, my)):
+          local = (mx - dx, my - dy)
+          if rr.collidepoint(local):
+            hover_i = i
+        if i == hover_i:
+          pygame.draw.rect(drop, (56, 62, 74), rr, border_radius=3)
+        draw_icon(drop, 4 + 12, ry + row_h // 2, m.kind, r=7)
+        col = level_color(m.kind)
+        ts = font.render(m.text[:36], True, col)
+        drop.blit(ts, (4 + 26, ry + (row_h - ts.get_height()) // 2))
+      self.screen.blit(drop, (dx, dy))
+      self._msg_dropdown_rect = pygame.Rect(dx, dy, dw, dh)
+    else:
+      self._msg_dropdown_rect = None
+    self._msg_widget_rect = pygame.Rect(cx, cy, cw, ch)
+
+  def _handle_message_click(self, pos):
+    # <STRANGE>#1006: widget click toggles dropdown; dropdown click jumps to target
+    store = getattr(self, "messages", None)
+    if store is None:
+      return False
+    wr = getattr(self, "_msg_widget_rect", None)
+    if wr is not None and wr.collidepoint(pos):
+      store.open = not store.open
+      return True
+    dr = getattr(self, "_msg_dropdown_rect", None)
+    if dr is not None and dr.collidepoint(pos):
+      items = list(store.active.values())
+      row_h = 24
+      i = (pos[1] - dr.y - 4) // row_h
+      if 0 <= i < len(items):
+        m = items[i]
+        if m.targets:
+          t = m.targets[m.target_idx % len(m.targets)]
+          m.target_idx = (m.target_idx + 1) % len(m.targets)
+          try:
+            self.cam_x = t.x
+            self.cam_y = t.y
+          except Exception:
+            pass
+      return True
+    return False
 
   def draw_snap_guides(self):
     sw, sh = self.screen.get_size()

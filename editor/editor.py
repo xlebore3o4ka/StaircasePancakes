@@ -45,7 +45,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     bag = None
     for o in self.objects:
       if isinstance(o, EditorArtifact):
-        bag = [int(o.x), int(o.y)]
+        bag = o.to_json()
         break
     out = {"version": str(_game_version_read())}
     out.update({
@@ -59,12 +59,24 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     if bag is not None:
       out["bag"] = bag
     if str(path).lower().endswith(".tar"):
-      tar_io.save_level(path, out)
+      tar_io.save_level(path, out, extra_files=getattr(self, "embedded_files", None))
     else:
       with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(out, f, indent=2)
+      if getattr(self, "embedded_files", None):
+        try:
+          from .messages import WARN
+          self.messages.toast_only(WARN,
+              "Embedded scripts only saved in .tar (not in .json)", 4.0)
+        except Exception:
+          pass
     try:
       self._refresh_version_warning()
+    except Exception:
+      pass
+    try:
+      from .messages import INFO
+      self.messages.toast_only(INFO, "Saved (v%s): %s" % (str(_game_version_read()), path), 3.0)
     except Exception:
       pass
 
@@ -80,9 +92,14 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       return
     if str(path).lower().endswith(".tar"):
       data = tar_io.load_level(path)
+      try:
+        self.embedded_files = tar_io.load_files(path)
+      except Exception:
+        self.embedded_files = {}
     else:
       with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
+      self.embedded_files = {}
     before = self._snapshot()
     _v = data.get("version")
     self.loaded_version = _v.strip() if isinstance(_v, str) and _v.strip() else None
@@ -92,6 +109,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       if isinstance(p, dict):
         obj = EditorPeg(p["x"], p["y"])
         obj.locked = bool(p.get("locked", False))
+        obj.id = str(p.get("id", ""))
         if "layer" in p:
           obj.layer = int(p["layer"])
       else:
@@ -106,6 +124,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       obj.fill = tuple(pd.get("fill", PLAT_FILL))
       obj.edge = tuple(pd.get("edge", PLAT_EDGE))
       obj.locked = bool(pd.get("locked", False))
+      obj.id = str(pd.get("id", ""))
       if "layer" in pd:
         obj.layer = int(pd["layer"])
       self.objects.append(obj)
@@ -115,6 +134,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
                              bd.get("h", PLAT_DEFAULT_H))
       obj.fill = tuple(bd.get("color", BG_DEFAULT_COLOR))
       obj.locked = bool(bd.get("locked", False))
+      obj.id = str(bd.get("id", ""))
       if "layer" in bd:
         obj.layer = int(bd["layer"])
       if bd.get("polygon"):
@@ -125,13 +145,15 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       obj = EditorItem(it["x"], it["y"], it.get("type", DEFAULT_ITEM_TYPE),
                        it.get("contents"))
       obj.locked = bool(it.get("locked", False))
+      obj.id = str(it.get("id", ""))
       if "layer" in it:
         obj.layer = int(it["layer"])
       self.objects.append(obj)
     for sp in data.get("itemSpawners", []):
       obj = EditorSpawner(sp["x"], sp["y"])
       obj.items = [{"type": e.get("type", "nothing"),
-                    "count": int(e.get("count", 1))}
+                    "count": int(e.get("count", 1)),
+                    "id": str(e.get("id", ""))}
                    for e in sp.get("items", [])]
       obj.locked = bool(sp.get("locked", False))
       if "layer" in sp:
@@ -152,9 +174,20 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     if bag_data:
       if isinstance(bag_data, dict):
         b = EditorArtifact(bag_data.get("x", 0), bag_data.get("y", 0))
+        b.id = str(bag_data.get("id", ""))
       else:
         b = EditorArtifact(bag_data[0], bag_data[1])
       self.objects.append(b)
     self._clear_selection()
     self._mark_scene_dirty()
     self._push_undo_now(before)
+    try:
+      from .messages import INFO
+      _cur_v = str(_game_version_read())
+      _fv = self.loaded_version
+      if _fv and _fv != _cur_v:
+        self.messages.toast_only(INFO, "Loaded: %s -> %s" % (_fv, _cur_v), 3.0)
+      else:
+        self.messages.toast_only(INFO, "Loaded (v%s): %s" % (_cur_v, path), 3.0)
+    except Exception:
+      pass

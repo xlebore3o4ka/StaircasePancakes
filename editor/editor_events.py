@@ -70,6 +70,12 @@ class EventsMixin:
         self._zoom_at((mx, my), self.zoom / ZOOM_STEP)
       return
 
+    if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+      try:
+        if self._handle_message_click(e.pos):
+          return
+      except Exception:
+        pass
     if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:
       if self._try_open_context_menu(e.pos):
         return

@@ -46,6 +46,17 @@ def _is_trigger(owner):
     return False
 
 
+def _has_id(owner):
+  # <STRANGE>#1004: spawner has no id, everything else does
+  try:
+    from .objects import EditorSpawner
+    if isinstance(owner, EditorSpawner):
+      return False
+  except Exception:
+    pass
+  return _is_world_obj(owner)
+
+
 class InspectorPanel:
   def __init__(self, editor, owner, depth=0):
     self.editor = editor
@@ -135,11 +146,14 @@ class InspectorPanel:
       y += INSPECTOR_ROW_H + 6
       positions["layer_y"] = y
       y += INSPECTOR_ROW_H + 14
-      if _is_trigger(view):
+      if _has_id(view):
         positions["id_y"] = y
         y += INSPECTOR_ROW_H + 6
+      if _is_trigger(view):
         positions["script_y"] = y
         y += INSPECTOR_ROW_H + 14
+      else:
+        y += 8
     else:
       positions["type_line_y"] = y
       y += 26 + 14
@@ -180,12 +194,13 @@ class InspectorPanel:
       inc = pygame.Rect(row.right - 26, row.y + 2, 24, row.h - 4)
       items.append((dec, "layer_dec", None))
       items.append((inc, "layer_inc", None))
-      if _is_trigger(view):
+      if _has_id(view):
         id_row = pygame.Rect(fr.x + pad, pos["id_y"],
                              fr.w - pad * 2, INSPECTOR_ROW_H)
+        items.append((id_row, "id", None))
+      if _is_trigger(view):
         script_row = pygame.Rect(fr.x + pad, pos["script_y"],
                                  fr.w - pad * 2, INSPECTOR_ROW_H)
-        items.append((id_row, "trigger_id", None))
         items.append((script_row, "trigger_script", None))
         browse = pygame.Rect(script_row.right - 22, script_row.y + 2,
                              18, script_row.h - 4)
@@ -304,7 +319,7 @@ class InspectorPanel:
     if kind == "layer_inc":
       self._bump_layer(+1)
       return
-    if kind == "trigger_id":
+    if kind == "id":
       if self.focused_text is not None:
         self._commit_text()
       self.focused_text = ("id", self.owner)
@@ -385,10 +400,12 @@ class InspectorPanel:
         self.count_text[id(self.focused_entry)] = buf + e.unicode
 
   def _browse_script(self):
-    # <STRANGE>#951: pick a .py file from disk via tkinter
+    # <STRANGE>#1062: pick a .py from disk, embed its content under a
+    # relative path inside the tar, store that relative path on the trigger.
     if self.owner is None:
       return
     try:
+      import os as _os
       import tkinter as tk
       from tkinter import filedialog
       root = tk.Tk()
@@ -399,12 +416,33 @@ class InspectorPanel:
           filetypes=[("Python", "*.py"), ("All files", "*.*")],
       )
       root.destroy()
-      if path:
-        self.owner.script = path
-        try:
-          self.editor._mark_scene_dirty()
-        except Exception:
-          pass
+      if not path:
+        return
+      base = _os.path.basename(path)
+      with open(path, "rb") as f:
+        content = f.read()
+      embedded = getattr(self.editor, "embedded_files", None)
+      if embedded is None:
+        self.editor.embedded_files = {}
+        embedded = self.editor.embedded_files
+      rel = "scripts/" + base
+      n = 1
+      stem, ext = _os.path.splitext(base)
+      while rel in embedded and embedded[rel] != content:
+        rel = "scripts/%s_%d%s" % (stem, n, ext)
+        n += 1
+      embedded[rel] = content
+      self.owner.script = rel
+      try:
+        self.editor._mark_scene_dirty()
+      except Exception:
+        pass
+      try:
+        from .messages import INFO
+        self.editor.messages.toast_only(
+            INFO, "Embedded: %s (%d bytes)" % (rel, len(content)), 3.0)
+      except Exception:
+        pass
     except Exception:
       pass
 
@@ -559,9 +597,10 @@ class InspectorPanel:
         t = "-" if key == "layer_dec" else "+"
         ts = self.font.render(t, True, INSPECTOR_BTN_TEXT)
         s.blit(ts, ts.get_rect(center=rr.center))
-      if _is_trigger(view):
+      if _has_id(view):
         self._draw_text_row(s, pos["id_y"] - oy, "id",
-                            view.id, "trigger_id")
+                            getattr(view, "id", ""), "id")
+      if _is_trigger(view):
         self._draw_text_row(s, pos["script_y"] - oy, "script",
                             view.script, "trigger_script",
                             browse=True)

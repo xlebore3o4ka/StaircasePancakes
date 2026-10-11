@@ -11,6 +11,7 @@ from .const import (
   DEFAULT_ITEM_TYPE, DEFAULT_ARTIFACT_TYPE,
 )
 from .objects import default_layer_for
+from .messages import MessageStore, WARN, INFO, ERROR, DEFERRED
 from . import settings as _editor_settings
 try:
   from shared import version as _game_version
@@ -113,6 +114,13 @@ class CoreMixin:
     self.version_warning_total = 3.6
     self.version_input_visible = False
     self.version_input_text = self.level_version
+    self.messages = MessageStore()
+    # <STRANGE>#1061: files embedded into the level tar (name -> bytes)
+    self.embedded_files = {}
+    # <STRANGE>#1031: per-artifact-type history of past positions
+    self._artifact_history = {}
+    # list of {kind, x, y, t} markers drawn in the world (info dots etc)
+    self.world_markers = []
     self.panel = TopPanel(self)
     self.inspector_stack = []
     # <STRANGE>#560: grid step (?????? ?? rbxl studio) ??? ?????????????? ??????????
@@ -318,16 +326,61 @@ class CoreMixin:
     if self.version_warning_t > 0.0:
       self.version_warning_t = max(0.0, self.version_warning_t - dt)
 
+  def _tick_world_markers(self, dt):
+    alive = []
+    for m in self.world_markers:
+      m["t"] -= dt
+      if m["t"] > 0:
+        alive.append(m)
+    self.world_markers = alive
+
+  def _recompute_messages(self):
+    # <STRANGE>#1003: scan for duplicate non-empty ids among all objects
+    id_map = {}
+    for o in self.objects:
+      oid = getattr(o, "id", "")
+      if oid:
+        id_map.setdefault(oid, []).append(o)
+      # also scan spawner entries
+      if hasattr(o, "items"):
+        for e in o.items:
+          eid = e.get("id", "")
+          if eid:
+            id_map.setdefault(eid, []).append(o)
+    dups = {k: v for k, v in id_map.items() if len(v) > 1}
+    # <STRANGE>#1020: only unlocked duplicates are a real warning.
+    # If <=1 unlocked among the duplicates, defer it (grey #, no stripes).
+    seen = set()
+    for key, objs in dups.items():
+      mk = "dup_id:" + key
+      seen.add(mk)
+      unlocked = [o for o in objs if not getattr(o, "locked", False)]
+      if len(unlocked) >= 2:
+        self.messages.set(mk, WARN, "Duplicate ID " + key, unlocked)
+      else:
+        self.messages.set(mk, DEFERRED, "Duplicate ID " + key, [])
+    for k in list(self.messages.active.keys()):
+      if k.startswith("dup_id:") and k not in seen:
+        self.messages.clear(k)
+
   # ---------- main loop ----------
   def run(self):
     while self.running:
       dt = self.clock.tick(60) / 1000.0
+      # <STRANGE>#1050: skip timers on frames right after a blocking
+      # dialog (tkinter save/load/browse), otherwise messages expire
+      # before the user sees them.
+      if dt > 0.5:
+        dt = 0.0
       for e in pygame.event.get():
         self.handle_event(e)
       self.update_cursor()
       self.update_ghost()
       self.panel.update(dt)
-      self._tick_version_warning(dt)
+      if self._scene_dirty:
+        self._recompute_messages()
+      self.messages.update(dt)
+      self._tick_world_markers(dt)
       for p in self.inspector_stack:
         p.update(dt)
       self.draw()

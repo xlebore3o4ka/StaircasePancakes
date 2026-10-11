@@ -47,3 +47,28 @@ class _BytesReader:
     chunk = self._data[self._pos:self._pos + n]
     self._pos += len(chunk)
     return chunk
+
+def load_files(path):
+  """<STRANGE>#1060: read all non-level.json files from the tar.
+  Returns dict name -> bytes. Unsafe names are skipped."""
+  out = {}
+  try:
+    with tarfile.open(path, "r:") as tf:
+      for m in tf.getmembers():
+        if not m.isfile():
+          continue
+        name = m.name.replace("\\", "/")
+        if name.startswith("/"):
+          continue
+        parts = name.split("/")
+        if any(p == ".." or p == "" for p in parts):
+          continue
+        if name == LEVEL_NAME:
+          continue
+        f = tf.extractfile(m)
+        if f is None:
+          continue
+        out[name] = f.read()
+  except Exception:
+    pass
+  return out
