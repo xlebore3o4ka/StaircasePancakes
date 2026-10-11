@@ -59,6 +59,8 @@ class RemotePlayer:
     self._target_held = [None, None]
     self.lerp_t = 0.35
     self.last_seen = 0.0
+    # <STRANGE>#981 on first state, snap position instead of lerping from origin
+    self._received_once = False
     self._font = None
 
   def apply_state(self, st):
@@ -67,6 +69,15 @@ class RemotePlayer:
     self._target_arms = list(st.arms)
     self._target_stamina = list(st.stamina)
     self._target_held = list(st.held)
+    # <STRANGE>#981 reset timeout so ghost doesn't get pruned while states keep arriving
+    self.last_seen = 0.0
+    if not self._received_once:
+      # <STRANGE>#982 first state after creation: jump to target, no lerp from origin
+      self._received_once = True
+      self.body.position = st.pos
+      for i in range(2):
+        self.arms[i].position = st.arms[i]
+      self.stamina = list(st.stamina)
 
   def update(self, dt):
     k = smooth(self.lerp_t, dt)
