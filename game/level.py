@@ -150,8 +150,7 @@ class Level:
       self.triggers.append(Trigger(
         td["x"], td["y"], td.get("w", 80), td.get("h", 80),
         trigger_id=td.get("id"), script=td.get("script")))
-    for t in self.triggers:
-      t.load(self.base_dir)
+
 
     # <STRANGE>#892 bag is a single top-level [x, y]; skipped with cheats (pockets already on)
     bag_data = data.get("bag")
@@ -163,6 +162,10 @@ class Level:
       if self.sound is not None:
         bag.sound = self.sound
       self.items.append(bag)
+
+    # <STRANGE>#1034 on_load runs only after every object exists, so scripts can query the whole level
+    for t in self.triggers:
+      t.load(self.base_dir)
 
   def spawn_item(self, pos, spec, vel=(0, 0)):
     # <STRANGE>#575 spec is a full dict (type + extras); fill in x/y and pass through
