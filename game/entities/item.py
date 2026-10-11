@@ -4,10 +4,11 @@ import pygame
 import pymunk
 from shared.const import (
   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
-  CUBE_FILL, CUBE_EDGE, LINE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
+  LINE_W, CIRCLE_LINE_W,
+  CUBE_FILL, CUBE_EDGE, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
-  PEG_R, PEG_FILL, PEG_EDGE, LINE_W,
-  REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, LINE_W, REBAR_GRAB_R,
+  PEG_R, PEG_FILL, PEG_EDGE,
+  REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
 from shared.physics_util import has_ground_contact
@@ -375,41 +376,85 @@ class PortablePegItem(Item):
     if alpha < 255:
       surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
       pygame.draw.circle(surf, (*fill, alpha), (r, r), r)
-      pygame.draw.circle(surf, (*edge, alpha), (r, r), r, max(1, int(LINE_W * sc)))
+      pygame.draw.circle(surf, (*edge, alpha), (r, r), r, CIRCLE_LINE_W)
       screen.blit(surf, (int(x) - r, int(y) - r))
     else:
       pygame.draw.circle(screen, fill, (int(x), int(y)), r)
-      pygame.draw.circle(screen, edge, (int(x), int(y)), r, max(1, int(LINE_W * sc)))
+      pygame.draw.circle(screen, edge, (int(x), int(y)), r, CIRCLE_LINE_W)
 
 
 class BagItem(Item):
-  # <STRANGE>#888 unlockable pockets: red square for now, no visual on player once consumed
-  FILL = (200, 40, 40)
-  EDGE = (255, 255, 255)
+  # <STRANGE>#912 bag icon: body + flap + handle + button, drawn from local coords with per-piece rotation
+  FILL_BODY = (139, 90, 43)
+  FILL_FLAP = (100, 60, 25)
+  OUTLINE = (40, 20, 10)
+  BUTTON = (218, 165, 32)
   pickup_sound = "pickup_bag"
   use_sound = "put_bag"
 
   def __init__(self, space, pos):
-    super().__init__(space, pos, 30, 30)
+    super().__init__(space, pos, 30, 40)
 
   def use(self):
     return (True, None, 0)
 
   def on_consume(self, player):
-    # <STRANGE>#889 grants pockets; player fills slots with soda + empty cube
     player.grant_pockets()
 
   def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
     sc = cam.scale * scale
     hw, hh = self.w / 2 * scale, self.h / 2 * scale
-    pts = _corners(pos, angle, hw, hh)
-    bf = _tint(self.FILL, whiten)
-    be = _tint(self.EDGE, whiten)
-    fill = (*bf, alpha) if alpha < 255 else bf
-    edge = (*be, alpha) if alpha < 255 else be
-    w_edge = max(1, int(LINE_W * sc))
-    _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
+    c, sn = math.cos(angle), math.sin(angle)
+    px, py = pos
 
+    def P(lx, ly):
+      return (px + lx * c - ly * sn, py + lx * sn + ly * c)
+
+    def wcol(col):
+      t = _tint(col, whiten)
+      if alpha < 255:
+        return (t[0], t[1], t[2], alpha)
+      return t
+
+    bands = []
+
+    # body: bottom half of the bag
+    body_top = hh * 0.15
+    body = [P(-hw, -hh), P(hw, -hh), P(hw, body_top), P(-hw, body_top)]
+    bands.append((body, wcol(self.FILL_BODY), 0))
+    bands.append((body, wcol(self.OUTLINE), CIRCLE_LINE_W))
+
+    # flap: trapezoid narrowing downward from body_top
+    flap_bottom = -hh * 0.3
+    flap_top_w = hw * 0.75
+    flap = [P(-hw, body_top), P(hw, body_top), P(flap_top_w, flap_bottom), P(-flap_top_w, flap_bottom)]
+    bands.append((flap, wcol(self.FILL_FLAP), 0))
+    bands.append((flap, wcol(self.OUTLINE), CIRCLE_LINE_W))
+
+    # handle: semicircular strap above the flap, thick outline colour
+    h_r = hw * 0.82
+    h_cx, h_cy = 0, body_top
+    thick = 2.5 * scale
+    N = 12
+    outer = []
+    inner = []
+    for i in range(N + 1):
+      t = math.pi - i * math.pi / N
+      outer.append(P(h_cx + h_r * math.cos(t), h_cy + h_r * math.sin(t)))
+      inner.append(P(h_cx + (h_r - thick) * math.cos(t), h_cy + (h_r - thick) * math.sin(t)))
+    handle_pts = outer + inner[::-1]
+    bands.append((handle_pts, wcol(self.OUTLINE), 0))
+
+    # button: small dot in the middle of the flap
+    b_cy = (body_top + flap_bottom) / 2
+    b_r = 3 * scale
+    btn = []
+    for i in range(12):
+      t = i * math.tau / 12
+      btn.append(P(b_r * math.cos(t), b_cy + b_r * math.sin(t)))
+    bands.append((btn, wcol(self.BUTTON), 0))
+
+    _blit_bands(screen, cam, bands)
 
 def make_item(space, spec):
   t = spec.get("type", "cube")

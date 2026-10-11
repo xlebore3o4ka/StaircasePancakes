@@ -18,6 +18,8 @@ PLAT_EDGE = (255, 255, 255)
 BG_FILL = (70, 75, 82)
 # <STRANGE>#907 single fixed line width for all outlines across the game; not scaled with camera
 LINE_W = 2
+# <NOTE>#910 circles read thinner than straight edges at the same width; +1 compensates
+CIRCLE_LINE_W = LINE_W + 1
 
 # <NOTE>#442 render layers; higher = drawn on top; stable sort keeps insertion order within a layer
 LAYER_BG = 0

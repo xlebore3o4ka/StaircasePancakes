@@ -1,7 +1,7 @@
 import pygame
 import pymunk
 from shared.const import (
-  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, LINE_W, LAYER_PEG,
+  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_GRABBED, LINE_W, CIRCLE_LINE_W, LAYER_PEG,
   PEG_FILL_FROM_ITEM,
 )
 
@@ -33,4 +33,4 @@ class Peg:
     # <STRANGE>#87 gray edge lerps with grab_count; two hands on same peg -> fully gray
     t = min(self.grab_count, 2) / 2
     edge = tuple(int(a + (b - a) * t) for a, b in zip(PEG_EDGE, PEG_EDGE_GRABBED))
-    pygame.draw.circle(screen, edge, (ix, iy), int(PEG_R * sc), max(1, int(LINE_W * sc)))
+    pygame.draw.circle(screen, edge, (ix, iy), int(PEG_R * sc), CIRCLE_LINE_W)
