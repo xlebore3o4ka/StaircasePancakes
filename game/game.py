@@ -32,6 +32,8 @@ class Game:
       player.level = level
       # <STRANGE>#942 remote ghosts; empty for now, filled by network layer later
       remotes = []
+      # <STRANGE>#942 remote ghosts; empty for now, filled by network layer later
+      remotes = []
       floor_fill = FloorFill()
       hud_info = HudInfo()
       clock = pygame.time.Clock()
@@ -50,6 +52,8 @@ class Game:
             running = False
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
+        for rp in remotes:
+          rp.update(dt)
         for rp in remotes:
           rp.update(dt)
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
@@ -74,6 +78,8 @@ class Game:
         drawables.sort(key=lambda o: o.layer)
         for d in drawables:
           d.draw(w.screen, cam)
+        for rp in remotes:
+          rp.draw(w.screen, cam)
         for rp in remotes:
           rp.draw(w.screen, cam)
         if self.spawninfo:
