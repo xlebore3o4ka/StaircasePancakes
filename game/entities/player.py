@@ -752,64 +752,12 @@ class Player:
 
 
   def draw(self, screen, cam):
-    sc = cam.scale
-    bx, by = cam.to_screen(*self.body.position)
-    pygame.draw.circle(screen, (255, 255, 255), (int(bx), int(by)), int(BODY_R * sc))
-    # <STRANGE>#416 consume fx draws on top of the body so the fly-in reads clearly
+    # <STRANGE>#926 body/hands/held moved to module-level draw_player_body; Player keeps only local fx
+    draw_player_body(screen, cam, self, is_local=True)
     for fx in self.consume_fx:
       fx.draw(screen, cam)
     for p in self.puffs:
       p.draw(screen, cam)
-    for i, arm in enumerate(self.arms):
-      ax, ay = cam.to_screen(*arm.position)
-      s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
-      if s_t < 0.5:
-        shake = SHAKE_MAX * (1 - s_t * 2) * sc
-        ax += random.uniform(-shake, shake)
-        ay += random.uniform(-shake, shake)
-      if self.shake_t[i] > 0:
-        amp = ITEM_USE_SHAKE_AMP * sc
-        ax += random.uniform(-amp, amp)
-        ay += random.uniform(-amp, amp)
-      # <STRANGE>#856 during pocket animation the item is drawn by the fx loop, not by held
-      if self.held[i] is not None and not self.pocket_anim[i]:
-        it = self.held[i]
-        # <STRANGE>#824 whiten pulse while q/e is held; skipped for portable peg because its use is a placement, not a charged action
-        if self.use_charged[i] and not getattr(it, "skip_use_pulse", False):
-          whiten = 0.6 * (0.5 - 0.5 * math.cos(math.tau * self.use_charge_t[i] / USE_PULSE_PERIOD))
-        else:
-          whiten = 0.0
-        if s_t < 0.5:
-          shx = random.uniform(-shake, shake) / sc
-          shy = random.uniform(-shake, shake) / sc
-          it.draw_at(screen, cam, (it.body.position.x + shx, it.body.position.y + shy), it.body.angle, 255, 1.0, whiten)
-        else:
-          it.draw_at(screen, cam, it.body.position, it.body.angle, 255, 1.0, whiten)
-      # <STRANGE>#856 pocket fx: item shrinks into or grows out of the hand position, follows live hand
-      for fx in self.pocket_anim[i]:
-        k = fx["t"] / fx["dur"]
-        scale = k if fx["grow"] else (1.0 - k)
-        if scale <= 0.01:
-          continue
-        hx = arm.position.x + ITEM_OFFSET * (-1 if i == 0 else 1)
-        hy = arm.position.y
-        fx["item"].draw_at(screen, cam, (hx, hy), 0.0, 255, scale)
-      arm_color = (223, int(223 * s_t), int(223 * s_t))
-      if self.held[i] is not None:
-        r = int(self.arm_r[i] * ARM_HOLD_SCALE * sc)
-        size = r * 2
-        surf = pygame.Surface((size, size), pygame.SRCALPHA)
-        pygame.draw.circle(surf, (*arm_color, ARM_HOLD_ALPHA), (r, r), r)
-        screen.blit(surf, (int(ax) - r, int(ay) - r))
-      else:
-        r = int(self.arm_r[i] * sc)
-        pygame.draw.circle(screen, arm_color, (int(ax), int(ay)), r)
-      pressed_vis = self.held[i] is None and (self.grabbed[i] is not None or (self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN))
-      if pressed_vis:
-        if self.grabbed[i] is not None:
-          pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.6)
-        else:
-          pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, CIRCLE_LINE_W)
     self._draw_pocket_hint(screen, cam)
 
   def _draw_pocket_hint(self, screen, cam):
@@ -908,3 +856,60 @@ class _HUDScreenCam:
     self.scale = scale
   def to_screen(self, x, y):
     return (x, y)
+
+
+def draw_player_body(screen, cam, src, is_local):
+  # <STRANGE>#926 unified renderer for local and remote players; src may be Player or RemotePlayer
+  sc = cam.scale
+  bx, by = cam.to_screen(*src.body.position)
+  pygame.draw.circle(screen, (255, 255, 255), (int(bx), int(by)), int(BODY_R * sc))
+  for i, arm in enumerate(src.arms):
+    ax, ay = cam.to_screen(*arm.position)
+    s_t = max(0.0, min(1.0, src.stamina[i] / STAMINA_MAX))
+    shake = 0.0
+    if is_local and s_t < 0.5:
+      shake = SHAKE_MAX * (1 - s_t * 2) * sc
+      ax += random.uniform(-shake, shake)
+      ay += random.uniform(-shake, shake)
+    if is_local and src.shake_t[i] > 0:
+      amp = ITEM_USE_SHAKE_AMP * sc
+      ax += random.uniform(-amp, amp)
+      ay += random.uniform(-amp, amp)
+    held = src.held[i] if is_local else None
+    # <STRANGE>#856 during pocket animation the item is drawn by the fx loop, not by held
+    if is_local and held is not None and not src.pocket_anim[i]:
+      whiten = 0.0
+      if src.use_charged[i] and not getattr(held, "skip_use_pulse", False):
+        whiten = 0.6 * (0.5 - 0.5 * math.cos(math.tau * src.use_charge_t[i] / USE_PULSE_PERIOD))
+      if s_t < 0.5:
+        shx = random.uniform(-shake, shake) / sc
+        shy = random.uniform(-shake, shake) / sc
+        held.draw_at(screen, cam, (held.body.position.x + shx, held.body.position.y + shy), held.body.angle, 255, 1.0, whiten)
+      else:
+        held.draw_at(screen, cam, held.body.position, held.body.angle, 255, 1.0, whiten)
+    if is_local:
+      for fx in src.pocket_anim[i]:
+        k = fx["t"] / fx["dur"]
+        scale = k if fx["grow"] else (1.0 - k)
+        if scale <= 0.01:
+          continue
+        hx = arm.position.x + ITEM_OFFSET * (-1 if i == 0 else 1)
+        hy = arm.position.y
+        fx["item"].draw_at(screen, cam, (hx, hy), 0.0, 255, scale)
+    arm_color = (223, int(223 * s_t), int(223 * s_t))
+    if is_local and held is not None:
+      r = int(src.arm_r[i] * ARM_HOLD_SCALE * sc)
+      size = r * 2
+      surf = pygame.Surface((size, size), pygame.SRCALPHA)
+      pygame.draw.circle(surf, (*arm_color, ARM_HOLD_ALPHA), (r, r), r)
+      screen.blit(surf, (int(ax) - r, int(ay) - r))
+    else:
+      r = int(src.arm_r[i] * sc)
+      pygame.draw.circle(screen, arm_color, (int(ax), int(ay)), r)
+    if is_local:
+      pressed_vis = held is None and (src.grabbed[i] is not None or (src.pressed[i] and not src.grab_lock[i] and src.stamina[i] > STAMINA_GRAB_MIN))
+      if pressed_vis:
+        if src.grabbed[i] is not None:
+          pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.6)
+        else:
+          pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, CIRCLE_LINE_W)
