@@ -9,4 +9,4 @@ def on_load(ctx):
   ctx.log(f"loaded door")
 
 def on_enter(ctx):
-  ctx.log("a")
+  ctx.move_to("door", y=500, dur=0.6, ease="out")

@@ -236,9 +236,10 @@ class Level:
     # <STRANGE>#1017 every id-bearing object in the level; order doesn't matter for arrow drawing
     return self.pegs + self.platforms + self.backgrounds + self.items + self.triggers
 
-  def move_to(self, uid, x=None, y=None, dur=0.5, ease="out"):
+  def move_to(self, target, x=None, y=None, dur=0.5, ease="out"):
     # <STRANGE>#1042 start a smooth move; cancels existing movers on the same object
-    obj = self.by_id.get(uid)
+    # <STRANGE>#1047 accept either a string id or the object itself
+    obj = self.by_id.get(target) if isinstance(target, str) else target
     if obj is None:
       return False
     self.movers = [m for m in self.movers if m["obj"] is not obj]
@@ -251,8 +252,8 @@ class Level:
       self.movers.append(entry)
     return True
 
-  def cancel_move(self, uid):
-    obj = self.by_id.get(uid)
+  def cancel_move(self, target):
+    obj = self.by_id.get(target) if isinstance(target, str) else target
     if obj is None:
       return
     self.movers = [m for m in self.movers if m["obj"] is not obj]
