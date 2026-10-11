@@ -3,11 +3,13 @@ import os
 import random
 import tarfile
 import tempfile
+import pymunk
 from shared.version import read as _read_version, parse as _parse_version
 from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
+from shared.const import LINE_W
 from shared.const import LINE_W
 from .entities.trigger import Trigger
 from .debug_view import DebugArrows
@@ -36,6 +38,8 @@ class Level:
     self._tmpdir = None
     # <STRANGE>#1017 lazy debug arrow helper (only used with --debugview)
     self._arrows = DebugArrows()
+    # <STRANGE>#1041 active smooth-move animations; each entry drives one object over time
+    self.movers = []
     json_path = self._resolve_path(path)
     # <STRANGE>#1027 scripts resolve relative to the json's directory; works for both json and tar layouts
     self.base_dir = os.path.dirname(json_path)
@@ -149,8 +153,7 @@ class Level:
       self.triggers.append(Trigger(
         td["x"], td["y"], td.get("w", 80), td.get("h", 80),
         trigger_id=td.get("id"), script=td.get("script")))
-    for t in self.triggers:
-      t.load(self.base_dir)
+
 
     # <STRANGE>#892 bag is a single top-level [x, y]; skipped with cheats (pockets already on)
     bag_data = data.get("bag")
@@ -162,6 +165,20 @@ class Level:
       if self.sound is not None:
         bag.sound = self.sound
       self.items.append(bag)
+
+    # <STRANGE>#1034 on_load runs only after every object exists, so scripts can query the whole level
+    # <STRANGE>#1036 id -> object index; duplicate ids keep the first, warn on the rest
+    self.by_id = {}
+    for o in self.debug_objects():
+      oid = getattr(o, "id", None)
+      if not oid:
+        continue
+      if oid in self.by_id:
+        print(f"level: duplicate id {oid!r}, ignoring later definition")
+        continue
+      self.by_id[oid] = o
+    for t in self.triggers:
+      t.load(self.base_dir, self)
 
   def spawn_item(self, pos, spec, vel=(0, 0)):
     # <STRANGE>#575 spec is a full dict (type + extras); fill in x/y and pass through
@@ -219,6 +236,100 @@ class Level:
   def debug_objects(self):
     # <STRANGE>#1017 every id-bearing object in the level; order doesn't matter for arrow drawing
     return self.pegs + self.platforms + self.backgrounds + self.items + self.triggers
+
+  def move_to(self, target, x=None, y=None, dur=0.5, ease="out"):
+    # <STRANGE>#1042 start a smooth move; cancels existing movers on the same object
+    # <STRANGE>#1047 accept either a string id or the object itself
+    obj = self.by_id.get(target) if isinstance(target, str) else target
+    if obj is None:
+      return False
+    self.movers = [m for m in self.movers if m["obj"] is not obj]
+    entry = {"obj": obj, "t": 0.0, "dur": max(0.01, dur), "ease": ease, "axis": {}}
+    if x is not None:
+      entry["axis"]["x"] = (self._current(obj, "x"), x)
+    if y is not None:
+      entry["axis"]["y"] = (self._current(obj, "y"), y)
+    if not entry["axis"]:
+      return True
+    # <STRANGE>#1062 platforms and pegs are kinematic from the start; nothing to switch here
+    self.movers.append(entry)
+    return True
+
+  def cancel_move(self, target):
+    obj = self.by_id.get(target) if isinstance(target, str) else target
+    if obj is None:
+      return
+    self.movers = [m for m in self.movers if m["obj"] is not obj]
+    body = getattr(obj, "body", None)
+    if body is not None:
+      body.velocity = (0, 0)
+
+  @staticmethod
+  def _current(obj, axis):
+    if hasattr(obj, "body"):
+      return getattr(obj.body.position, axis)
+    return getattr(obj, axis)
+
+  def _snap(self, obj, x=None, y=None):
+    # <STRANGE>#1057 final snap after a move; kinematic bodies reindex automatically
+    if hasattr(obj, "body"):
+      p = obj.body.position
+      obj.body.position = (x if x is not None else p.x,
+                           y if y is not None else p.y)
+      if obj.body.body_type == pymunk.Body.STATIC:
+        self.space.reindex_shapes_for_body(obj.body)
+    else:
+      if x is not None:
+        obj.x = x
+      if y is not None:
+        obj.y = y
+
+  @staticmethod
+  def _ease(name, k):
+    if k <= 0.0:
+      return 0.0
+    if k >= 1.0:
+      return 1.0
+    if name == "in":
+      return k * k
+    if name == "out":
+      return 1.0 - (1.0 - k) * (1.0 - k)
+    if name == "inout":
+      return k * k * (3 - 2 * k)
+    return k
+
+  def update_movers(self, dt):
+    if not self.movers:
+      return
+    keep = []
+    for m in self.movers:
+      m["t"] += dt
+      k = min(1.0, m["t"] / m["dur"])
+      e = self._ease(m["ease"], k)
+      nx = None
+      ny = None
+      if "x" in m["axis"]:
+        a, b = m["axis"]["x"]
+        nx = a + (b - a) * e
+      if "y" in m["axis"]:
+        a, b = m["axis"]["y"]
+        ny = a + (b - a) * e
+      body = getattr(m["obj"], "body", None)
+      if body is not None:
+        # <STRANGE>#1058 set velocity so Chipmunk integrates position this step and drags contacts/joints with it
+        cur_x = body.position.x
+        cur_y = body.position.y
+        vx = ((nx - cur_x) / dt) if (nx is not None and dt > 0) else 0.0
+        vy = ((ny - cur_y) / dt) if (ny is not None and dt > 0) else 0.0
+        body.velocity = (vx, vy)
+        if m["t"] >= m["dur"]:
+          body.velocity = (0, 0)
+          self._snap(m["obj"], nx, ny)
+      else:
+        self._snap(m["obj"], nx, ny)
+      if m["t"] < m["dur"]:
+        keep.append(m)
+    self.movers = keep
 
   def update_triggers(self, dt, player_pos):
     for t in self.triggers:

@@ -26,7 +26,7 @@ class Trigger:
     return (self.x - self.w / 2 <= wx <= self.x + self.w / 2 and
             self.y - self.h / 2 <= wy <= self.y + self.h / 2)
 
-  def load(self, base_dir):
+  def load(self, base_dir, level):
     if not self.script:
       return
     self._path = os.path.join(base_dir, self.script)
@@ -34,7 +34,7 @@ class Trigger:
     self.module = loader.load(self._path, name)
     if self.module is None:
       return
-    self.ctx = ScriptCtx(self.script)
+    self.ctx = ScriptCtx(self.script, level)
     loader.call(self.module, self._path, "on_load", self.ctx)
 
   def unload(self):

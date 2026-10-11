@@ -13,7 +13,8 @@ class Peg:
     self.id = None
     # <STRANGE>#807 true when the peg was created by planting a portable peg; edge stays orange
     self.from_item = from_item
-    self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
+    # <STRANGE>#1062 kinematic from start (see platform)
+    self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     self.body.position = pos
     shape = pymunk.Circle(self.body, PEG_R)
     # <STRANGE>#71 group=1 excludes peg from colliding with player parts; only grabs (constraints) interact

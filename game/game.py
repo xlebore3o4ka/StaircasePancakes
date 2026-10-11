@@ -91,6 +91,7 @@ class Game:
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
         level.update_triggers(dt, (player.body.position.x, player.body.position.y))
+        level.update_movers(dt)
         for rp in remotes.values():
           rp.update(dt)
         # <STRANGE>#963 drop remotes that stopped sending; covers server death and ghost of a disconnected peer
