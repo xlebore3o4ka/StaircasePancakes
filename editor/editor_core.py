@@ -11,6 +11,34 @@ from .const import (
   DEFAULT_ITEM_TYPE, DEFAULT_ARTIFACT_TYPE,
 )
 from .objects import default_layer_for
+from . import settings as _editor_settings
+try:
+  from shared import version as _game_version
+except Exception:
+  _game_version = None
+
+def _game_version_read():
+  if _game_version is None:
+    return "0.0.0"
+  try:
+    return str(_game_version.read())
+  except Exception:
+    return "0.0.0"
+
+def _version_parse(v):
+  try:
+    parts = str(v).split(".")
+    nums = [int(p) for p in parts[:3]]
+    while len(nums) < 3:
+      nums.append(0)
+    return tuple(nums)
+  except Exception:
+    return (0, 0, 0)
+
+def _version_incompatible(level_v, game_v):
+  lv = _version_parse(level_v)
+  gv = _version_parse(game_v)
+  return (lv[0], lv[1]) != (gv[0], gv[1]) and lv > gv
 from .panel import TopPanel
 
 
@@ -78,6 +106,13 @@ class CoreMixin:
     self._locked_list = []
     self._scene_dirty = True
 
+    self.level_version = _game_version_read()
+    self.loaded_version = None
+    self.version_warning = ""
+    self.version_warning_t = 0.0
+    self.version_warning_total = 3.6
+    self.version_input_visible = False
+    self.version_input_text = self.level_version
     self.panel = TopPanel(self)
     self.inspector_stack = []
     # <STRANGE>#560: grid step (?????? ?? rbxl studio) ??? ?????????????? ??????????
@@ -263,6 +298,26 @@ class CoreMixin:
       self.ghost[0] += dx * GHOST_LERP
       self.ghost[1] += dy * GHOST_LERP
 
+  # ---------- level version ----------
+  def _refresh_version_warning(self):
+    game_v = _game_version_read()
+    if _version_incompatible(self.level_version, game_v):
+      self.version_warning = "level %s > game %s" % (self.level_version, game_v)
+      self.version_warning_t = self.version_warning_total
+    else:
+      self.version_warning = ""
+      self.version_warning_t = 0.0
+
+  def _set_level_version(self, v):
+    v = (v or "").strip() or _game_version_read()
+    self.level_version = v
+    self.version_input_text = v
+    self._refresh_version_warning()
+
+  def _tick_version_warning(self, dt):
+    if self.version_warning_t > 0.0:
+      self.version_warning_t = max(0.0, self.version_warning_t - dt)
+
   # ---------- main loop ----------
   def run(self):
     while self.running:
@@ -272,6 +327,7 @@ class CoreMixin:
       self.update_cursor()
       self.update_ghost()
       self.panel.update(dt)
+      self._tick_version_warning(dt)
       for p in self.inspector_stack:
         p.update(dt)
       self.draw()

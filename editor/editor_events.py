@@ -211,6 +211,8 @@ class EventsMixin:
       self.set_tool("spawner")
     elif e.key == pygame.K_8:
       self.set_tool("bag")
+    elif e.key == pygame.K_9:
+      self.set_tool("trigger")
     elif e.key == pygame.K_l:
       self.set_tool("lock")
     elif e.key == pygame.K_u:

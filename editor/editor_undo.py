@@ -7,8 +7,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact,
-  EditorArtifact,
+  EditorArtifact, EditorTrigger,
 )
 
 
@@ -41,6 +40,12 @@ class UndoMixin:
     if isinstance(o, EditorArtifact):
       return {"t": "bag", "x": o.x, "y": o.y,
               "locked": o.locked, "layer": o.layer}
+    if isinstance(o, EditorTrigger):
+      return {"t": "trigger", "x": o.x, "y": o.y,
+              "w": o.w, "h": o.h,
+              "id": getattr(o, "id", ""),
+              "script": getattr(o, "script", ""),
+              "locked": o.locked, "layer": o.layer}
     return None
 
   def _make_from_state(self, s):
@@ -63,6 +68,10 @@ class UndoMixin:
     elif t == "spawner":
       o = EditorSpawner(s["x"], s["y"])
       o.items = [dict(e) for e in s.get("entries", [])]
+    elif t == "trigger":
+      o = EditorTrigger(s["x"], s["y"], s.get("w"), s.get("h"))
+      o.id = s.get("id", "")
+      o.script = s.get("script", "")
     elif t == "bag":
       o = EditorArtifact(s["x"], s["y"])
     else:
@@ -248,6 +257,8 @@ class UndoMixin:
 
   def _sync_inspector(self):
     if isinstance(self.selected, EditorSpawner):
+      self.push_inspector(self.selected)
+    elif isinstance(self.selected, EditorTrigger):
       self.push_inspector(self.selected)
     elif isinstance(self.selected, EditorItem) and self.selected.item_type == "cube":
       self.push_inspector(self.selected)

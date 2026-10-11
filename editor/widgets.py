@@ -8,6 +8,46 @@ from .const import (
 )
 from .helpers import render_text
 
+# <STRANGE>#950: clipboard helpers, shared by all text widgets.
+# pygame.scrap is deprecated; tkinter is the primary path,
+# pygame.scrap.get_text/put_text is the fallback.
+def _clip_get():
+    try:
+        import tkinter as tk
+        r = tk.Tk()
+        r.withdraw()
+        try:
+            txt = r.clipboard_get()
+        except Exception:
+            txt = ""
+        r.destroy()
+        if txt:
+            return txt
+    except Exception:
+        pass
+    try:
+        return pygame.scrap.get_text() or ""
+    except Exception:
+        return ""
+
+def _clip_put(txt):
+    try:
+        import tkinter as tk
+        r = tk.Tk()
+        r.withdraw()
+        r.clipboard_clear()
+        r.clipboard_append(txt)
+        r.update()
+        r.destroy()
+        return True
+    except Exception:
+        pass
+    try:
+        pygame.scrap.put_text(txt)
+        return True
+    except Exception:
+        return False
+
 
 class Widget:
   def __init__(self, x, y, w, h):
@@ -157,8 +197,11 @@ class UITextInput(Widget):
     self.cursor_blink = 0.0
     self.on_commit = on_commit
     self._last_committed = text
+    self._undo_stack = [text]
+    self._redo_stack = []
 
   def _commit(self):
+    # <STRANGE>#955: commit resets undo/redo history (checkpoint)
     if self.on_commit and self.text != self._last_committed:
       self._last_committed = self.text
       self.on_commit(self.text)
@@ -191,6 +234,8 @@ class UITextInput(Widget):
       if r.collidepoint(e.pos):
         self.focused = True
         self.cursor_blink = 0.0
+        self._undo_stack = [self.text]
+        self._redo_stack = []
         return True
       if self.focused:
         self.focused = False
@@ -208,6 +253,7 @@ class UITextInput(Widget):
         self.text += e.unicode
         return True
       return True
+    return False
     return False
 
 

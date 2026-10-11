@@ -8,8 +8,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact,
-  EditorArtifact,
+  EditorArtifact, EditorTrigger,
 )
 from . import settings
 
@@ -61,7 +60,7 @@ class DragMixin:
       return
 
     want = pygame.SYSTEM_CURSOR_ARROW
-    if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
+    if isinstance(self.selected, (EditorPlatform, EditorBackground, EditorTrigger)) \
        and not self.selected.locked:
       mx, my = pygame.mouse.get_pos()
       wx, wy = self.from_screen(mx, my)
@@ -241,6 +240,8 @@ class DragMixin:
         self.set_tool("spawner")
       elif self.tab_artifact_rect().collidepoint(pos):
         self.set_tool("artifact")
+      elif self.tab_trigger_rect().collidepoint(pos):
+        self.set_tool("trigger")
       return
 
     wx, wy = self.from_screen(x, y)
@@ -250,7 +251,7 @@ class DragMixin:
     zone = self._resize_zone_world()
 
     if shift:
-      if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
+      if isinstance(self.selected, (EditorPlatform, EditorBackground, EditorTrigger)) \
          and not self.selected.locked:
         edge = self.selected.edge_hit(wx, wy, zone)
         if edge:
@@ -301,7 +302,7 @@ class DragMixin:
           return
       return
 
-    if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
+    if isinstance(self.selected, (EditorPlatform, EditorBackground, EditorTrigger)) \
        and not self.selected.locked:
       edge = self.selected.edge_hit(wx, wy, zone)
       if edge:
@@ -359,6 +360,12 @@ class DragMixin:
       self.objects.append(obj)
       self._set_selection([obj])
       self._begin_move(wx, wy, obj)
+      self._mark_scene_dirty()
+    elif self.tool == "trigger":
+      obj = EditorTrigger(wx, wy, 1, 1)
+      self.objects.append(obj)
+      self._set_selection([obj])
+      self.drag = ("create", (wx, wy))
       self._mark_scene_dirty()
     elif self.tool == "artifact":
       cur_type = getattr(self, "current_artifact_type", "bag")
@@ -737,7 +744,7 @@ class DragMixin:
   def _begin_resize(self, edge):
     self._resize_data = []
     for obj in self.selection:
-      if isinstance(obj, (EditorPlatform, EditorBackground)) and not obj.locked:
+      if isinstance(obj, (EditorPlatform, EditorBackground, EditorTrigger)) and not obj.locked:
         self._resize_data.append((obj, obj.world_rect()))
     self.drag = ("resize", edge)
     # <STRANGE>#400: ???????? ???????????? ?????????????????? ??? ????????????????, ?????? ???????????? ????????

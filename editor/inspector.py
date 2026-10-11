@@ -38,6 +38,13 @@ def _find_entry_list(owner):
 def _is_world_obj(owner):
   return owner is not None and not isinstance(owner, dict)
 
+def _is_trigger(owner):
+  try:
+    from .objects import EditorTrigger
+    return isinstance(owner, EditorTrigger)
+  except Exception:
+    return False
+
 
 class InspectorPanel:
   def __init__(self, editor, owner, depth=0):
@@ -55,6 +62,9 @@ class InspectorPanel:
     self.count_text = {}
     self.focused_entry = None
     self.cursor_blink = 0.0
+    # <STRANGE>#940: id/script text fields for triggers
+    self.text_buffers = {}
+    self.focused_text = None
 
     self.hover_key = None
     self.hover_entry = None
@@ -76,7 +86,9 @@ class InspectorPanel:
     return self.t > 0.001
 
   def wants_keyboard(self):
-    return self.owner is not None and self.focused_entry is not None
+    return (self.owner is not None
+            and (self.focused_entry is not None
+                 or self.focused_text is not None))
 
   def update(self, dt):
     self.cursor_blink = (self.cursor_blink + dt) % 1.0
@@ -123,6 +135,11 @@ class InspectorPanel:
       y += INSPECTOR_ROW_H + 6
       positions["layer_y"] = y
       y += INSPECTOR_ROW_H + 14
+      if _is_trigger(view):
+        positions["id_y"] = y
+        y += INSPECTOR_ROW_H + 6
+        positions["script_y"] = y
+        y += INSPECTOR_ROW_H + 14
     else:
       positions["type_line_y"] = y
       y += 26 + 14
@@ -163,6 +180,16 @@ class InspectorPanel:
       inc = pygame.Rect(row.right - 26, row.y + 2, 24, row.h - 4)
       items.append((dec, "layer_dec", None))
       items.append((inc, "layer_inc", None))
+      if _is_trigger(view):
+        id_row = pygame.Rect(fr.x + pad, pos["id_y"],
+                             fr.w - pad * 2, INSPECTOR_ROW_H)
+        script_row = pygame.Rect(fr.x + pad, pos["script_y"],
+                                 fr.w - pad * 2, INSPECTOR_ROW_H)
+        items.append((id_row, "trigger_id", None))
+        items.append((script_row, "trigger_script", None))
+        browse = pygame.Rect(script_row.right - 22, script_row.y + 2,
+                             18, script_row.h - 4)
+        items.append((browse, "trigger_script_browse", None))
 
     entries = _find_entry_list(view)
     if entries is not None:
@@ -200,7 +227,9 @@ class InspectorPanel:
     vr = self._visible_rect()
     if not vr.collidepoint(pos):
       return None
-    for rect, kind, entry in self._layout():
+    # <STRANGE>#960: reverse order so small buttons on top of rows win
+    # (e.g. trigger_script_browse sits inside trigger_script row)
+    for rect, kind, entry in reversed(self._layout()):
       if rect.collidepoint(pos):
         return (kind, entry, rect)
     return None
@@ -245,6 +274,9 @@ class InspectorPanel:
       return fr.collidepoint(pygame.mouse.get_pos())
 
     if e.type == pygame.KEYDOWN:
+      if self.focused_text is not None:
+        self._on_text_key(e)
+        return True
       if self.focused_entry is not None:
         self._on_count_key(e)
         return True
@@ -271,6 +303,23 @@ class InspectorPanel:
       return
     if kind == "layer_inc":
       self._bump_layer(+1)
+      return
+    if kind == "trigger_id":
+      if self.focused_text is not None:
+        self._commit_text()
+      self.focused_text = ("id", self.owner)
+      self.text_buffers["id"] = str(getattr(self.owner, "id", ""))
+      self.cursor_blink = 0.0
+      return
+    if kind == "trigger_script":
+      if self.focused_text is not None:
+        self._commit_text()
+      self.focused_text = ("script", self.owner)
+      self.text_buffers["script"] = str(getattr(self.owner, "script", ""))
+      self.cursor_blink = 0.0
+      return
+    if kind == "trigger_script_browse":
+      self._browse_script()
       return
 
     # записи — работают и в объектах, и в dict
@@ -334,6 +383,68 @@ class InspectorPanel:
       buf = self.count_text.get(id(self.focused_entry), "")
       if len(buf) < 7:
         self.count_text[id(self.focused_entry)] = buf + e.unicode
+
+  def _browse_script(self):
+    # <STRANGE>#951: pick a .py file from disk via tkinter
+    if self.owner is None:
+      return
+    try:
+      import tkinter as tk
+      from tkinter import filedialog
+      root = tk.Tk()
+      root.withdraw()
+      path = filedialog.askopenfilename(
+          title="Choose script",
+          initialdir="levels",
+          filetypes=[("Python", "*.py"), ("All files", "*.*")],
+      )
+      root.destroy()
+      if path:
+        self.owner.script = path
+        try:
+          self.editor._mark_scene_dirty()
+        except Exception:
+          pass
+    except Exception:
+      pass
+
+  def _commit_text(self):
+    # <STRANGE>#941/#954: apply buffer to trigger.id/script and reset undo.
+    if self.focused_text is None:
+      return
+    which, owner = self.focused_text
+    txt = self.text_buffers.get(which, "")
+    if owner is not None:
+      if which == "id":
+        owner.id = txt
+      elif which == "script":
+        owner.script = txt
+    self.focused_text = None
+    try:
+      self.editor._mark_scene_dirty()
+    except Exception:
+      pass
+
+  def _on_text_key(self, e):
+    if self.focused_text is None:
+      return False
+    which, owner = self.focused_text
+    if e.key == pygame.K_ESCAPE:
+      self.focused_text = None
+      return True
+    if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
+      self._commit_text()
+      return True
+    if e.key == pygame.K_BACKSPACE:
+      buf = self.text_buffers.get(which, "")
+      self.text_buffers[which] = buf[:-1]
+      return True
+    if e.unicode and e.unicode.isprintable():
+      buf = self.text_buffers.get(which, "")
+      if len(buf) < 120:
+        self.text_buffers[which] = buf + e.unicode
+      return True
+    return True
 
   def _commit_count(self):
     if self.focused_entry is None:
@@ -448,11 +559,51 @@ class InspectorPanel:
         t = "-" if key == "layer_dec" else "+"
         ts = self.font.render(t, True, INSPECTOR_BTN_TEXT)
         s.blit(ts, ts.get_rect(center=rr.center))
+      if _is_trigger(view):
+        self._draw_text_row(s, pos["id_y"] - oy, "id",
+                            view.id, "trigger_id")
+        self._draw_text_row(s, pos["script_y"] - oy, "script",
+                            view.script, "trigger_script",
+                            browse=True)
     else:
       y_type = pos["type_line_y"] - oy
       tn = view.get("type", "?")
       ts = self.font.render(f"type: {tn}", True, INSPECTOR_LABEL)
       s.blit(ts, (pad, y_type))
+
+  def _draw_text_row(self, s, y, key, current, hover_kind, browse=False):
+    # <STRANGE>#942: single text row: label + input box (+ optional browse)
+    pad = INSPECTOR_PAD
+    row = pygame.Rect(pad, y, INSPECTOR_W - pad * 2, INSPECTOR_ROW_H)
+    focused = (self.focused_text is not None
+               and self.focused_text[0] == key)
+    if focused:
+      txt = self.text_buffers.get(key, str(current))
+    else:
+      txt = str(current)
+    label_w = 60
+    lbl = self.font.render(key, True, INSPECTOR_LABEL)
+    s.blit(lbl, (row.x + 10, row.y + (row.h - lbl.get_height()) // 2))
+    right_pad = 26 if browse else 8
+    box = pygame.Rect(row.x + label_w, row.y + 2,
+                      row.w - label_w - right_pad, row.h - 4)
+    pygame.draw.rect(s, INSPECTOR_INPUT_BG, box, border_radius=3)
+    edge = INSPECTOR_INPUT_EDGE_FOCUS if focused else INSPECTOR_INPUT_EDGE
+    pygame.draw.rect(s, edge, box, 1, border_radius=3)
+    ts = self.font.render(txt, True, INSPECTOR_INPUT_TEXT)
+    s.blit(ts, (box.x + 6, box.y + (box.h - ts.get_height()) // 2))
+    if focused and self.cursor_blink < 0.5:
+      cx = box.x + 6 + self.font.size(txt)[0] + 1
+      pygame.draw.line(s, INSPECTOR_INPUT_TEXT,
+                       (cx, box.y + 4), (cx, box.bottom - 4))
+    if browse:
+      bb = pygame.Rect(row.right - 22, row.y + 2, 18, row.h - 4)
+      hov = self._is_hover("trigger_script_browse", None)
+      bg = INSPECTOR_BTN_HOVER if hov else INSPECTOR_BTN_BG
+      pygame.draw.rect(s, bg, bb, border_radius=3)
+      pygame.draw.rect(s, INSPECTOR_BTN_BORDER, bb, 1, border_radius=3)
+      ts = self.font.render("...", True, INSPECTOR_BTN_TEXT)
+      s.blit(ts, ts.get_rect(center=bb.center))
 
   def _draw_entries_section(self, s, r, entries, pos, ox, oy):
     pad = INSPECTOR_PAD

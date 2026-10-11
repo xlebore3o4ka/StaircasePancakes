@@ -94,6 +94,7 @@ class RenderMixin:
 
     if self.context_menu is not None:
       self.context_menu.draw(self.screen)
+    self._draw_version_toast()
 
   def _draw_ghosted(self, obj):
     # <STRANGE>#526: ???????????????????????????? ???????????? ?????? ???????????????? ?????? ???????????? ????????????
@@ -186,6 +187,46 @@ class RenderMixin:
           pygame.draw.line(self.screen, col, (int(end[0]), int(end[1])),
                            (int(ex), int(ey)), ROTATE_ARC_THICK)
 
+
+  def _draw_version_toast(self):
+    t = getattr(self, "version_warning_t", 0.0)
+    text = getattr(self, "version_warning", "")
+    if t <= 0.0 or not text:
+      return
+    sw, sh = self.screen.get_size()
+    SLIDE = 0.30
+    total = getattr(self, "version_warning_total", 3.6)
+    elapsed = total - t
+    if elapsed < SLIDE: p = elapsed / SLIDE
+    elif t < SLIDE: p = t / SLIDE
+    else: p = 1.0
+    p = max(0.0, min(1.0, p))
+    ease = 1.0 - (1.0 - p) ** 3
+    pad_x, pad_y, icon = 16, 12, 22
+    font = getattr(self, "font", None)
+    if font is None:
+      return
+    warn_col = (255, 215, 0)
+    label = font.render(text, True, warn_col)
+    pw = pad_x * 2 + icon + 10 + label.get_width()
+    ph = max(pad_y * 2 + icon, pad_y * 2 + label.get_height())
+    x_vis = sw - pw - 16
+    x_hid = sw + 4
+    x = int(x_hid + (x_vis - x_hid) * ease)
+    y = int(sh * 0.35 - ph / 2)
+    panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
+    pygame.draw.rect(panel, (24, 26, 32, 210), panel.get_rect(), border_radius=8)
+    pygame.draw.rect(panel, (90, 96, 110, 230), panel.get_rect(), 1, border_radius=8)
+    ix = pad_x + icon // 2
+    iy = ph // 2
+    tri = [(ix, iy - icon // 2), (ix - icon // 2, iy + icon // 2), (ix + icon // 2, iy + icon // 2)]
+    pygame.draw.polygon(panel, warn_col, tri)
+    pygame.draw.polygon(panel, (20, 20, 20), tri, 2)
+    f_icon = pygame.font.SysFont(None, 20, bold=True)
+    bang = f_icon.render("!", True, (20, 20, 20))
+    panel.blit(bang, bang.get_rect(center=(ix, iy + 1)))
+    panel.blit(label, (pad_x + icon + 10, (ph - label.get_height()) // 2))
+    self.screen.blit(panel, (x, y))
 
   def draw_snap_guides(self):
     sw, sh = self.screen.get_size()
@@ -291,6 +332,7 @@ class RenderMixin:
     self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
     self.draw_tab(self.tab_spawner_rect(), "spawner", self.tool == "spawner")
     self.draw_tab(self.tab_artifact_rect(), "artifact", self.tool == "artifact")
+    self.draw_tab(self.tab_trigger_rect(), "trigger", self.tool == "trigger")
 
     z = f"{int(self.zoom * 100)}%"
     surf = render_text(self.font, z, GOLD)
@@ -332,6 +374,13 @@ class RenderMixin:
       f = pygame.font.SysFont(None, 20, bold=True)
       ts = f.render("S", True, (255, 255, 255))
       self.screen.blit(ts, ts.get_rect(center=rr.center))
+    elif name == "trigger":
+      rr = pygame.Rect(0, 0, 72, 44)
+      rr.center = r.center
+      ov = pygame.Surface(rr.size, pygame.SRCALPHA)
+      ov.fill((80, 160, 255, 70))
+      self.screen.blit(ov, rr.topleft)
+      pygame.draw.rect(self.screen, (80, 160, 255), rr, 2)
     elif name == "artifact":
       # <STRANGE>#742: draw current artifact type; fallback to generic square
       cur = getattr(self, "current_artifact_type", "bag")
@@ -412,5 +461,9 @@ class RenderMixin:
   def tab_artifact_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(920, h - BOT_H + 6, 120, BOT_H - 12)
+
+  def tab_trigger_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(1050, h - BOT_H + 6, 120, BOT_H - 12)
 
  

@@ -8,13 +8,14 @@ from .const import (
   BG_DEFAULT_COLOR, DEFAULT_ITEM_TYPE,
   ARTIFACT_TYPES,
   DEFAULT_ARTIFACT_TYPE,
+  TRIGGER_DEFAULT_W, TRIGGER_DEFAULT_H,
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact,
-  EditorArtifact,
+  EditorArtifact, EditorTrigger,
 )
-from .editor_core import CoreMixin
+from . import tar_io
+from .editor_core import CoreMixin, _game_version_read
 from .editor_undo import UndoMixin
 from .editor_events import EventsMixin
 from .editor_drag import DragMixin
@@ -29,7 +30,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     path = filedialog.asksaveasfilename(
       defaultextension=".json",
       initialdir="levels",
-      filetypes=[("JSON", "*.json")],
+      filetypes=[("Level", "*.json *.tar"), ("JSON", "*.json"), ("TAR", "*.tar")],
     )
     root.destroy()
     if not path:
@@ -39,36 +40,52 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     backgrounds = [o.to_json() for o in self.objects if isinstance(o, EditorBackground)]
     items = [o.to_json() for o in self.objects if isinstance(o, EditorItem)]
     spawners = [o.to_json() for o in self.objects if isinstance(o, EditorSpawner)]
+    triggers = [o.to_json() for o in self.objects if isinstance(o, EditorTrigger)]
     # bag ??? ?????????????????? ????????????, ???????? ????????
     bag = None
     for o in self.objects:
       if isinstance(o, EditorArtifact):
         bag = [int(o.x), int(o.y)]
         break
-    out = {
+    out = {"version": str(_game_version_read())}
+    out.update({
       "pegs": pegs,
       "platforms": platforms,
       "backgrounds": backgrounds,
       "items": items,
       "itemSpawners": spawners,
-    }
+      "triggers": triggers,
+    })
     if bag is not None:
       out["bag"] = bag
-    with open(path, "w") as f:
-      json.dump(out, f, indent=2)
+    if str(path).lower().endswith(".tar"):
+      tar_io.save_level(path, out)
+    else:
+      with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(out, f, indent=2)
+    try:
+      self._refresh_version_warning()
+    except Exception:
+      pass
 
   def load(self):
     root = tk.Tk()
     root.withdraw()
     path = filedialog.askopenfilename(
       initialdir="levels",
-      filetypes=[("JSON", "*.json")],
+      filetypes=[("Level", "*.json *.tar"), ("JSON", "*.json"), ("TAR", "*.tar")],
     )
     root.destroy()
     if not path:
       return
-    data = json.load(open(path))
+    if str(path).lower().endswith(".tar"):
+      data = tar_io.load_level(path)
+    else:
+      with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
     before = self._snapshot()
+    _v = data.get("version")
+    self.loaded_version = _v.strip() if isinstance(_v, str) and _v.strip() else None
     self.objects = []
     for p in data.get("pegs", []):
       # <STRANGE>#700: ?????? ?????????? ???????? [x, y], [x, y, locked] ?????? dict
@@ -119,6 +136,16 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       obj.locked = bool(sp.get("locked", False))
       if "layer" in sp:
         obj.layer = int(sp["layer"])
+      self.objects.append(obj)
+    for tg in data.get("triggers", []):
+      obj = EditorTrigger(tg["x"], tg["y"],
+                          tg.get("w", TRIGGER_DEFAULT_W),
+                          tg.get("h", TRIGGER_DEFAULT_H))
+      obj.id = tg.get("id", "")
+      obj.script = tg.get("script", "")
+      obj.locked = bool(tg.get("locked", False))
+      if "layer" in tg:
+        obj.layer = int(tg["layer"])
       self.objects.append(obj)
     # bag ??? ??????????????????
     bag_data = data.get("bag")

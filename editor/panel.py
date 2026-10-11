@@ -1,4 +1,4 @@
-﻿"""Р’РµСЂС…РЅСЏСЏ РїР°РЅРµР»СЊ СЃ РІРєР»Р°РґРєР°РјРё."""
+"""Р’РµСЂС…РЅСЏСЏ РїР°РЅРµР»СЊ СЃ РІРєР»Р°РґРєР°РјРё."""
 import pygame
 from .const import (
   PANEL_HEADER_H, PANEL_BODY_H, PANEL_WIDGET_H,
@@ -75,7 +75,15 @@ class TopPanel:
     # <STRANGE>#574: Save/Load ??? ???????????????????? ???????????? ?????????? ?? ??????????????, ???? ?? ????????????????
     self.save_btn = UIButton(0, 0, 80, PANEL_HEADER_H - 10, "Save", editor.save)
     self.load_btn = UIButton(0, 0, 80, PANEL_HEADER_H - 10, "Load", editor.load)
-    self.header_widgets = [self.toggle_btn, self.save_btn, self.load_btn]
+    self.version_btn = UIButton(0, 0, 96, PANEL_HEADER_H - 10,
+                                "v: " + str(getattr(editor, "level_version", "0.0.0")),
+                                self._toggle_version_input)
+    self.version_input = UITextInput(0, 0, 96, PANEL_HEADER_H - 10,
+        placeholder="0.0.0", text=str(getattr(editor, "level_version", "0.0.0")),
+        on_commit=self._commit_version)
+    self.version_input.visible = False
+    self.header_widgets = [self.toggle_btn, self.save_btn, self.load_btn,
+                           self.version_btn, self.version_input]
     self.body_widgets[2].extend([self.grid_btn,
                                   self.grid_xy_lbl,
                                   self.grid_step_input,
@@ -147,6 +155,9 @@ class TopPanel:
     # Save/Load ??? ?????????? ?????????? ???????????? "Level editor"
     cx = 130
     cy = (PANEL_HEADER_H - self.save_btn.rect.h) // 2
+    self.version_btn.rect.topleft = (cx, cy)
+    self.version_input.rect.topleft = (cx, cy)
+    cx += self.version_btn.rect.w + 6
     self.save_btn.rect.topleft = (cx, cy)
     cx += self.save_btn.rect.w + 4
     self.load_btn.rect.topleft = (cx, cy)
@@ -169,6 +180,32 @@ class TopPanel:
   def _toggle(self):
     self.expanded = not self.expanded
     self.toggle_btn.label = "Hide" if self.expanded else "Show"
+    self.layout(self.editor.screen.get_width())
+
+  def _toggle_version_input(self):
+    if self.version_input.visible:
+      self.version_input.focused = False
+      self.version_input.visible = False
+      self.version_btn.visible = True
+      self.layout(self.editor.screen.get_width())
+      return
+    self.version_input.text = str(getattr(self.editor, "level_version", "0.0.0"))
+    self.version_input._last_committed = self.version_input.text
+    self.version_input.visible = True
+    self.version_input.focused = True
+    self.version_input.cursor_blink = 0.0
+    self.version_btn.visible = False
+    self.layout(self.editor.screen.get_width())
+
+  def _commit_version(self, txt):
+    try:
+      self.editor._set_level_version(txt)
+    except Exception:
+      pass
+    self.version_btn.label = "v: " + str(getattr(self.editor, "level_version", "0.0.0"))
+    self.version_input.visible = False
+    self.version_input.focused = False
+    self.version_btn.visible = True
     self.layout(self.editor.screen.get_width())
 
   def sync_tool(self, name):
