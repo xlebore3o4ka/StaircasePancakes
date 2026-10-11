@@ -7,6 +7,7 @@ from .level import Level
 from .entities.floor import FloorFill
 from .core.sound import SoundManager
 from .entities.hud_info import HudInfo
+from .net.remote_player import RemotePlayer
 
 LOGICAL_W = 1920
 LOGICAL_H = 1080
@@ -29,6 +30,8 @@ class Game:
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       level = Level(space, self.map_path, sound=sound, cheats=self.cheats)
       player.level = level
+      # <STRANGE>#942 remote ghosts; empty for now, filled by network layer later
+      remotes = []
       floor_fill = FloorFill()
       hud_info = HudInfo()
       clock = pygame.time.Clock()
@@ -47,6 +50,8 @@ class Game:
             running = False
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
+        for rp in remotes:
+          rp.update(dt)
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:
           for pos, spec, vel in player.spawn_queue:
@@ -69,6 +74,8 @@ class Game:
         drawables.sort(key=lambda o: o.layer)
         for d in drawables:
           d.draw(w.screen, cam)
+        for rp in remotes:
+          rp.draw(w.screen, cam)
         if self.spawninfo:
           level.draw_spawners(w.screen, cam, player.body.position)
         player.draw_hud(w.screen, cam)
