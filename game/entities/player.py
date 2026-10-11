@@ -860,7 +860,8 @@ class Player:
           break
       if hud_scale <= 0.01:
         continue
-      self.pocket[i].draw_at(screen, _HUDScreenCam(sc), (ox, cy), 0.0, 128, hud_scale, y_up=False)
+      hox, hoy = self.pocket[i].hud_offset
+      self.pocket[i].draw_at(screen, _HUDScreenCam(sc), (ox + hox * sc, cy + hoy * sc), 0.0, 128, hud_scale, y_up=False)
 
     for i in range(2):
       hx = cx + (-offset if i == 0 else offset)
@@ -890,7 +891,8 @@ class Player:
         screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
       else:
         # <STRANGE>#353 identity cam: to_screen returns coords unchanged so item renders in HUD space; scale 1.0
-        it.draw_at(screen, _HUDScreenCam(sc), (hx, hy), 0.0, 160, 1.0, y_up=False)
+        hox, hoy = it.hud_offset
+        it.draw_at(screen, _HUDScreenCam(sc), (hx + hox * sc, hy + hoy * sc), 0.0, 160, 1.0, y_up=False)
         # <STRANGE>#403 small label at bottom of the circle outline, alpha slightly higher than the empty variant
         sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
         sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))

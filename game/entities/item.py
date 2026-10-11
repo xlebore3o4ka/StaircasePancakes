@@ -84,6 +84,8 @@ class Item:
   hold_offset = (0, 0)
   # <NOTE>#462 override when max(w,h) is a bad reach metric (long thin items); None means use max/2
   grab_radius = None
+  # <STRANGE>#918 screen-space offset for the HUD icon (screen Y down); used to lift asymmetric items
+  hud_offset = (0, 0)
   # <NOTE>#481 per-hand target angle while held; None means 0 (upright) for both hands
   hand_angle = None
 
@@ -392,8 +394,13 @@ class BagItem(Item):
   pickup_sound = "pickup_bag"
   use_sound = "put_bag"
 
+  # <STRANGE>#919 lift in HUD so the handle reads above the circle centre
+  hud_offset = (0, -8)
+
   def __init__(self, space, pos):
     super().__init__(space, pos, 30, 40)
+    # <STRANGE>#919 hand grabs near the top so the bag hangs below the arm
+    self.hold_offset = (0, self.h * 0.4)
 
   def use(self):
     return (True, None, 0)
