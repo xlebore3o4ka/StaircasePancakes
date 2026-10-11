@@ -87,6 +87,8 @@ HIT_VOL_MIN = 250
 HIT_VOL_MAX = 1800
 HIT_COOLDOWN = 0.08
 STEP_INTERVAL = 0.32
+# <NOTE>#1020 on_tick fires this many times per second while player is inside a trigger
+TRIGGER_TICK_HZ = 20
 # <NOTE>#962 drop remote ghost if no state received for this long
 NET_TIMEOUT_SEC = 3.0
 # <NOTE>#824 pulse period for the charged hold-to-use white flash on held items

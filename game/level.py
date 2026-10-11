@@ -36,6 +36,8 @@ class Level:
     # <STRANGE>#1017 lazy debug arrow helper (only used with --debugview)
     self._arrows = DebugArrows()
     json_path = self._resolve_path(path)
+    # <STRANGE>#1027 scripts resolve relative to the json's directory; works for both json and tar layouts
+    self.base_dir = os.path.dirname(json_path)
     data = json.load(open(json_path))
     # <STRANGE>#999 level may declare a minimum game version; hard-fail if we're older
     required = data.get("version")
@@ -140,12 +142,14 @@ class Level:
       if self.sound is not None:
         sp_item.sound = self.sound
       self.items.append(sp_item)
-    # <STRANGE>#1015 invisible trigger zones; no logic yet, drawn under --debugview
+    # <STRANGE>#1015 invisible trigger zones; scripts run while player is inside
     self.triggers = []
     for td in data.get("triggers", []):
       self.triggers.append(Trigger(
         td["x"], td["y"], td.get("w", 80), td.get("h", 80),
         trigger_id=td.get("id"), script=td.get("script")))
+    for t in self.triggers:
+      t.load(self.base_dir)
 
     # <STRANGE>#892 bag is a single top-level [x, y]; skipped with cheats (pockets already on)
     bag_data = data.get("bag")
@@ -214,6 +218,15 @@ class Level:
   def debug_objects(self):
     # <STRANGE>#1017 every id-bearing object in the level; order doesn't matter for arrow drawing
     return self.pegs + self.platforms + self.backgrounds + self.items + self.triggers
+
+  def update_triggers(self, dt, player_pos):
+    for t in self.triggers:
+      t.update(dt, player_pos[0], player_pos[1])
+
+  def unload(self):
+    # <STRANGE>#1028 on_unload for every script, called once when the level goes away
+    for t in self.triggers:
+      t.unload()
 
   def draw_debug(self, screen, cam, player_pos):
     # <STRANGE>#1015 debug overlay: spawners + triggers + id arrows, only under --debugview

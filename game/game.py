@@ -90,6 +90,7 @@ class Game:
             running = False
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
+        level.update_triggers(dt, (player.body.position.x, player.body.position.y))
         for rp in remotes.values():
           rp.update(dt)
         # <STRANGE>#963 drop remotes that stopped sending; covers server death and ghost of a disconnected peer
@@ -198,5 +199,6 @@ class Game:
         hud_info.draw(w.screen, player.body.position.y - spawn_y)
         w.flip()
 
+      level.unload()
       if net is not None:
         net.close()
