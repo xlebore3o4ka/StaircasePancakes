@@ -249,8 +249,14 @@ class Level:
       entry["axis"]["x"] = (self._current(obj, "x"), x)
     if y is not None:
       entry["axis"]["y"] = (self._current(obj, "y"), y)
-    if entry["axis"]:
-      self.movers.append(entry)
+    if not entry["axis"]:
+      return True
+    # <STRANGE>#1056 kinematic during the move so Chipmunk carries attached bodies (standing player, joints) along
+    body = getattr(obj, "body", None)
+    if body is not None and body.body_type == pymunk.Body.STATIC:
+      body.body_type = pymunk.Body.KINEMATIC
+      body.velocity = (0, 0)
+    self.movers.append(entry)
     return True
 
   def cancel_move(self, target):
@@ -258,34 +264,24 @@ class Level:
     if obj is None:
       return
     self.movers = [m for m in self.movers if m["obj"] is not obj]
-
-  def _wake_constrained(self, body):
-    # <STRANGE>#1053 moving a static body doesn't wake dynamic partners connected by joints; do it manually
-    for c in self.space.constraints:
-      other = None
-      if c.a is body:
-        other = c.b
-      elif c.b is body:
-        other = c.a
-      if other is not None and other.body_type == pymunk.Body.DYNAMIC:
-        other.activate()
+    body = getattr(obj, "body", None)
+    if body is not None and body.body_type == pymunk.Body.KINEMATIC:
+      body.velocity = (0, 0)
+      body.body_type = pymunk.Body.STATIC
 
   @staticmethod
   def _current(obj, axis):
     if hasattr(obj, "body"):
-      v = getattr(obj.body.position, axis)
-      return v
+      return getattr(obj.body.position, axis)
     return getattr(obj, axis)
 
-  def _write(self, obj, x=None, y=None):
+  def _snap(self, obj, x=None, y=None):
+    # <STRANGE>#1057 teleport, reindex, wake anything attached; only used for the final snap after a kinematic move
     if hasattr(obj, "body"):
       p = obj.body.position
       obj.body.position = (x if x is not None else p.x,
                            y if y is not None else p.y)
-      # <STRANGE>#1049 static bodies keep their shape in the spatial hash; without reindex collisions stay at the old spot
-      if obj.body.body_type == pymunk.Body.STATIC:
-        self.space.reindex_shapes_for_body(obj.body)
-        self._wake_constrained(obj.body)
+      self.space.reindex_shapes_for_body(obj.body)
     else:
       if x is not None:
         obj.x = x
@@ -322,7 +318,20 @@ class Level:
       if "y" in m["axis"]:
         a, b = m["axis"]["y"]
         ny = a + (b - a) * e
-      self._write(m["obj"], nx, ny)
+      body = getattr(m["obj"], "body", None)
+      if body is not None and body.body_type == pymunk.Body.KINEMATIC:
+        # <STRANGE>#1058 set velocity so Chipmunk integrates position this step and drags contacts/joints with it
+        cur_x = body.position.x
+        cur_y = body.position.y
+        vx = ((nx - cur_x) / dt) if (nx is not None and dt > 0) else 0.0
+        vy = ((ny - cur_y) / dt) if (ny is not None and dt > 0) else 0.0
+        body.velocity = (vx, vy)
+        if m["t"] >= m["dur"]:
+          body.velocity = (0, 0)
+          self._snap(m["obj"], nx, ny)
+          body.body_type = pymunk.Body.STATIC
+      else:
+        self._snap(m["obj"], nx, ny)
       if m["t"] < m["dur"]:
         keep.append(m)
     self.movers = keep
