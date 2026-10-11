@@ -632,7 +632,10 @@ class Player:
             self.rope_len[i] = max(ARM_DX, self.rope_len[i] - per_sec(REEL_SPEED, dt))
             # <STRANGE>#618 min stays 0; only max reels in. Body can go closer than ARM_DX if physics pushes it
             self.joints[i].max = self.rope_len[i]
-          world_pt = self.grabbed[i][2]
+          # <STRANGE>#1066 recompute world anchor every frame so a moving peg carries the hand with it
+          _obj, _anchor, _ = self.grabbed[i]
+          world_pt = _obj.body.local_to_world(_anchor)
+          self.grabbed[i] = (_obj, _anchor, world_pt)
           d = world_pt - self.body.position
           if d.length > 0:
             self.arm_dir[i] = d.normalized()
