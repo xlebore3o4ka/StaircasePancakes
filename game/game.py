@@ -94,6 +94,10 @@ class Game:
           for ev in level.net_events:
             net.send(ev)
           level.net_events.clear()
+          # <STRANGE>#991 drain player events (item removals)
+          for ev in player.net_events:
+            net.send(ev)
+          player.net_events.clear()
           for ev in net.poll():
             t = ev.get("t")
             if t == "joined":
@@ -117,6 +121,9 @@ class Game:
               # <STRANGE>#973 remote peg; _from_net stops us from re-broadcasting
               level.spawn_item((float(ev["x"]), float(ev["y"])),
                                {"type": "peg_static", "_from_net": True})
+            elif t == "item_gone":
+              # <STRANGE>#991 peer picked up or consumed an item; drop ghost immediately
+              ghost_items.items.pop(ev.get("id"), None)
             elif t == "sound":
               # <STRANGE>#983 remote sfx at half volume; play only when emitter is on our screen
               n = ev.get("snd")

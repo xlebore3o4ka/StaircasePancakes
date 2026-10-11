@@ -115,6 +115,10 @@ class Player:
     self.state = PlayerState()
     # <STRANGE>#964 monotonic counter for net_id per player
     self._net_counter = 0
+    # <STRANGE>#991 ids we sent last tick; diff reveals items that are no longer free
+    self._last_sent_ids = set()
+    # <STRANGE>#991 events to send to peers (item removals); drained by game.py
+    self.net_events = []
     # <STRANGE>#900 set by Game; pockets use this to register spawned items in the level list
     self.level = None
     # <STRANGE>#856 per-hand list of shrink/grow animations for pocket transitions
@@ -182,6 +186,11 @@ class Player:
     st.angle = self.body.angle
     st.jumped = self.jumped_this_frame
     st.items = self._collect_free_items()
+    # <STRANGE>#991 broadcast removal for any id that was free last frame and is not now
+    now_ids = {e["id"] for e in st.items}
+    for gone in self._last_sent_ids - now_ids:
+      self.net_events.append({"t": "item_gone", "id": gone})
+    self._last_sent_ids = now_ids
 
   def record_pre_step(self):
     # <STRANGE>#678 store pre-step velocity; post_step compares vy for bias and full v for impact volume
