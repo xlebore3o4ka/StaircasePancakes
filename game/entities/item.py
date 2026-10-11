@@ -183,7 +183,7 @@ class Item:
   def draw(self, screen, cam):
     self.draw_at(screen, cam, self.body.position, self.body.angle, 255, 1.0)
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0, y_up=True):
     pass
 
 
@@ -222,7 +222,7 @@ class CubeItem(Item):
       return (True, {"type": "soda"}, 0)
     return (True, None, 0)
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0, y_up=True):
     sc = cam.scale * scale
     hw, hh = self.w / 2 * scale, self.h / 2 * scale
     pts = _corners(pos, angle, hw, hh)
@@ -244,7 +244,7 @@ class SodaItem(Item):
   def use(self):
     return (True, None, SODA_STAMINA)
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0, y_up=True):
     hw, hh = self.w / 2 * scale, self.h / 2 * scale
     bb = _tint(SODA_BLUE, whiten)
     bw = _tint(SODA_WHITE, whiten)
@@ -327,7 +327,7 @@ class RebarItem(Item):
     if self.sound is not None and cam is not None and _on_screen(self, cam):
       self.sound.play("rebar_stick")
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0, y_up=True):
     sc = cam.scale * scale
     hw, hh = self.w / 2 * scale, self.h / 2 * scale
     pts = _corners(pos, angle, hw, hh)
@@ -367,7 +367,7 @@ class PortablePegItem(Item):
     # <STRANGE>#788 high friction on this shape -> effective 0.5 with floor, stops quickly
     self.shape.friction = 0.5
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0, y_up=True):
     sc = cam.scale * scale
     x, y = cam.to_screen(pos[0], pos[1])
     r = max(1, int(PEG_R * sc))
@@ -401,13 +401,15 @@ class BagItem(Item):
   def on_consume(self, player):
     player.grant_pockets()
 
-  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0):
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0, y_up=True):
     sc = cam.scale * scale
     hw, hh = self.w / 2 * scale, self.h / 2 * scale
     c, sn = math.cos(angle), math.sin(angle)
     px, py = pos
+    ysign = 1.0 if y_up else -1.0
 
     def P(lx, ly):
+      ly = ly * ysign
       return (px + lx * c - ly * sn, py + lx * sn + ly * c)
 
     def wcol(col):
