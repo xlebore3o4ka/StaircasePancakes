@@ -95,6 +95,9 @@ class RenderMixin:
     if self.context_menu is not None:
       self.context_menu.draw(self.screen)
 
+    # <STRANGE>#830: yellow warning toast (level newer than game)
+    self._draw_version_toast()
+
   def _draw_ghosted(self, obj):
     # <STRANGE>#526: ???????????????????????????? ???????????? ?????? ???????????????? ?????? ???????????? ????????????
     from .objects import (
@@ -186,6 +189,71 @@ class RenderMixin:
           pygame.draw.line(self.screen, col, (int(end[0]), int(end[1])),
                            (int(ex), int(ey)), ROTATE_ARC_THICK)
 
+
+  # ---------- version warning toast ----------
+  def _draw_version_toast(self):
+    # <STRANGE>#831: dark toast, yellow text, smooth slide-in from the right
+    t = getattr(self, "version_warning_t", 0.0)
+    text = getattr(self, "version_warning", "")
+    if t <= 0.0 or not text:
+      return
+    sw, sh = self.screen.get_size()
+
+    # timing: 0.3s slide in, 3.0s hold, 0.3s slide out
+    SLIDE = 0.30
+    HOLD = 3.00
+    total = getattr(self, "version_warning_total", SLIDE + HOLD + SLIDE)
+    elapsed = total - t
+    if elapsed < SLIDE:
+      p = elapsed / SLIDE
+    elif t < SLIDE:
+      p = t / SLIDE
+    else:
+      p = 1.0
+    p = max(0.0, min(1.0, p))
+    # ease-out cubic for a softer slide
+    ease = 1.0 - (1.0 - p) ** 3
+
+    pad_x = 16
+    pad_y = 12
+    icon = 22
+    font = getattr(self, "font", None)
+    if font is None:
+      return
+
+    # yellow warning text
+    warn_col = (255, 215, 0)
+    label = font.render(text, True, warn_col)
+    panel_w = pad_x * 2 + icon + 10 + label.get_width()
+    panel_h = max(pad_y * 2 + icon, pad_y * 2 + label.get_height())
+
+    # slide from off-screen right to visible x
+    x_visible = sw - panel_w - 16
+    x_hidden = sw + 4
+    x = int(x_hidden + (x_visible - x_hidden) * ease)
+    y = int(sh * 0.35 - panel_h / 2)
+
+    panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    # dark semi-transparent background
+    pygame.draw.rect(panel, (24, 26, 32, 210),
+                     panel.get_rect(), border_radius=8)
+    pygame.draw.rect(panel, (90, 96, 110, 230),
+                     panel.get_rect(), 1, border_radius=8)
+
+    # yellow triangle with black '!' inside
+    ix = pad_x + icon // 2
+    iy = panel_h // 2
+    tri = [(ix, iy - icon // 2), (ix - icon // 2, iy + icon // 2),
+           (ix + icon // 2, iy + icon // 2)]
+    pygame.draw.polygon(panel, warn_col, tri)
+    pygame.draw.polygon(panel, (20, 20, 20), tri, 2)
+    f_icon = pygame.font.SysFont(None, 20, bold=True)
+    bang = f_icon.render("!", True, (20, 20, 20))
+    panel.blit(bang, bang.get_rect(center=(ix, iy + 1)))
+
+    panel.blit(label, (pad_x + icon + 10,
+                       (panel_h - label.get_height()) // 2))
+    self.screen.blit(panel, (x, y))
 
   def draw_snap_guides(self):
     sw, sh = self.screen.get_size()

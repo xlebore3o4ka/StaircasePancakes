@@ -12,9 +12,8 @@ from .const import (
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
   EditorArtifact,
-  EditorArtifact,
 )
-from .editor_core import CoreMixin
+from .editor_core import CoreMixin, _game_version_read
 from .editor_undo import UndoMixin
 from .editor_events import EventsMixin
 from .editor_drag import DragMixin
@@ -45,17 +44,25 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       if isinstance(o, EditorArtifact):
         bag = [int(o.x), int(o.y)]
         break
-    out = {
+    # <STRANGE>#810: version is the first key in the file (min game version)
+    # <STRANGE>#810/#862: version is always the current game client version.
+    out = {"version": str(_game_version_read())}
+    out.update({
       "pegs": pegs,
       "platforms": platforms,
       "backgrounds": backgrounds,
       "items": items,
       "itemSpawners": spawners,
-    }
+    })
     if bag is not None:
       out["bag"] = bag
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
       json.dump(out, f, indent=2)
+    # <STRANGE>#811: nudge the warning toast if level > game
+    try:
+      self._refresh_version_warning()
+    except Exception:
+      pass
 
   def load(self):
     root = tk.Tk()
@@ -67,8 +74,15 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     root.destroy()
     if not path:
       return
-    data = json.load(open(path))
+    with open(path, "r", encoding="utf-8") as f:
+      data = json.load(f)
     before = self._snapshot()
+    # <STRANGE>#812/#863: remember version from file, do not adopt.
+    _v = data.get("version")
+    if isinstance(_v, str) and _v.strip():
+      self.loaded_version = _v.strip()
+    else:
+      self.loaded_version = None
     self.objects = []
     for p in data.get("pegs", []):
       # <STRANGE>#700: ?????? ?????????? ???????? [x, y], [x, y, locked] ?????? dict

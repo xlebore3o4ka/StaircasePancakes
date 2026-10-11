@@ -38,3 +38,23 @@ def set_panel_size(kind, w, h):
       json.dump(d, f, indent=2)
   except Exception:
     pass
+
+
+def get_level_version(default=None):
+  """<STRANGE>#800: version string the editor writes into level JSON."""
+  d = _load()
+  v = d.get("level_version")
+  if v is None:
+    return default
+  return str(v)
+
+
+def set_level_version(v):
+  """<STRANGE>#801: persist editor level version to settings.json."""
+  d = _load()
+  d["level_version"] = str(v)
+  try:
+    with open(_PATH, "w", encoding="utf-8", newline="\n") as f:
+      json.dump(d, f, indent=2)
+  except Exception:
+    pass

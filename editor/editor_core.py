@@ -11,6 +11,48 @@ from .const import (
   DEFAULT_ITEM_TYPE, DEFAULT_ARTIFACT_TYPE,
 )
 from .objects import default_layer_for
+
+# <STRANGE>#802: level version source of truth: shared/version.py (game),
+# persisted per-editor in editor/settings.json via editor.settings.
+from . import settings as _editor_settings
+try:
+  from shared import version as _game_version
+except Exception:
+  _game_version = None
+
+def _game_version_read():
+  """Return current game version string, or '0.0.0' if unavailable."""
+  if _game_version is None:
+    return "0.0.0"
+  try:
+    return str(_game_version.read())
+  except Exception:
+    return "0.0.0"
+
+def _version_parse(v):
+  """Parse 'X.Y.Z' into (X, Y, Z); fallback to (0,0,0)."""
+  if _game_version is not None:
+    try:
+      return tuple(_game_version.parse(v))
+    except Exception:
+      pass
+  try:
+    parts = str(v).split(".")
+    nums = []
+    for p in parts[:3]:
+      nums.append(int(p))
+    while len(nums) < 3:
+      nums.append(0)
+    return tuple(nums)
+  except Exception:
+    return (0, 0, 0)
+
+def _version_incompatible(level_v, game_v):
+  """True if level requires a newer game (major.minor mismatch)."""
+  lv = _version_parse(level_v)
+  gv = _version_parse(game_v)
+  return (lv[0], lv[1]) != (gv[0], gv[1]) and lv > gv
+
 from .panel import TopPanel
 
 
@@ -78,6 +120,15 @@ class CoreMixin:
     self._locked_list = []
     self._scene_dirty = True
 
+    # <STRANGE>#803/#860: level_version always tracks the current game client.
+    self.level_version = _game_version_read()
+    self.loaded_version = None   # version read from the last loaded file
+    self.version_warning = ""    # text for the toast
+    self.version_warning_t = 0.0  # remaining seconds
+    # <STRANGE>#840: total toast duration (slide + hold + slide)
+    self.version_warning_total = 3.6
+    self.version_input_visible = False
+    self.version_input_text = self.level_version
     self.panel = TopPanel(self)
     self.inspector_stack = []
     # <STRANGE>#560: grid step (?????? ?? rbxl studio) ??? ?????????????? ??????????
@@ -263,6 +314,31 @@ class CoreMixin:
       self.ghost[0] += dx * GHOST_LERP
       self.ghost[1] += dy * GHOST_LERP
 
+  # ---------- level version helpers ----------
+  def _refresh_version_warning(self):
+    """<STRANGE>#804: recompute warning and (re)start its toast timer."""
+    game_v = _game_version_read()
+    if _version_incompatible(self.level_version, game_v):
+      self.version_warning = (
+          "level %s > game %s" % (self.level_version, game_v))
+      self.version_warning_t = self.version_warning_total
+    else:
+      self.version_warning = ""
+      self.version_warning_t = 0.0
+
+  def _set_level_version(self, v):
+    # <STRANGE>#805/#861: in-memory only; save() overrides with game version.
+    v = (v or "").strip()
+    if not v:
+      v = _game_version_read()
+    self.level_version = v
+    self.version_input_text = v
+    self._refresh_version_warning()
+
+  def _tick_version_warning(self, dt):
+    if self.version_warning_t > 0.0:
+      self.version_warning_t = max(0.0, self.version_warning_t - dt)
+
   # ---------- main loop ----------
   def run(self):
     while self.running:
@@ -272,6 +348,7 @@ class CoreMixin:
       self.update_cursor()
       self.update_ghost()
       self.panel.update(dt)
+      self._tick_version_warning(dt)
       for p in self.inspector_stack:
         p.update(dt)
       self.draw()
