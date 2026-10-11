@@ -10,6 +10,7 @@ from .entities.hud_info import HudInfo
 from .net.remote_player import RemotePlayer
 from .net.client import NetClient
 from .net.player_state import to_wire, from_wire
+from shared.const import NET_TIMEOUT_SEC
 
 LOGICAL_W = 1920
 LOGICAL_H = 1080
@@ -69,6 +70,10 @@ class Game:
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
         for rp in remotes.values():
           rp.update(dt)
+        # <STRANGE>#963 drop remotes that stopped sending; covers server death and ghost of a disconnected peer
+        stale = [n for n, rp in remotes.items() if rp.last_seen >= NET_TIMEOUT_SEC]
+        for n in stale:
+          del remotes[n]
 
         # <STRANGE>#956 throttle state sends to NET_TICK_HZ; poll drains queue each frame
         if net is not None:
