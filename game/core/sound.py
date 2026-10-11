@@ -43,6 +43,7 @@ class SoundManager:
     snd.play()
     # <STRANGE>#983 broadcast unless we were triggered by a remote event or the sound is local-only
     if self.on_play is not None and not _from_net and name not in NET_MUTE:
+      print(f"sound: local play {name} v={volume} -> broadcast")
       self.on_play(name, volume)
 
   def report(self):

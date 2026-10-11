@@ -121,6 +121,7 @@ class Game:
               n = ev.get("name")
               v = float(ev.get("vol", 1.0))
               if n:
+                print(f"sound: recv {n} vol={v}")
                 ex = float(ev.get("x", 0))
                 ey = float(ev.get("y", 0))
                 sx, sy = cam.to_screen(ex, ey)
