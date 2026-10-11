@@ -8,15 +8,22 @@ from .entities.floor import FloorFill
 from .core.sound import SoundManager
 from .entities.hud_info import HudInfo
 from .net.remote_player import RemotePlayer
+from .net.client import NetClient
+from .net.player_state import to_wire, from_wire
 
 LOGICAL_W = 1920
 LOGICAL_H = 1080
+NET_TICK_HZ = 20
+
 
 class Game:
-  def __init__(self, cheats=False, map_path="levels/test.json", spawninfo=False):
+  def __init__(self, cheats=False, map_path="levels/test.json", spawninfo=False,
+               name=None, server=None):
     self.cheats = cheats
     self.map_path = map_path
     self.spawninfo = spawninfo
+    self.name = name
+    self.server_url = server
 
   def run(self):
     with Window() as w:
@@ -25,15 +32,23 @@ class Game:
       sound.report()
       # <STRANGE>#158 spawn at world origin on the floor; cam starts synced so it doesn't fly in
       player = Player(space, (0, BODY_R), cheats=self.cheats, sound=sound)
+      if self.name:
+        player.state.name = self.name
       spawn_y = BODY_R
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       level = Level(space, self.map_path, sound=sound, cheats=self.cheats)
       player.level = level
-      # <STRANGE>#942 remote ghosts; empty for now, filled by network layer later
-      remotes = []
-      # <STRANGE>#942 remote ghosts; empty for now, filled by network layer later
-      remotes = []
+      # <STRANGE>#942 remote ghosts: name -> RemotePlayer
+      remotes = {}
+
+      # <STRANGE>#955 net is optional; without --server the rest of the loop is untouched
+      net = None
+      if self.server_url:
+        net = NetClient(self.server_url, self.name or "anon")
+        net.connect()
+      net_accum = 0.0
+
       floor_fill = FloorFill()
       hud_info = HudInfo()
       clock = pygame.time.Clock()
@@ -52,10 +67,33 @@ class Game:
             running = False
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
-        for rp in remotes:
+        for rp in remotes.values():
           rp.update(dt)
-        for rp in remotes:
-          rp.update(dt)
+
+        # <STRANGE>#956 throttle state sends to NET_TICK_HZ; poll drains queue each frame
+        if net is not None:
+          net_accum += dt
+          if net_accum >= 1.0 / NET_TICK_HZ:
+            net_accum = 0.0
+            net.send(to_wire(player.state))
+          for ev in net.poll():
+            t = ev.get("t")
+            if t == "joined":
+              n = ev.get("name")
+              if n and n != player.state.name:
+                remotes[n] = RemotePlayer(n)
+            elif t == "left":
+              remotes.pop(ev.get("name"), None)
+            elif t == "state":
+              n = ev.get("name")
+              if not n or n == player.state.name:
+                continue
+              rp = remotes.get(n)
+              if rp is None:
+                rp = RemotePlayer(n)
+                remotes[n] = rp
+              rp.apply_state(from_wire(ev))
+
         # <STRANGE>#300 drain spawn queue after player update so items appear next frame with no mid-frame physics surprises
         if player.spawn_queue:
           for pos, spec, vel in player.spawn_queue:
@@ -78,9 +116,7 @@ class Game:
         drawables.sort(key=lambda o: o.layer)
         for d in drawables:
           d.draw(w.screen, cam)
-        for rp in remotes:
-          rp.draw(w.screen, cam)
-        for rp in remotes:
+        for rp in remotes.values():
           rp.draw(w.screen, cam)
         if self.spawninfo:
           level.draw_spawners(w.screen, cam, player.body.position)
@@ -89,3 +125,6 @@ class Game:
         # <STRANGE>#620 height is distance from spawn, not absolute y
         hud_info.draw(w.screen, player.body.position.y - spawn_y)
         w.flip()
+
+      if net is not None:
+        net.close()
