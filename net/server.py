@@ -22,9 +22,8 @@ async def handler(ws):
         print(f"+ {name} connected, total={len(_clients)}")
         # <STRANGE>#946 announce to everyone else so they can spawn a ghost immediately
         await _broadcast({"t": "joined", "name": name}, except_ws=ws)
-      elif t == "state":
-        if name is None:
-          continue
+      elif name is not None:
+        # <STRANGE>#980 relay any non-hello message as-is; the server shouldn't need to know about every event type
         out = dict(msg)
         out["name"] = name
         await _broadcast(out, except_ws=ws)
