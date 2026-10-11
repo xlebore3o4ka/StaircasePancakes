@@ -97,6 +97,7 @@ class Item:
 
   def __init__(self, space, pos, w, h):
     self.space = space
+    self.id = None
     self.w = w
     self.h = h
     self.held_by = None

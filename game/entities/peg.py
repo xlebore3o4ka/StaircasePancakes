@@ -10,6 +10,7 @@ class Peg:
 
   def __init__(self, space, pos, from_item=False):
     self.grab_count = 0
+    self.id = None
     # <STRANGE>#807 true when the peg was created by planting a portable peg; edge stays orange
     self.from_item = from_item
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)

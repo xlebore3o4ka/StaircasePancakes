@@ -54,6 +54,8 @@ class Level:
         peg = Peg(space, (p["x"], p["y"]))
         if "layer" in p:
           peg.layer = int(p["layer"])
+        if "id" in p:
+          peg.id = p["id"]
         self.pegs.append(peg)
       else:
         self.pegs.append(Peg(space, tuple(p)))
@@ -73,6 +75,8 @@ class Level:
       )
       if "layer" in pd:
         plat.layer = int(pd["layer"])
+      if "id" in pd:
+        plat.id = pd["id"]
       self.platforms.append(plat)
     self.backgrounds = []
     for bd in data.get("backgrounds", []):
@@ -88,12 +92,16 @@ class Level:
       )
       if "layer" in bd:
         bg.layer = int(bd["layer"])
+      if "id" in bd:
+        bg.id = bd["id"]
       self.backgrounds.append(bg)
     self.items = []
     for it_spec in data.get("items", []):
       item = make_item(space, it_spec)
       if "layer" in it_spec:
         item.layer = int(it_spec["layer"])
+      if "id" in it_spec:
+        item.id = it_spec["id"]
       if self.sound is not None:
         item.sound = self.sound
       self.items.append(item)
@@ -124,6 +132,8 @@ class Level:
         if k not in ("type", "count"):
           spec[k] = v
       sp_item = make_item(space, spec)
+      if chosen_entry.get("id"):
+        sp_item.id = chosen_entry["id"]
       if self.sound is not None:
         sp_item.sound = self.sound
       self.items.append(sp_item)
@@ -137,11 +147,10 @@ class Level:
     # <STRANGE>#892 bag is a single top-level [x, y]; skipped with cheats (pockets already on)
     bag_data = data.get("bag")
     if bag_data and not cheats:
-      if isinstance(bag_data[0], (int, float)):
-        bx, by = bag_data[0], bag_data[1]
-      else:
-        bx, by = bag_data[0][0], bag_data[0][1]
-      bag = make_item(space, {"x": bx, "y": by, "type": "bag"})
+      # <STRANGE>#1016 bag is a dict now: {"x", "y", optional "id"}
+      bag = make_item(space, {"x": bag_data["x"], "y": bag_data["y"], "type": "bag"})
+      if bag_data.get("id"):
+        bag.id = bag_data["id"]
       if self.sound is not None:
         bag.sound = self.sound
       self.items.append(bag)
@@ -165,6 +174,8 @@ class Level:
     it = make_item(self.space, full)
     if "layer" in spec:
       it.layer = int(spec["layer"])
+    if "id" in spec:
+      it.id = spec["id"]
     if self.sound is not None:
       it.sound = self.sound
     # <STRANGE>#370 initial velocity set after make_item so the body is already dynamic at spawn

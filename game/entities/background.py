@@ -6,6 +6,7 @@ class Background:
 
   def __init__(self, pos, w, h, color=BG_FILL, points=None):
     self.x, self.y = pos
+    self.id = None
     self.w = w
     self.h = h
     self.color = color

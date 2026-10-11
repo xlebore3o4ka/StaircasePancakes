@@ -10,6 +10,7 @@ class Platform:
 
   def __init__(self, space, pos, w=PLAT_W, h=PLAT_H, fill=PLAT_FILL, edge=PLAT_EDGE, points=None):
     self.grab_count = 0
+    self.id = None
     self.w = w
     self.h = h
     self.fill = fill
