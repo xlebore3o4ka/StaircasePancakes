@@ -52,8 +52,9 @@ class Game:
         net = NetClient(self.server_url, self.name or "anon")
         net.connect()
         # <STRANGE>#983 broadcast local sfx with emitter position; receiver culls offscreen
+        # <STRANGE>#989 field is "snd" because the server overwrites "name" with the sender name
         sound.on_play = lambda n, v: net.send({
-          "t": "sound", "name": n, "vol": v,
+          "t": "sound", "snd": n, "vol": v,
           "x": player.body.position.x, "y": player.body.position.y,
         })
       net_accum = 0.0
@@ -118,10 +119,9 @@ class Game:
                                {"type": "peg_static", "_from_net": True})
             elif t == "sound":
               # <STRANGE>#983 remote sfx at half volume; play only when emitter is on our screen
-              n = ev.get("name")
+              n = ev.get("snd")
               v = float(ev.get("vol", 1.0))
               if n:
-                print(f"sound: recv {n} vol={v}")
                 ex = float(ev.get("x", 0))
                 ey = float(ev.get("y", 0))
                 sx, sy = cam.to_screen(ex, ey)
