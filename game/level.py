@@ -157,7 +157,7 @@ class Level:
       sx, sy = cam.to_screen(sp["x"], sp["y"])
       if sx < -200 or sx > sw + 200 or sy < -200 or sy > sh + 200:
         continue
-      pygame.draw.circle(screen, (80, 200, 255), (int(sx), int(sy)), 10, 2)
+      pygame.draw.circle(screen, (80, 200, 255), (int(sx), int(sy)), 10, LINE_W)
       dx = sp["x"] - player_pos[0]
       dy = sp["y"] - player_pos[1]
       if dx * dx + dy * dy < 300 * 300:

@@ -4,10 +4,10 @@ import pygame
 import pymunk
 from shared.const import (
   ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
-  CUBE_FILL, CUBE_EDGE, CUBE_EDGE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
+  CUBE_FILL, CUBE_EDGE, LINE_W, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
-  PEG_R, PEG_FILL, PEG_EDGE, PEG_EDGE_W,
-  REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, REBAR_EDGE_W, REBAR_GRAB_R,
+  PEG_R, PEG_FILL, PEG_EDGE, LINE_W,
+  REBAR_W, REBAR_H, REBAR_FILL, REBAR_EDGE, LINE_W, REBAR_GRAB_R,
   REBAR_SHOOT_V, REBAR_RECOIL_AIR, REBAR_RECOIL_GROUND, REBAR_STUCK_POINTS, JUMP_V,
 )
 from shared.physics_util import has_ground_contact
@@ -229,7 +229,7 @@ class CubeItem(Item):
     be = _tint(CUBE_EDGE, whiten)
     fill = (*bf, alpha) if alpha < 255 else bf
     edge = (*be, alpha) if alpha < 255 else be
-    w_edge = max(1, int(CUBE_EDGE_W * sc))
+    w_edge = max(1, int(LINE_W * sc))
     _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
 
 
@@ -334,7 +334,7 @@ class RebarItem(Item):
     be = _tint(REBAR_EDGE, whiten)
     fill = (*bf, alpha) if alpha < 255 else bf
     edge = (*be, alpha) if alpha < 255 else be
-    w_edge = max(1, int(REBAR_EDGE_W * sc))
+    w_edge = max(1, int(LINE_W * sc))
     _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
 
 
@@ -375,18 +375,17 @@ class PortablePegItem(Item):
     if alpha < 255:
       surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
       pygame.draw.circle(surf, (*fill, alpha), (r, r), r)
-      pygame.draw.circle(surf, (*edge, alpha), (r, r), r, max(1, int(PEG_EDGE_W * sc)))
+      pygame.draw.circle(surf, (*edge, alpha), (r, r), r, max(1, int(LINE_W * sc)))
       screen.blit(surf, (int(x) - r, int(y) - r))
     else:
       pygame.draw.circle(screen, fill, (int(x), int(y)), r)
-      pygame.draw.circle(screen, edge, (int(x), int(y)), r, max(1, int(PEG_EDGE_W * sc)))
+      pygame.draw.circle(screen, edge, (int(x), int(y)), r, max(1, int(LINE_W * sc)))
 
 
 class BagItem(Item):
   # <STRANGE>#888 unlockable pockets: red square for now, no visual on player once consumed
   FILL = (200, 40, 40)
   EDGE = (255, 255, 255)
-  EDGE_W = 2
   pickup_sound = "pickup_bag"
   use_sound = "put_bag"
 
@@ -408,7 +407,7 @@ class BagItem(Item):
     be = _tint(self.EDGE, whiten)
     fill = (*bf, alpha) if alpha < 255 else bf
     edge = (*be, alpha) if alpha < 255 else be
-    w_edge = max(1, int(self.EDGE_W * sc))
+    w_edge = max(1, int(LINE_W * sc))
     _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, w_edge)])
 
 

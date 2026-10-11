@@ -1,6 +1,6 @@
 import pygame
 import pymunk
-from shared.const import BODY_R, PLAT_FILL, PLAT_EDGE, PLAT_EDGE_W, LAYER_PLATFORM
+from shared.const import BODY_R, PLAT_FILL, PLAT_EDGE, LINE_W, LAYER_PLATFORM
 
 PLAT_W = 5 * BODY_R
 PLAT_H = 2 * BODY_R
@@ -50,8 +50,8 @@ class Platform:
       x1, y1 = cam.to_screen(p.x + self.w / 2, p.y - self.h / 2)
       rect = pygame.Rect(int(x0), int(y0), int(x1 - x0), int(y1 - y0))
       pygame.draw.rect(screen, self.fill, rect)
-      pygame.draw.rect(screen, self.edge, rect, max(1, int(PLAT_EDGE_W * sc)))
+      pygame.draw.rect(screen, self.edge, rect, max(1, int(LINE_W * sc)))
       return
     pts = [cam.to_screen(p.x + px, p.y + py) for px, py in self.points]
     pygame.draw.polygon(screen, self.fill, pts)
-    pygame.draw.polygon(screen, self.edge, pts, max(1, int(PLAT_EDGE_W * sc)))
+    pygame.draw.polygon(screen, self.edge, pts, max(1, int(LINE_W * sc)))

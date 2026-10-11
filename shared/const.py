@@ -11,13 +11,13 @@ PEG_EDGE_GRABBED = (70, 70, 70)
 # <NOTE>#807 spawned-from-item pegs keep an orange fill so you can tell where they came from; edge stays white
 PEG_FILL_FROM_ITEM = (230, 140, 40)
 # <NOTE>#807 spawned-from-item pegs keep an orange edge so you can tell where they came from
-PEG_EDGE_W = 4
 
 PLAT_FILL = (60, 60, 80)
 PLAT_EDGE = (255, 255, 255)
-PLAT_EDGE_W = 2
 
 BG_FILL = (70, 75, 82)
+# <STRANGE>#907 single fixed line width for all outlines across the game; not scaled with camera
+LINE_W = 3
 
 # <NOTE>#442 render layers; higher = drawn on top; stable sort keeps insertion order within a layer
 LAYER_BG = 0
@@ -37,7 +37,6 @@ ITEM_USE_SHAKE_AMP = 3
 
 CUBE_FILL = (0xC5, 0x95, 0x65)
 CUBE_EDGE = (255, 255, 255)
-CUBE_EDGE_W = 2
 CUBE_FRICTION = 0.95
 SODA_W = 18
 SODA_H = 36
@@ -55,7 +54,6 @@ REBAR_W = 7
 REBAR_H = 87
 REBAR_FILL = (220, 40, 40)
 REBAR_EDGE = (255, 255, 255)
-REBAR_EDGE_W = 1
 REBAR_GRAB_R = 13
 REBAR_SHOOT_V = 2000
 REBAR_RECOIL_AIR = 1.3
@@ -72,7 +70,6 @@ HUD_LABEL_SCALE_HELD = 0.45
 HUD_FLASH_ALPHA = 70
 HUD_FLASH_DURATION = 0.35
 HUD_ITEMSMODE_RING_ALPHA = 60
-HUD_ITEMSMODE_RING_W = 2
 # <STRANGE>#294 pool of spawnable item types; per-type data (size, color) lives in item.py, this is just the registry
 ITEM_TYPES = ["cube", "soda", "rebar", "peg"]
 CUBE_ELASTICITY = 0.0

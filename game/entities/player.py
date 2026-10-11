@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, HUD_ITEMSMODE_RING_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD
 from shared.smooth import smooth, per_sec
 from shared.physics_util import has_ground_contact
 from .consume_fx import SodaConsumeFx
@@ -809,8 +809,7 @@ class Player:
         if self.grabbed[i] is not None:
           pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.6)
         else:
-          t = max(2, r // 4)
-          pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, t)
+          pygame.draw.circle(screen, (0, 0, 0), (int(ax), int(ay)), r // 1.2, LINE_W)
     self._draw_pocket_hint(screen, cam)
 
   def _draw_pocket_hint(self, screen, cam):
@@ -881,7 +880,7 @@ class Player:
       pygame.draw.circle(surf, (*arm_color, alpha), (r, r), r)
       # <STRANGE>#555 f-mode indicator: semi-transparent white ring around each hud circle
       if self.items_only:
-        ring_w = max(1, int(HUD_ITEMSMODE_RING_W * sc))
+        ring_w = max(1, int(LINE_W * sc))
         pygame.draw.circle(surf, (255, 255, 255, HUD_ITEMSMODE_RING_ALPHA), (r, r), r - ring_w // 2, ring_w)
       screen.blit(surf, (int(hx) - r, int(hy) - r))
       # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
