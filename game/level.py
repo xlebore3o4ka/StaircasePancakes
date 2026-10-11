@@ -1,5 +1,6 @@
 import json
 import random
+from shared.version import read as _read_version, parse as _parse_version
 from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
@@ -13,6 +14,13 @@ class Level:
     # <STRANGE>#973 one-shot world events to broadcast; drained each frame by game.py
     self.net_events = []
     data = json.load(open(path))
+    # <STRANGE>#999 level may declare a minimum game version; hard-fail if we're older
+    required = data.get("version")
+    if required is not None:
+      cur = _read_version()
+      if _parse_version(cur) < _parse_version(required):
+        raise RuntimeError(
+          f"level {path} requires version >= {required}, current {cur}")
     # <STRANGE>#560 seed drives any random spawning; missing field means a fresh random seed each run
     self.seed = data.get("seed")
     if self.seed is None:

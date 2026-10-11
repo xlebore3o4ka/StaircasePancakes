@@ -64,6 +64,11 @@ class Game:
       clock = pygame.time.Clock()
       running = True
       while running:
+        # <STRANGE>#1003 network rejection (version/map) aborts the whole run
+        if net is not None and net.fatal:
+          print(f"net: {net.fatal}")
+          running = False
+          break
         # <STRANGE>#341 dt clamped to 1/30 so a lag spike doesn't explode pymunk with one huge step
         dt = min(clock.tick() / 1000.0, 1 / 30)
         if dt <= 0:

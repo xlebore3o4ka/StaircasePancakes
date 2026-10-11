@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import websockets
+from shared.version import read as _read_version, parse as _parse_version
 
 
 _clients = {}  # name -> websocket
@@ -18,6 +19,13 @@ async def handler(ws):
         continue
       t = msg.get("t")
       if t == "hello":
+        # <STRANGE>#1000 versions must share major.minor; patch may differ
+        req_ver = msg.get("version")
+        cur_ver = _read_version()
+        if req_ver is None or _parse_version(req_ver)[:2] != _parse_version(cur_ver)[:2]:
+          print(f"! reject {msg.get('name')}: version {req_ver!r} vs {cur_ver!r}")
+          await ws.close(code=4001, reason="version mismatch")
+          return
         req_map = msg.get("map")
         # <STRANGE>#995 reject mismatched map before registering; close the socket so client sees the failure
         if _map_path is not None and req_map != _map_path:

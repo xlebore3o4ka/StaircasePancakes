@@ -3,6 +3,7 @@ import queue
 import threading
 import asyncio
 import websockets
+from shared.version import read as _read_version
 
 
 class NetClient:
@@ -15,6 +16,8 @@ class NetClient:
     self._out = queue.Queue()
     self._stop = threading.Event()
     self._thread = None
+    # <STRANGE>#1001 set on reject; game loop checks this and exits
+    self.fatal = None
 
   def connect(self):
     self._thread = threading.Thread(target=self._run, daemon=True)
@@ -48,7 +51,9 @@ class NetClient:
     try:
       async with websockets.connect(self.url) as ws:
         print(f"net: connected to {self.url} as {self.name}")
-        await ws.send(json.dumps({"t": "hello", "name": self.name, "map": self.map_path}))
+        await ws.send(json.dumps({"t": "hello", "name": self.name,
+                                     "map": self.map_path,
+                                     "version": _read_version()}))
         await asyncio.gather(self._sender(ws), self._receiver(ws))
     except Exception as e:
       print(f"net: connect failed: {e}")
@@ -74,6 +79,11 @@ class NetClient:
           self._in.put(json.loads(raw))
         except json.JSONDecodeError:
           continue
-    except websockets.ConnectionClosed:
-      print("net: connection closed")
+    except websockets.ConnectionClosed as e:
+      # <STRANGE>#1002 4000/4001 are our intentional reject codes; anything else is a plain disconnect
+      if e.code in (4000, 4001):
+        self.fatal = e.reason or f"rejected ({e.code})"
+        print(f"net: rejected: {self.fatal}")
+      else:
+        print("net: connection closed")
       self._stop.set()
