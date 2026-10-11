@@ -90,16 +90,26 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     root.destroy()
     if not path:
       return
-    if str(path).lower().endswith(".tar"):
-      data = tar_io.load_level(path)
-      try:
-        self.embedded_files = tar_io.load_files(path)
-      except Exception:
+    try:
+      if str(path).lower().endswith(".tar"):
+        data = tar_io.load_level(path)
+        try:
+          self.embedded_files = tar_io.load_files(path)
+        except Exception:
+          self.embedded_files = {}
+      else:
+        with open(path, "r", encoding="utf-8") as f:
+          data = json.load(f)
         self.embedded_files = {}
-    else:
-      with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-      self.embedded_files = {}
+    except Exception as _ex:
+      # <STRANGE>#1070: never crash on a broken file; show an error toast.
+      try:
+        from .messages import ERROR
+        self.messages.toast_only(
+            ERROR, "Load failed: " + str(_ex)[:80], 5.0)
+      except Exception:
+        pass
+      return
     before = self._snapshot()
     _v = data.get("version")
     self.loaded_version = _v.strip() if isinstance(_v, str) and _v.strip() else None
