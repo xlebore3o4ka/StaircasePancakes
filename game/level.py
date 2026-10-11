@@ -8,6 +8,7 @@ from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
+from .entities.trigger import Trigger
 import pymunk
 
 class Level:
@@ -126,6 +127,13 @@ class Level:
       if self.sound is not None:
         sp_item.sound = self.sound
       self.items.append(sp_item)
+    # <STRANGE>#1015 invisible trigger zones; no logic yet, drawn under --debugview
+    self.triggers = []
+    for td in data.get("triggers", []):
+      self.triggers.append(Trigger(
+        td["x"], td["y"], td.get("w", 80), td.get("h", 80),
+        trigger_id=td.get("id"), script=td.get("script")))
+
     # <STRANGE>#892 bag is a single top-level [x, y]; skipped with cheats (pockets already on)
     bag_data = data.get("bag")
     if bag_data and not cheats:
@@ -188,6 +196,12 @@ class Level:
       # <STRANGE>#654 per-item bias clamp after physics; cam passed for sfx visibility check
       it.post_step(cam)
 
+
+  def draw_debug(self, screen, cam, player_pos):
+    # <STRANGE>#1015 debug overlay: spawners + triggers, only under --debugview
+    self.draw_spawners(screen, cam, player_pos)
+    for t in self.triggers:
+      t.draw_debug(screen, cam)
 
   def draw_spawners(self, screen, cam, player_pos):
     # <STRANGE>#563 debug only: draws marker at each spawner; shows entries when player is nearby

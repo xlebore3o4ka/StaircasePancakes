@@ -19,11 +19,11 @@ NET_TICK_HZ = 20
 
 
 class Game:
-  def __init__(self, cheats=False, map_path="levels/test.json", spawninfo=False,
+  def __init__(self, cheats=False, map_path="levels/test.json", debugview=False,
                name=None, server=None):
     self.cheats = cheats
     self.map_path = map_path
-    self.spawninfo = spawninfo
+    self.debugview = debugview
     self.name = name
     self.server_url = server
 
@@ -190,8 +190,8 @@ class Game:
         ghost_items.draw(w.screen, cam)
         for rp in remotes.values():
           rp.draw(w.screen, cam)
-        if self.spawninfo:
-          level.draw_spawners(w.screen, cam, player.body.position)
+        if self.debugview:
+          level.draw_debug(w.screen, cam, player.body.position)
         player.draw_hud(w.screen, cam)
         hud_info.update(dt)
         # <STRANGE>#620 height is distance from spawn, not absolute y
