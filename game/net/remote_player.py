@@ -1,3 +1,4 @@
+import pygame
 import pymunk
 from shared.const import ARM_R, ITEM_OFFSET
 from shared.smooth import smooth
@@ -57,6 +58,7 @@ class RemotePlayer:
     self._target_held = [None, None]
     self.lerp_t = 0.35
     self.last_seen = 0.0
+    self._font = None
 
   def apply_state(self, st):
     self.name = st.name or self.name
@@ -80,8 +82,12 @@ class RemotePlayer:
       self.held[i] = self._target_held[i]
     self.last_seen += dt
 
+  GHOST_ALPHA = 140
+  NAME_ALPHA = 180
+
   def draw(self, screen, cam):
-    # <STRANGE>#938 held items drawn before body so the arm renders on top, matching local player
+    # <STRANGE>#957 remote ghost drawn onto an alpha surface, then blitted with global alpha; per-shape alpha would need SRCALPHA draws everywhere
+    surf = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
     for i in range(2):
       t = self.held[i]
       if t is None:
@@ -91,5 +97,16 @@ class RemotePlayer:
         continue
       hx, hy = self.arms[i].position
       ox = hx + ITEM_OFFSET * (-1 if i == 0 else 1)
-      proto.draw_at(screen, cam, (ox, hy), 0.0, 255, 1.0)
-    draw_player_body(screen, cam, self, is_local=False)
+      proto.draw_at(surf, cam, (ox, hy), 0.0, 255, 1.0)
+    draw_player_body(surf, cam, self, is_local=False)
+    surf.set_alpha(self.GHOST_ALPHA)
+    screen.blit(surf, (0, 0))
+
+    # <STRANGE>#958 nickname above head
+    if self.name:
+      if self._font is None:
+        self._font = pygame.font.SysFont(None, 26)
+      tx, ty = cam.to_screen(self.body.position[0], self.body.position[1])
+      label = self._font.render(self.name, True, (255, 255, 255))
+      label.set_alpha(self.NAME_ALPHA)
+      screen.blit(label, label.get_rect(center=(int(tx), int(ty - 60 * cam.scale))))
