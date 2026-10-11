@@ -9,6 +9,7 @@ from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
 from shared.const import LINE_W
+from shared.const import LINE_W
 from .entities.trigger import Trigger
 from .debug_view import DebugArrows
 import pymunk
