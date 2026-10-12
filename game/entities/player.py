@@ -577,9 +577,7 @@ class Player:
       self.body.apply_force_at_local_point((-MOVE_ACC * self.body.mass, 0), (0, 0))
     if self.move[1] and self.body.velocity.x < MAX_WALK_VX:
       self.body.apply_force_at_local_point((MOVE_ACC * self.body.mass, 0), (0, 0))
-    # <STRANGE>#1089 while any hand holds a button, coasting continues with no drag until auto-release
-    button_held = any(g is not None and getattr(g[0], "is_button", False) for g in self.grabbed)
-    if not self.move[0] and not self.move[1] and not button_held:
+    if not self.move[0] and not self.move[1]:
       # <STRANGE>#342 drag is per-frame decay; raise to dt*60 so 165fps doesn't brake 2.75x harder
       self.body.velocity = (self.body.velocity.x * (1 - drag) ** (dt * 60.0), self.body.velocity.y)
     mx, my = pygame.mouse.get_pos()
