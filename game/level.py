@@ -341,13 +341,19 @@ class Level:
     # <STRANGE>#1103 tick pop animations
     for b in self.buttons:
       b.update(dt)
-    # <STRANGE>#1131 physical nudge when the player body overlaps a button; no input hijack, just force
+    # <STRANGE>#1131 push-out only for the button this player's hand is currently grabbed on
     if player is None:
       return
     from shared.const import BODY_R, BUTTON_PUSH_FORCE
+    held_buttons = [
+      g[0] for g in player.grabbed
+      if g is not None and getattr(g[0], "is_button", False)
+    ]
+    if not held_buttons:
+      return
     px = player.body.position.x
     py = player.body.position.y
-    for b in self.buttons:
+    for b in held_buttons:
       dx = px - b.body.position.x
       dy = py - b.body.position.y
       d2 = dx * dx + dy * dy
