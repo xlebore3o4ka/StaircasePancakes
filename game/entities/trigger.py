@@ -49,8 +49,8 @@ class Trigger:
     # <STRANGE>#1070 player-generated button event; fires only while player is inside this trigger
     if self.module is None or not self.inside:
       return
-    if ev["t"] == "button_press":
-      loader.call(self.module, self._path, "on_button_press", self.ctx, ev.get("tag"))
+    if ev["t"] == "button_grab":
+      loader.call(self.module, self._path, "on_button_grab", self.ctx, ev.get("tag"))
     elif ev["t"] == "button_release":
       loader.call(self.module, self._path, "on_button_release", self.ctx, ev.get("tag"))
 

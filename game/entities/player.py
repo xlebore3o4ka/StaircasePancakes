@@ -635,7 +635,7 @@ class Player:
                 # <STRANGE>#1070 button: no joint, body stays under gravity, hand visually pulls to the button
                 self.joints[i] = None
                 self.rope_len[i] = None
-                self.events.append({"t": "button_press", "tag": obj.id})
+                self.events.append({"t": "button_grab", "tag": obj.id})
               else:
                 cur = self.body.position.get_distance(world_pt)
                 # <STRANGE>#617 rope not rod: min=0 so body can hug walls without the joint fighting collision; max caps distance
