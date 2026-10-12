@@ -208,8 +208,10 @@ class Player:
       if v > JUMP_V * 1.05:
         self.body.velocity = (self.body.velocity.x, JUMP_V)
       return
-    # <STRANGE>#773 no peg, positive vy, and we were already moving upward at most ~200: this is ground chatter, kill it
-    if (v > 0 and not any(g is not None for g in self.grabbed)
+    # <STRANGE>#773 no rope, positive vy, and we were already moving upward at most ~200: this is ground chatter, kill it
+    # <STRANGE>#1122 buttons don't count as ropes: holding one still sits on the floor, so bias must be clamped
+    rope_grab = any(g is not None and not getattr(g[0], "is_button", False) for g in self.grabbed)
+    if (v > 0 and not rope_grab
         and self._pre_vy < 200 and has_ground_contact(self.body)):
       self.body.velocity = (self.body.velocity.x, 0.0)
     # <STRANGE>#694 impact sfx: any new contact with floor/platform while moving into it fast

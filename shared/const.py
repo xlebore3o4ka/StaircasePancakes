@@ -93,9 +93,9 @@ BUTTON_EDGE = (255, 255, 255)
 # <NOTE>#1112 dim factor while a hand holds the button (0 = normal, 1 = black)
 BUTTON_GRAB_DIM = 0.0
 # <NOTE>#1113 dim while Q/E is held on the grabbed button
-BUTTON_PRESS_HELD_DIM = 0.1
+BUTTON_PRESS_HELD_DIM = 0.2
 # <NOTE>#1114 dim jumps to this on release, then fades to 0
-BUTTON_PRESS_RELEASE_DIM = 0.2
+BUTTON_PRESS_RELEASE_DIM = 0.4
 # <NOTE>#1114 seconds for the release dim to reach 0
 BUTTON_PRESS_FADE = 0.4
 HUD_BUTTON_ALPHA = 128
