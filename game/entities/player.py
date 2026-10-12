@@ -609,9 +609,14 @@ class Player:
             and not self.grab_lock[i] and self.grab_cooldown[i] <= 0
             and self.stamina[i] > STAMINA_GRAB_MIN):
           for obj in pegs:
+            # <STRANGE>#1095 buttons need actual touch to grab; pegs keep the generous buffer
+            if getattr(obj, "is_button", False):
+              limit = getattr(obj, "r", PEG_R) + ARM_R
+            else:
+              limit = GRAB_DIST
             hit = None
             for world_pt, anchor in obj.grab_points():
-              if arm.position.get_distance(world_pt) <= GRAB_DIST:
+              if arm.position.get_distance(world_pt) <= limit:
                 hit = (world_pt, anchor)
                 break
             if hit:
