@@ -1,15 +1,13 @@
-door = None
+btn = None
 
 def on_load(ctx):
-  global door
-  door = ctx.by_id("door")
-  if door is None:
-    raise RuntimeError("door not found")
+  global btn
+  btn = ctx.by_id("my_button")
+  if btn is None:
+    raise RuntimeError("btn not found")
     return
-  ctx.log(f"loaded door")
+  ctx.log(f"loaded btn")
 
-def on_enter(ctx):
-  ctx.move_to(door, y=500, dur=0.6, ease="out")
-
-def on_exit(ctx):
-  ctx.move_to(door, y=158, dur=0.6, ease="out")
+def on_button_up(ctx, tag):
+  if tag == "my_button":
+    print(1)
