@@ -646,6 +646,8 @@ class Player:
             # <STRANGE>#1070 auto-release if body strays too far from the button
             if d.length > BUTTON_MAX_REACH:
               self._release(i)
+              # <STRANGE>#1094 cooldown stops grab/release chatter when hovering right at max reach
+              self.grab_cooldown[i] = 0.3
               continue
             if d.length > 0:
               self.arm_dir[i] = d.normalized()
