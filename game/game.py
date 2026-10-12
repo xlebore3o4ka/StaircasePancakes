@@ -91,7 +91,8 @@ class Game:
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
         level.update_buttons(dt)
-        level.update_triggers(dt, (player.body.position.x, player.body.position.y))
+        level.update_triggers(dt, (player.body.position.x, player.body.position.y), player.events)
+        player.events.clear()
         level.update_movers(dt)
         for rp in remotes.values():
           rp.update(dt)
