@@ -921,10 +921,13 @@ class Player:
     pygame.draw.circle(surf, (*inner, 180), (br, br), inner_r, CIRCLE_LINE_W)
     pygame.draw.circle(surf, (*edge, 200), (br, br), br, CIRCLE_LINE_W)
     screen.blit(surf, (int(hx) - br, int(hy) - br))
-    # <STRANGE>#1109 Q/E label centered, same size as the empty-hand label
+    # <STRANGE>#1117 small Q/E label centered, same size as held-item label
     lbl = self._hud_labels[idx]
-    lbl.set_alpha(HUD_LABEL_ALPHA_EMPTY)
-    screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
+    sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
+    sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))
+    small = pygame.transform.smoothscale(lbl, (sw2, sh2))
+    small.set_alpha(HUD_LABEL_ALPHA_EMPTY)
+    screen.blit(small, small.get_rect(center=(int(hx), int(hy))))
 
   def _ensure_hud_labels(self):
     # <STRANGE>#392 lazy cache; Q/E rendered once with white, alpha applied per blit via set_alpha
