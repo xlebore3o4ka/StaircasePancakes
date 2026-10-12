@@ -30,10 +30,9 @@ class Button:
     ix, iy = int(x), int(y)
     r = int(self.r * sc)
     pygame.draw.circle(screen, BUTTON_FILL, (ix, iy), r)
-    # <STRANGE>#1082 inner dot: outline only, radius 1/2.2 of the outer circle
-    # <STRANGE>#1085 fill slightly lighter than the button base (inverse of peg's 0.8 darkening)
-    inner_fill = tuple(min(255, int(c / 0.8)) for c in BUTTON_FILL)
+    # <STRANGE>#1082 inner ring: outline only, radius 1/2.2 of the outer circle
+    # <STRANGE>#1085 ring colour is lighter than the base (inverse of peg's 0.8 darkening)
+    inner_edge = tuple(min(255, int(c / 0.8)) for c in BUTTON_FILL)
     inner_r = max(1, int(r / 2.2))
-    pygame.draw.circle(screen, inner_fill, (ix, iy), inner_r)
-    pygame.draw.circle(screen, BUTTON_EDGE, (ix, iy), inner_r, CIRCLE_LINE_W)
+    pygame.draw.circle(screen, inner_edge, (ix, iy), inner_r, CIRCLE_LINE_W)
     pygame.draw.circle(screen, BUTTON_EDGE, (ix, iy), r, CIRCLE_LINE_W)
