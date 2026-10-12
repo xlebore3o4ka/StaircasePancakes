@@ -90,14 +90,10 @@ STEP_INTERVAL = 0.32
 
 BUTTON_FILL = (60, 140, 220)
 BUTTON_EDGE = (255, 255, 255)
-# <NOTE>#1112 dim factor while a hand holds the button (0 = normal, 1 = black)
-BUTTON_GRAB_DIM = 0.0
-# <NOTE>#1113 dim while Q/E is held on the grabbed button
-BUTTON_PRESS_HELD_DIM = 0.2
-# <NOTE>#1114 dim jumps to this on release, then fades to 0
-BUTTON_PRESS_RELEASE_DIM = 0.4
-# <NOTE>#1114 seconds for the release dim to reach 0
-BUTTON_PRESS_FADE = 0.4
+# <NOTE>#1127 dim while Q/E is held on the grabbed button (0 = normal, 1 = black)
+BUTTON_PRESS_DIM = 0.25
+# <NOTE>#1128 seconds to smooth between pressed and released look
+BUTTON_PRESS_LERP = 0.25
 HUD_BUTTON_ALPHA = 128
 HUD_BUTTON_R_MULT = 0.9
 # <NOTE>#1068 max body-to-button distance while held; exceeded -> auto-release

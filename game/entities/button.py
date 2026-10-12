@@ -2,9 +2,9 @@ import pygame
 import pymunk
 from shared.const import (
   PEG_R, BUTTON_FILL, BUTTON_EDGE, LAYER_PEG, CIRCLE_LINE_W,
-  BUTTON_GRAB_DIM, BUTTON_PRESS_HELD_DIM, BUTTON_PRESS_RELEASE_DIM,
-  BUTTON_PRESS_FADE,
+  BUTTON_PRESS_DIM, BUTTON_PRESS_LERP,
 )
+from shared.smooth import smooth
 
 
 class Button:
@@ -20,8 +20,8 @@ class Button:
     # <STRANGE>#1103 visual state; grabbed is set by Player while a hand holds, press_held by Q/E
     self.grabbed = False
     self.press_held = False
-    self.press_dim = 0.0
-    self._was_press_held = False
+    # <STRANGE>#1127 dim smoothly approaches target based on press_held
+    self.dim = 0.0
     self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     self.body.position = pos
     shape = pymunk.Circle(self.body, self.r)
@@ -32,19 +32,13 @@ class Button:
     return [(self.body.position, pymunk.Vec2d(0, 0))]
 
   def update(self, dt):
-    # <STRANGE>#1119 while Q/E held: dim = HELD_DIM; on release: jump to RELEASE_DIM then fade linearly to 0
-    if self.press_held:
-      self.press_dim = BUTTON_PRESS_HELD_DIM
-    elif self._was_press_held:
-      self.press_dim = BUTTON_PRESS_RELEASE_DIM
-    elif self.press_dim > 0:
-      self.press_dim = max(0.0, self.press_dim - dt * BUTTON_PRESS_RELEASE_DIM / BUTTON_PRESS_FADE)
-    self._was_press_held = self.press_held
+    # <STRANGE>#1127 smooth towards target dim; frame-rate independent via shared.smooth
+    target = BUTTON_PRESS_DIM if self.press_held else 0.0
+    k = smooth(BUTTON_PRESS_LERP, dt)
+    self.dim += (target - self.dim) * k
 
   def _dim(self):
-    d = BUTTON_GRAB_DIM if self.grabbed else 0.0
-    d += self.press_dim
-    return min(1.0, d)
+    return self.dim
 
   def tint(self, col):
     # <STRANGE>#1113 darken channel-wise; edge (white) turns grey, fill turns darker blue
