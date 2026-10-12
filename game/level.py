@@ -337,10 +337,27 @@ class Level:
         keep.append(m)
     self.movers = keep
 
-  def update_buttons(self, dt):
+  def update_buttons(self, dt, player=None):
     # <STRANGE>#1103 tick pop animations
     for b in self.buttons:
       b.update(dt)
+    # <STRANGE>#1131 physical nudge when the player body overlaps a button; no input hijack, just force
+    if player is None:
+      return
+    from shared.const import BODY_R, BUTTON_PUSH_FORCE
+    px = player.body.position.x
+    py = player.body.position.y
+    for b in self.buttons:
+      dx = px - b.body.position.x
+      dy = py - b.body.position.y
+      d2 = dx * dx + dy * dy
+      R = BODY_R + b.r
+      if 1e-6 < d2 < R * R:
+        d = d2 ** 0.5
+        pen = R - d
+        nx, ny = dx / d, dy / d
+        f = BUTTON_PUSH_FORCE * pen * player.body.mass
+        player.body.apply_force_at_local_point((nx * f, ny * f), (0, 0))
 
   def update_triggers(self, dt, player_pos, player_events=None):
     for t in self.triggers:

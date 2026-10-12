@@ -94,6 +94,8 @@ BUTTON_EDGE = (255, 255, 255)
 BUTTON_PRESS_DIM = 0.3
 # <NOTE>#1128 seconds to smooth between pressed and released look
 BUTTON_PRESS_LERP = 0.55
+# <NOTE>#1131 push force per pixel of overlap between player body and button
+BUTTON_PUSH_FORCE = 800
 HUD_BUTTON_ALPHA = 128
 HUD_BUTTON_R_MULT = 0.9
 # <NOTE>#1068 max body-to-button distance while held; exceeded -> auto-release
