@@ -53,8 +53,10 @@ class Trigger:
       loader.call(self.module, self._path, "on_button_grab", self.ctx, ev.get("tag"))
     elif ev["t"] == "button_release":
       loader.call(self.module, self._path, "on_button_release", self.ctx, ev.get("tag"))
-    elif ev["t"] == "button_press":
-      loader.call(self.module, self._path, "on_button_press", self.ctx, ev.get("tag"))
+    elif ev["t"] == "button_down":
+      loader.call(self.module, self._path, "on_button_down", self.ctx, ev.get("tag"))
+    elif ev["t"] == "button_up":
+      loader.call(self.module, self._path, "on_button_up", self.ctx, ev.get("tag"))
 
   def update(self, dt, wx, wy):
     if self.module is None:

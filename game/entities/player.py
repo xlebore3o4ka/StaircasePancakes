@@ -470,6 +470,9 @@ class Player:
         # <STRANGE>#1103 if grabbed a button, q starts the button-press hold
         if self.grabbed[0] is not None and getattr(self.grabbed[0][0], "is_button", False):
           self.button_hold[0] = True
+          self.events.append({"t": "button_down", "tag": self.grabbed[0][0].id})
+          if self.sound is not None:
+            self.sound.play("button_down")
         elif self.held[0] is not None:
           # <STRANGE>#819 charge on hold, fire on release; instant items bypass this
           if getattr(self.held[0], "instant_use", False):
@@ -481,6 +484,9 @@ class Player:
       elif e.scancode == 8:
         if self.grabbed[1] is not None and getattr(self.grabbed[1][0], "is_button", False):
           self.button_hold[1] = True
+          self.events.append({"t": "button_down", "tag": self.grabbed[1][0].id})
+          if self.sound is not None:
+            self.sound.play("button_down")
         elif self.held[1] is not None:
           if getattr(self.held[1], "instant_use", False):
             self.hud_flash[1] = 1.0
@@ -526,7 +532,9 @@ class Player:
           self.button_hold[0] = False
           g = self.grabbed[0]
           if g is not None and getattr(g[0], "is_button", False):
-            self.events.append({"t": "button_press", "tag": g[0].id})
+            self.events.append({"t": "button_up", "tag": g[0].id})
+            if self.sound is not None:
+              self.sound.play("button_up")
         elif self.use_charged[0]:
           self.use_charged[0] = False
           self._use(0)
@@ -535,7 +543,9 @@ class Player:
           self.button_hold[1] = False
           g = self.grabbed[1]
           if g is not None and getattr(g[0], "is_button", False):
-            self.events.append({"t": "button_press", "tag": g[0].id})
+            self.events.append({"t": "button_up", "tag": g[0].id})
+            if self.sound is not None:
+              self.sound.play("button_up")
         elif self.use_charged[1]:
           self.use_charged[1] = False
           self._use(1)
