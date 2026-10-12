@@ -550,12 +550,6 @@ class Player:
         mul = STAMINA_LOW_MUL if self.stamina[i] > STAMINA_LOW_THRESH else 1.0
         self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + per_sec(STAMINA_REGEN * mul / pocket_mul, dt))
     grounded = self._is_grounded()
-    # <TODO>#385 diagnostic: only fire on a truly anomalous spike; legit swings exceed JUMP_V all the time
-    if (self.body.velocity.y > JUMP_V * 1.6
-        and not any(g is not None for g in self.grabbed)
-        and not self.move[0] and not self.move[1]
-        and self.body.position.y < BODY_R * 4):
-      print(f"BOUNCE v.y={self.body.velocity.y:.0f} v.x={self.body.velocity.x:.0f} pos=({self.body.position.x:.1f},{self.body.position.y:.1f}) grounded={grounded}")
     # <STRANGE>#385 diagnostic: catch the phantom bounce moment; remove once root cause is confirmed
     if self.body.velocity.y > 550 and self.body.position.y < BODY_R * 3:
       print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
@@ -583,7 +577,9 @@ class Player:
       self.body.apply_force_at_local_point((-MOVE_ACC * self.body.mass, 0), (0, 0))
     if self.move[1] and self.body.velocity.x < MAX_WALK_VX:
       self.body.apply_force_at_local_point((MOVE_ACC * self.body.mass, 0), (0, 0))
-    if not self.move[0] and not self.move[1]:
+    # <STRANGE>#1089 while any hand holds a button, coasting continues with no drag until auto-release
+    button_held = any(g is not None and getattr(g[0], "is_button", False) for g in self.grabbed)
+    if not self.move[0] and not self.move[1] and not button_held:
       # <STRANGE>#342 drag is per-frame decay; raise to dt*60 so 165fps doesn't brake 2.75x harder
       self.body.velocity = (self.body.velocity.x * (1 - drag) ** (dt * 60.0), self.body.velocity.y)
     mx, my = pygame.mouse.get_pos()
