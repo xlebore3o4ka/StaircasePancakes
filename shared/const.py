@@ -90,6 +90,13 @@ STEP_INTERVAL = 0.32
 
 BUTTON_FILL = (60, 140, 220)
 BUTTON_EDGE = (255, 255, 255)
+BUTTON_PRESSED_FILL = (80, 80, 80)
+BUTTON_PRESSED_EDGE = (150, 150, 150)
+BUTTON_POP_DUR = 0.2
+BUTTON_POP_SCALE = 1.4
+HUD_BUTTON_ALPHA = 128
+HUD_BUTTON_R_MULT = 0.9
+HUD_BUTTON_GREY = (110, 110, 110)
 # <NOTE>#1068 max body-to-button distance while held; exceeded -> auto-release
 BUTTON_MAX_REACH = 90
 # <NOTE>#1020 on_tick fires this many times per second while player is inside a trigger

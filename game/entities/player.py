@@ -3,7 +3,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W, BUTTON_MAX_REACH
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W, BUTTON_MAX_REACH, BUTTON_FILL, BUTTON_EDGE, BUTTON_POP_DUR, HUD_BUTTON_ALPHA, HUD_BUTTON_R_MULT, HUD_BUTTON_GREY
 from shared.smooth import smooth, per_sec
 from ..net.player_state import PlayerState
 from shared.physics_util import has_ground_contact
@@ -115,6 +115,8 @@ class Player:
     self.state = PlayerState()
     # <STRANGE>#1070 button grab/release events, drained each frame by game.py
     self.events = []
+    # <STRANGE>#1103 q/e held while a hand is grabbed on a button
+    self.button_hold = [False, False]
     # <STRANGE>#964 monotonic counter for net_id per player
     self._net_counter = 0
     # <STRANGE>#991 ids we sent last tick; diff reveals items that are no longer free
@@ -421,6 +423,8 @@ class Player:
         obj.grab_count -= 1
       # <STRANGE>#1070 broadcast button release to any trigger the player is inside
       if getattr(obj, "is_button", False):
+        obj.hold_visual = False
+        self.button_hold[i] = False
         self.events.append({"t": "button_release", "tag": obj.id})
     self.grabbed[i] = None
     self.rope_len[i] = None
@@ -460,8 +464,11 @@ class Player:
         self.jump = True
         self.jump_queued = True
       elif e.scancode == 20:
-        # <STRANGE>#819 charge on hold, fire on release; instant items bypass this
-        if self.held[0] is not None:
+        # <STRANGE>#1103 if grabbed a button, q starts the button-press hold
+        if self.grabbed[0] is not None and getattr(self.grabbed[0][0], "is_button", False):
+          self.button_hold[0] = True
+        elif self.held[0] is not None:
+          # <STRANGE>#819 charge on hold, fire on release; instant items bypass this
           if getattr(self.held[0], "instant_use", False):
             self.hud_flash[0] = 1.0
             self._use(0)
@@ -469,7 +476,9 @@ class Player:
             self.use_charged[0] = True
             self.hud_flash[0] = 1.0
       elif e.scancode == 8:
-        if self.held[1] is not None:
+        if self.grabbed[1] is not None and getattr(self.grabbed[1][0], "is_button", False):
+          self.button_hold[1] = True
+        elif self.held[1] is not None:
           if getattr(self.held[1], "instant_use", False):
             self.hud_flash[1] = 1.0
             self._use(1)
@@ -510,11 +519,25 @@ class Player:
           self._swap_hands()
       # <STRANGE>#819 q/e fire on release
       elif e.scancode == 20:
-        if self.use_charged[0]:
+        if self.button_hold[0]:
+          self.button_hold[0] = False
+          g = self.grabbed[0]
+          if g is not None and getattr(g[0], "is_button", False):
+            btn = g[0]
+            btn.pop_t = BUTTON_POP_DUR
+            self.events.append({"t": "button_press", "tag": btn.id})
+        elif self.use_charged[0]:
           self.use_charged[0] = False
           self._use(0)
       elif e.scancode == 8:
-        if self.use_charged[1]:
+        if self.button_hold[1]:
+          self.button_hold[1] = False
+          g = self.grabbed[1]
+          if g is not None and getattr(g[0], "is_button", False):
+            btn = g[0]
+            btn.pop_t = BUTTON_POP_DUR
+            self.events.append({"t": "button_press", "tag": btn.id})
+        elif self.use_charged[1]:
           self.use_charged[1] = False
           self._use(1)
       # <STRANGE>#558 F release clears items-only mode
@@ -793,6 +816,12 @@ class Player:
       if self.grab_cooldown[i] > 0:
         self.grab_cooldown[i] = max(0.0, self.grab_cooldown[i] - dt)
 
+    # <STRANGE>#1103 mirror button hold state to the world button so it renders grey
+    for i in range(2):
+      g = self.grabbed[i]
+      if g is not None and getattr(g[0], "is_button", False):
+        g[0].hold_visual = self.button_hold[i]
+
     # <STRANGE>#931 snapshot the current player state for networking
     self._write_state()
 
@@ -881,6 +910,20 @@ class Player:
     sx, sy = cam.to_screen(wx, wy)
     screen.blit(surf, surf.get_rect(center=(int(sx), int(sy))))
 
+  def _draw_hud_button(self, screen, sc, hx, hy, slot_r, btn, held):
+    # <STRANGE>#1103 enlarged semi-transparent button icon in the HUD slot; greys while q/e held
+    scale = btn.draw_scale()
+    br = max(1, int(slot_r * HUD_BUTTON_R_MULT * scale))
+    fill = HUD_BUTTON_GREY if held else BUTTON_FILL
+    edge = HUD_BUTTON_GREY if held else BUTTON_EDGE
+    surf = pygame.Surface((br * 2, br * 2), pygame.SRCALPHA)
+    pygame.draw.circle(surf, (*fill, HUD_BUTTON_ALPHA), (br, br), br)
+    inner = tuple(min(255, int(c / 0.8)) for c in fill)
+    inner_r = max(1, int(br / 2.2))
+    pygame.draw.circle(surf, (*inner, 180), (br, br), inner_r, CIRCLE_LINE_W)
+    pygame.draw.circle(surf, (*edge, 200), (br, br), br, CIRCLE_LINE_W)
+    screen.blit(surf, (int(hx) - br, int(hy) - br))
+
   def _ensure_hud_labels(self):
     # <STRANGE>#392 lazy cache; Q/E rendered once with white, alpha applied per blit via set_alpha
     if self._hud_labels is not None:
@@ -939,9 +982,16 @@ class Player:
         ring_w = max(1, int(LINE_W * sc))
         pygame.draw.circle(surf, (255, 255, 255, HUD_ITEMSMODE_RING_ALPHA), (r, r), r - ring_w // 2, CIRCLE_LINE_W)
       screen.blit(surf, (int(hx) - r, int(hy) - r))
-      # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
+      # <STRANGE>#1103 if the hand is grabbed on a button, replace the Q/E label with a button icon
+      grab_btn = None
+      g = self.grabbed[i]
+      if g is not None and getattr(g[0], "is_button", False):
+        grab_btn = g[0]
       lbl = self._hud_labels[i]
-      if it is None:
+      if grab_btn is not None:
+        self._draw_hud_button(screen, sc, hx, hy, r, grab_btn, self.button_hold[i])
+      elif it is None:
+        # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
         lbl.set_alpha(HUD_LABEL_ALPHA_EMPTY)
         screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
       else:

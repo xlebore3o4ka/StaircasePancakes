@@ -2,6 +2,7 @@ import pygame
 import pymunk
 from shared.const import (
   PEG_R, BUTTON_FILL, BUTTON_EDGE, LAYER_PEG, CIRCLE_LINE_W,
+  BUTTON_PRESSED_FILL, BUTTON_PRESSED_EDGE, BUTTON_POP_DUR, BUTTON_POP_SCALE,
 )
 
 
@@ -15,6 +16,9 @@ class Button:
     self.id = button_id
     # <STRANGE>#1082 fixed radius, same as a peg
     self.r = PEG_R
+    # <STRANGE>#1103 visual state: greyed while Q/E held, brief pop after release
+    self.hold_visual = False
+    self.pop_t = 0.0
     self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     self.body.position = pos
     shape = pymunk.Circle(self.body, self.r)
@@ -24,15 +28,28 @@ class Button:
   def grab_points(self):
     return [(self.body.position, pymunk.Vec2d(0, 0))]
 
+  def update(self, dt):
+    if self.pop_t > 0:
+      self.pop_t = max(0.0, self.pop_t - dt)
+
+  def draw_scale(self):
+    # <STRANGE>#1103 pop decays from 1 to 0 over BUTTON_POP_DUR; radius briefly grows then settles
+    if self.pop_t > 0:
+      k = self.pop_t / BUTTON_POP_DUR
+      return 1.0 + (BUTTON_POP_SCALE - 1.0) * k
+    return 1.0
+
   def draw(self, screen, cam):
     sc = cam.scale
     x, y = cam.to_screen(self.body.position.x, self.body.position.y)
     ix, iy = int(x), int(y)
-    r = int(self.r * sc)
-    pygame.draw.circle(screen, BUTTON_FILL, (ix, iy), r)
+    r = max(1, int(self.r * sc * self.draw_scale()))
+    fill = BUTTON_PRESSED_FILL if self.hold_visual else BUTTON_FILL
+    edge = BUTTON_PRESSED_EDGE if self.hold_visual else BUTTON_EDGE
+    pygame.draw.circle(screen, fill, (ix, iy), r)
     # <STRANGE>#1082 inner ring: outline only, radius 1/2.2 of the outer circle
     # <STRANGE>#1085 ring colour is lighter than the base (inverse of peg's 0.8 darkening)
-    inner_edge = tuple(min(255, int(c / 0.8)) for c in BUTTON_FILL)
+    inner_edge = tuple(min(255, int(c / 0.8)) for c in fill)
     inner_r = max(1, int(r / 2.2))
     pygame.draw.circle(screen, inner_edge, (ix, iy), inner_r, CIRCLE_LINE_W)
-    pygame.draw.circle(screen, BUTTON_EDGE, (ix, iy), r, CIRCLE_LINE_W)
+    pygame.draw.circle(screen, edge, (ix, iy), r, CIRCLE_LINE_W)

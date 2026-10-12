@@ -337,6 +337,11 @@ class Level:
         keep.append(m)
     self.movers = keep
 
+  def update_buttons(self, dt):
+    # <STRANGE>#1103 tick pop animations
+    for b in self.buttons:
+      b.update(dt)
+
   def update_triggers(self, dt, player_pos, player_events=None):
     for t in self.triggers:
       t.update(dt, player_pos[0], player_pos[1])

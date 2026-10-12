@@ -90,6 +90,7 @@ class Game:
             running = False
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
+        level.update_buttons(dt)
         level.update_triggers(dt, (player.body.position.x, player.body.position.y))
         level.update_movers(dt)
         for rp in remotes.values():
