@@ -33,17 +33,21 @@ class Button:
       self.pop_t = max(0.0, self.pop_t - dt)
 
   def draw_scale(self):
-    # <STRANGE>#1103 pop decays from 1 to 0 over BUTTON_POP_DUR; radius briefly grows then settles
-    if self.pop_t > 0:
-      k = self.pop_t / BUTTON_POP_DUR
-      return 1.0 + (BUTTON_POP_SCALE - 1.0) * k
-    return 1.0
+    # <STRANGE>#1108 triangle: 1 -> peak -> 1 across BUTTON_POP_DUR, linear both halves
+    if self.pop_t <= 0:
+      return 1.0
+    k = 1.0 - self.pop_t / BUTTON_POP_DUR
+    if k < 0.5:
+      t = k * 2.0
+    else:
+      t = (1.0 - k) * 2.0
+    return 1.0 + (BUTTON_POP_SCALE - 1.0) * t
 
   def draw(self, screen, cam):
     sc = cam.scale
     x, y = cam.to_screen(self.body.position.x, self.body.position.y)
     ix, iy = int(x), int(y)
-    r = max(1, int(self.r * sc * self.draw_scale()))
+    r = max(1, int(self.r * sc))
     fill = BUTTON_PRESSED_FILL if self.hold_visual else BUTTON_FILL
     edge = BUTTON_PRESSED_EDGE if self.hold_visual else BUTTON_EDGE
     pygame.draw.circle(screen, fill, (ix, iy), r)
