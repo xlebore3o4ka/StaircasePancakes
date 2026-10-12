@@ -387,7 +387,7 @@ class PortablePegItem(Item):
     fill = _tint(self.FILL, whiten)
     edge = _tint(PEG_EDGE, whiten)
     inner_r = max(1, int(r / 2.2))
-    inner = tuple(int(c * 0.6) for c in fill[:3])
+    inner = tuple(int(c * 0.8) for c in fill[:3])
     if alpha < 255:
       surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
       pygame.draw.circle(surf, (*fill, alpha), (r, r), r)
