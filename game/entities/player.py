@@ -553,7 +553,8 @@ class Player:
     # <STRANGE>#385 diagnostic: catch the phantom bounce moment; remove once root cause is confirmed
     if self.body.velocity.y > 550 and self.body.position.y < BODY_R * 3:
       print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
-    pitoned = any(g is not None for g in self.grabbed)
+    # <STRANGE>#1092 pitoned means "hanging on a rope"; a button doesn't count, so ground drag stays
+    pitoned = any(g is not None and not getattr(g[0], "is_button", False) for g in self.grabbed)
     # <STRANGE>#729 while held to a peg, never use ground drag; brushing floor mid-swing would kill momentum
     drag = AIR_DRAG if pitoned else (GROUND_DRAG if grounded else AIR_DRAG)
     # <STRANGE>#430 cheats re-queue every frame while space is held, so air-jump becomes flight
