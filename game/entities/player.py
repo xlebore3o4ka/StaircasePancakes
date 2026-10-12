@@ -3,7 +3,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W, BUTTON_MAX_REACH
 from shared.smooth import smooth, per_sec
 from ..net.player_state import PlayerState
 from shared.physics_util import has_ground_contact
@@ -113,6 +113,8 @@ class Player:
     self._hint_font = None
     # <STRANGE>#931 network snapshot, refreshed every frame; name set externally by Game
     self.state = PlayerState()
+    # <STRANGE>#1070 button grab/release events, drained each frame by game.py
+    self.events = []
     # <STRANGE>#964 monotonic counter for net_id per player
     self._net_counter = 0
     # <STRANGE>#991 ids we sent last tick; diff reveals items that are no longer free
@@ -414,7 +416,12 @@ class Player:
       self.space.remove(self.joints[i])
       self.joints[i] = None
     if self.grabbed[i] is not None:
-      self.grabbed[i][0].grab_count -= 1
+      obj = self.grabbed[i][0]
+      if hasattr(obj, "grab_count"):
+        obj.grab_count -= 1
+      # <STRANGE>#1070 broadcast button release to any trigger the player is inside
+      if getattr(obj, "is_button", False):
+        self.events.append({"t": "button_release", "tag": obj.id})
     self.grabbed[i] = None
     self.rope_len[i] = None
 
@@ -615,27 +622,49 @@ class Player:
             if hit:
               world_pt, anchor = hit
               self.grabbed[i] = (obj, anchor, world_pt)
-              obj.grab_count += 1
+              if hasattr(obj, "grab_count"):
+                obj.grab_count += 1
               # <STRANGE>#752 peg grab sfx, fires on the frame the hand latches
               if self.sound is not None:
                 self.sound.play("peg_grab")
-              cur = self.body.position.get_distance(world_pt)
-              # <STRANGE>#617 rope not rod: min=0 so body can hug walls without the joint fighting collision; max caps distance
-              max_len = max(cur, ARM_DX)
-              self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, 0, max_len)
-              self.joints[i].max_force = REEL_MAX_FORCE
-              self.rope_len[i] = max_len
-              self.space.add(self.joints[i])
+              if getattr(obj, "is_button", False):
+                # <STRANGE>#1070 button: no joint, body stays under gravity, hand visually pulls to the button
+                self.joints[i] = None
+                self.rope_len[i] = None
+                self.events.append({"t": "button_press", "tag": obj.id})
+              else:
+                cur = self.body.position.get_distance(world_pt)
+                # <STRANGE>#617 rope not rod: min=0 so body can hug walls without the joint fighting collision; max caps distance
+                max_len = max(cur, ARM_DX)
+                self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, 0, max_len)
+                self.joints[i].max_force = REEL_MAX_FORCE
+                self.rope_len[i] = max_len
+                self.space.add(self.joints[i])
               break
         if self.grabbed[i] is not None:
-          if self.rope_len[i] > ARM_DX:
-            self.rope_len[i] = max(ARM_DX, self.rope_len[i] - per_sec(REEL_SPEED, dt))
-            # <STRANGE>#618 min stays 0; only max reels in. Body can go closer than ARM_DX if physics pushes it
-            self.joints[i].max = self.rope_len[i]
           # <STRANGE>#1066 recompute world anchor every frame so a moving peg carries the hand with it
           _obj, _anchor, _ = self.grabbed[i]
           world_pt = _obj.body.local_to_world(_anchor)
           self.grabbed[i] = (_obj, _anchor, world_pt)
+          if getattr(_obj, "is_button", False):
+            d = world_pt - self.body.position
+            # <STRANGE>#1070 auto-release if body strays too far from the button
+            if d.length > BUTTON_MAX_REACH:
+              self._release(i)
+              continue
+            if d.length > 0:
+              self.arm_dir[i] = d.normalized()
+            target_pos = world_pt
+            self.arm_pos[i] += (target_pos - self.arm_pos[i]) * smooth(self.arm_lerp_grab, dt)
+            arm.position = self.arm_pos[i]
+            arm.velocity = (0, 0)
+            target_r = PRESS_R if self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN else ARM_R
+            self.arm_r[i] += (target_r - self.arm_r[i]) * smooth(self.lerp_t, dt)
+            continue
+          if self.rope_len[i] > ARM_DX:
+            self.rope_len[i] = max(ARM_DX, self.rope_len[i] - per_sec(REEL_SPEED, dt))
+            # <STRANGE>#618 min stays 0; only max reels in. Body can go closer than ARM_DX if physics pushes it
+            self.joints[i].max = self.rope_len[i]
           d = world_pt - self.body.position
           if d.length > 0:
             self.arm_dir[i] = d.normalized()

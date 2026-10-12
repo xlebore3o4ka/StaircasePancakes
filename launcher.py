@@ -11,33 +11,6 @@ import pygame
 
 from game import Game
 
-# <STRANGE>#790: runtime shim for game/level.py missing LINE_W import.
-# The engine refactor moved edge widths to shared.const.LINE_W, but
-# game/level.py still references LINE_W without importing it.
-# Rule: do not edit engine source. Patch the module namespace instead.
-def _install_engine_shims():
-    try:
-        import game.level as _gl
-    except Exception:
-        return
-    try:
-        from shared.const import LINE_W as _LINE_W
-    except Exception:
-        _LINE_W = 2
-    try:
-        from shared.const import CIRCLE_LINE_W as _CIRCLE_LINE_W
-    except Exception:
-        _CIRCLE_LINE_W = _LINE_W + 1
-    for _name, _val in (("LINE_W", _LINE_W),
-                        ("CIRCLE_LINE_W", _CIRCLE_LINE_W),
-                        ("PEG_EDGE_W", _CIRCLE_LINE_W),
-                        ("PLAT_EDGE_W", _LINE_W),
-                        ("CUBE_EDGE_W", _LINE_W),
-                        ("REBAR_EDGE_W", _LINE_W)):
-        if not hasattr(_gl, _name):
-            setattr(_gl, _name, _val)
-
-_install_engine_shims()
 
 # <STRANGE>#772: crash logger so silent exits leave a trace
 import traceback as _tb

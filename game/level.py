@@ -3,17 +3,15 @@ import os
 import random
 import tarfile
 import tempfile
-import pymunk
 from shared.version import read as _read_version, parse as _parse_version
 from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
-from shared.const import LINE_W
-from shared.const import LINE_W
+from shared.const import LINE_W, BUTTON_R
 from .entities.trigger import Trigger
+from .entities.button import Button
 from .debug_view import DebugArrows
-import pymunk
 
 class Level:
   def _resolve_path(self, path):
@@ -147,6 +145,15 @@ class Level:
       if self.sound is not None:
         sp_item.sound = self.sound
       self.items.append(sp_item)
+    # <STRANGE>#1069 hand-only grab targets
+    self.buttons = []
+    for bd in data.get("buttons", []):
+      btn = Button(space, (bd["x"], bd["y"]),
+                   button_id=bd.get("id"), r=bd.get("r", BUTTON_R))
+      if "layer" in bd:
+        btn.layer = int(bd["layer"])
+      self.buttons.append(btn)
+
     # <STRANGE>#1015 invisible trigger zones; scripts run while player is inside
     self.triggers = []
     for td in data.get("triggers", []):
@@ -212,7 +219,7 @@ class Level:
   def grabbables(self):
     # <STRANGE>#523 stuck rebars join the peg list so the player's existing grab loop handles them
     stuck = [it for it in self.items if getattr(it, "stuck", False)]
-    return self.pegs + self.platforms + stuck
+    return self.pegs + self.platforms + self.buttons + stuck
 
   def post_step(self, player, cam=None):
     # <STRANGE>#524 runs after space.step; shape_query on each flying rebar finds overlaps with floor/platform
@@ -235,7 +242,7 @@ class Level:
 
   def debug_objects(self):
     # <STRANGE>#1017 every id-bearing object in the level; order doesn't matter for arrow drawing
-    return self.pegs + self.platforms + self.backgrounds + self.items + self.triggers
+    return self.pegs + self.platforms + self.backgrounds + self.items + self.triggers + self.buttons
 
   def move_to(self, target, x=None, y=None, dur=0.5, ease="out"):
     # <STRANGE>#1042 start a smooth move; cancels existing movers on the same object
@@ -331,9 +338,13 @@ class Level:
         keep.append(m)
     self.movers = keep
 
-  def update_triggers(self, dt, player_pos):
+  def update_triggers(self, dt, player_pos, player_events=None):
     for t in self.triggers:
       t.update(dt, player_pos[0], player_pos[1])
+    if player_events:
+      for t in self.triggers:
+        for ev in player_events:
+          t.fire_button(ev)
 
   def unload(self):
     # <STRANGE>#1028 on_unload for every script, called once when the level goes away

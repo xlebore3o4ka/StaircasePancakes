@@ -87,6 +87,12 @@ HIT_VOL_MIN = 250
 HIT_VOL_MAX = 1800
 HIT_COOLDOWN = 0.08
 STEP_INTERVAL = 0.32
+
+BUTTON_R = 8
+BUTTON_FILL = (60, 140, 220)
+BUTTON_EDGE = (255, 255, 255)
+# <NOTE>#1068 max body-to-button distance while held; exceeded -> auto-release
+BUTTON_MAX_REACH = 90
 # <NOTE>#1020 on_tick fires this many times per second while player is inside a trigger
 TRIGGER_TICK_HZ = 20
 # <NOTE>#962 drop remote ghost if no state received for this long
