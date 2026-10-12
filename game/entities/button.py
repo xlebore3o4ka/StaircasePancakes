@@ -2,7 +2,8 @@ import pygame
 import pymunk
 from shared.const import (
   PEG_R, BUTTON_FILL, BUTTON_EDGE, LAYER_PEG, CIRCLE_LINE_W,
-  BUTTON_GRAB_DIM, BUTTON_PRESS_DIM, BUTTON_PRESS_FADE,
+  BUTTON_GRAB_DIM, BUTTON_PRESS_HELD_DIM, BUTTON_PRESS_RELEASE_DIM,
+  BUTTON_PRESS_FADE,
 )
 
 
@@ -19,7 +20,8 @@ class Button:
     # <STRANGE>#1103 visual state; grabbed is set by Player while a hand holds, press_held by Q/E
     self.grabbed = False
     self.press_held = False
-    self.press_fade = 0.0
+    self.press_dim = 0.0
+    self._was_press_held = False
     self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     self.body.position = pos
     shape = pymunk.Circle(self.body, self.r)
@@ -30,15 +32,18 @@ class Button:
     return [(self.body.position, pymunk.Vec2d(0, 0))]
 
   def update(self, dt):
-    # <STRANGE>#1112 press_fade rises to 1 while held, decays to 0 after release
+    # <STRANGE>#1119 while Q/E held: dim = HELD_DIM; on release: jump to RELEASE_DIM then fade linearly to 0
     if self.press_held:
-      self.press_fade = 1.0
-    elif self.press_fade > 0:
-      self.press_fade = max(0.0, self.press_fade - dt / BUTTON_PRESS_FADE)
+      self.press_dim = BUTTON_PRESS_HELD_DIM
+    elif self._was_press_held:
+      self.press_dim = BUTTON_PRESS_RELEASE_DIM
+    elif self.press_dim > 0:
+      self.press_dim = max(0.0, self.press_dim - dt * BUTTON_PRESS_RELEASE_DIM / BUTTON_PRESS_FADE)
+    self._was_press_held = self.press_held
 
   def _dim(self):
     d = BUTTON_GRAB_DIM if self.grabbed else 0.0
-    d += BUTTON_PRESS_DIM * self.press_fade
+    d += self.press_dim
     return min(1.0, d)
 
   def tint(self, col):
