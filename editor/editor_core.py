@@ -46,7 +46,8 @@ from .panel import TopPanel
 class CoreMixin:
   def __init__(self):
     pygame.init()
-    self.screen = pygame.display.set_mode((1280, 800))
+    # <STRANGE>#1100: bigger window so all tabs + zoom indicator fit
+    self.screen = pygame.display.set_mode((1440, 820))
     pygame.display.set_caption("level editor")
     self.clock = pygame.time.Clock()
     self.font = pygame.font.SysFont(None, 22)

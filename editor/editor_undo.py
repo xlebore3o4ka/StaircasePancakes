@@ -7,7 +7,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact, EditorTrigger,
+  EditorArtifact, EditorTrigger, EditorButton,
 )
 
 
@@ -16,6 +16,10 @@ class UndoMixin:
   def _obj_to_state(self, o):
     if isinstance(o, EditorPeg):
       return {"t": "peg", "x": o.x, "y": o.y,
+              "id": getattr(o, "id", ""),
+              "locked": o.locked, "layer": o.layer}
+    if isinstance(o, EditorButton):
+      return {"t": "button", "x": o.x, "y": o.y,
               "id": getattr(o, "id", ""),
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorPlatform):
@@ -57,6 +61,8 @@ class UndoMixin:
     t = s["t"]
     if t == "peg":
       o = EditorPeg(s["x"], s["y"])
+    if t == "button":
+      o = EditorButton(s["x"], s["y"])
     elif t == "plat":
       o = EditorPlatform(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"]); o.edge = tuple(s["edge"])
