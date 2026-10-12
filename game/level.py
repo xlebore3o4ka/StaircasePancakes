@@ -356,6 +356,10 @@ class Level:
         d = d2 ** 0.5
         pen = R - d
         nx, ny = dx / d, dy / d
+        # <STRANGE>#1135 cap by outward velocity: once we're already moving out fast, stop pushing
+        v_out = player.body.velocity.x * nx + player.body.velocity.y * ny
+        if v_out > 200:
+          continue
         f = BUTTON_PUSH_FORCE * pen * player.body.mass
         player.body.apply_force_at_local_point((nx * f, ny * f), (0, 0))
 
