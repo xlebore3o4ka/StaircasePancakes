@@ -566,11 +566,13 @@ class Player:
       self.body.velocity = (self.body.velocity.x, JUMP_V)
       self.jump_queued = False
       self.jumped_this_frame = True
-      n = sum(1 for g in self.grabbed if g is not None)
+      # <STRANGE>#1100 buttons don't pay jump cost; only rope grabs do
+      n = sum(1 for g in self.grabbed if g is not None and not getattr(g[0], "is_button", False))
       if n > 0:
         cost = STAMINA_JUMP_COST / n
         for i in range(2):
-          if self.grabbed[i] is not None:
+          g = self.grabbed[i]
+          if g is not None and not getattr(g[0], "is_button", False):
             self.stamina[i] -= cost
       for i in range(2):
         self._release(i)
