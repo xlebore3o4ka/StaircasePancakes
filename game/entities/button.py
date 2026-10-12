@@ -1,7 +1,7 @@
 import pygame
 import pymunk
 from shared.const import (
-  BUTTON_R, BUTTON_FILL, BUTTON_EDGE, LAYER_PEG, CIRCLE_LINE_W,
+  PEG_R, BUTTON_FILL, BUTTON_EDGE, LAYER_PEG, CIRCLE_LINE_W,
 )
 
 
@@ -10,13 +10,14 @@ class Button:
   layer = LAYER_PEG
   is_button = True
 
-  def __init__(self, space, pos, button_id=None, r=BUTTON_R):
+  def __init__(self, space, pos, button_id=None):
     self.grab_count = 0
     self.id = button_id
-    self.r = r
+    # <STRANGE>#1082 fixed radius, same as a peg
+    self.r = PEG_R
     self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     self.body.position = pos
-    shape = pymunk.Circle(self.body, r)
+    shape = pymunk.Circle(self.body, self.r)
     shape.filter = pymunk.ShapeFilter(group=1, categories=0b1000000)
     space.add(self.body, shape)
 
@@ -29,4 +30,7 @@ class Button:
     ix, iy = int(x), int(y)
     r = int(self.r * sc)
     pygame.draw.circle(screen, BUTTON_FILL, (ix, iy), r)
+    # <STRANGE>#1082 inner dot, outlined only (no fill), radius 1/2.2 of the outer circle
+    inner_r = max(1, int(r / 2.2))
+    pygame.draw.circle(screen, BUTTON_EDGE, (ix, iy), inner_r, CIRCLE_LINE_W)
     pygame.draw.circle(screen, BUTTON_EDGE, (ix, iy), r, CIRCLE_LINE_W)

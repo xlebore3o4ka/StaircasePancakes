@@ -8,7 +8,7 @@ from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
-from shared.const import LINE_W, BUTTON_R
+from shared.const import LINE_W
 from .entities.trigger import Trigger
 from .entities.button import Button
 from .debug_view import DebugArrows
@@ -148,8 +148,7 @@ class Level:
     # <STRANGE>#1069 hand-only grab targets
     self.buttons = []
     for bd in data.get("buttons", []):
-      btn = Button(space, (bd["x"], bd["y"]),
-                   button_id=bd.get("id"), r=bd.get("r", BUTTON_R))
+      btn = Button(space, (bd["x"], bd["y"]), button_id=bd.get("id"))
       if "layer" in bd:
         btn.layer = int(bd["layer"])
       self.buttons.append(btn)
