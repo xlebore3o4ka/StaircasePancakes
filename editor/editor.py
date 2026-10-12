@@ -12,7 +12,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact, EditorTrigger,
+  EditorArtifact, EditorTrigger, EditorButton,
 )
 from . import tar_io
 from .editor_core import CoreMixin, _game_version_read
@@ -40,6 +40,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     if not path:
       return
     pegs = [o.to_json() for o in self.objects if isinstance(o, EditorPeg)]
+    buttons = [o.to_json() for o in self.objects if isinstance(o, EditorButton)]
     platforms = [o.to_json() for o in self.objects if isinstance(o, EditorPlatform)]
     backgrounds = [o.to_json() for o in self.objects if isinstance(o, EditorBackground)]
     items = [o.to_json() for o in self.objects if isinstance(o, EditorItem)]
@@ -59,6 +60,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       "items": items,
       "itemSpawners": spawners,
       "triggers": triggers,
+      "buttons": buttons,
     })
     if bag is not None:
       out["bag"] = bag
@@ -135,6 +137,13 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
         if len(p) > 2:
           obj.locked = bool(p[2])
       self.objects.append(obj)
+    for bt in data.get("buttons", []):
+      b = EditorButton(bt["x"], bt["y"])
+      b.id = str(bt.get("id", ""))
+      b.locked = bool(bt.get("locked", False))
+      if "layer" in bt:
+        b.layer = int(bt["layer"])
+      self.objects.append(b)
     for pd in data.get("platforms", []):
       obj = EditorPlatform(pd["x"], pd["y"],
                            pd.get("w", PLAT_DEFAULT_W),

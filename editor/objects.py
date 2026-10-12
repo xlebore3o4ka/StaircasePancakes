@@ -24,6 +24,7 @@ from .const import (
   DEFAULT_ARTIFACT_TYPE,
   TRIGGER_FILL, TRIGGER_EDGE, TRIGGER_EDGE_W, TRIGGER_LABEL_COLOR,
   TRIGGER_DEFAULT_W, TRIGGER_DEFAULT_H,
+  BUTTON_R, BUTTON_FILL, BUTTON_EDGE,
 )
 from .helpers import make_stripe_surface, make_circle_stripe_surface
 from . import settings
@@ -101,7 +102,7 @@ def default_layer_for(obj):
     return LAYER_BG
   if isinstance(obj, EditorPlatform):
     return LAYER_PLATFORM
-  if isinstance(obj, EditorPeg):
+  if isinstance(obj, (EditorPeg, EditorButton)):
     return LAYER_PEG
   if isinstance(obj, (EditorItem, EditorSpawner, EditorArtifact)):
     return LAYER_ITEM
@@ -760,3 +761,47 @@ class EditorTrigger:
         pass
     if self.locked:
       screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
+
+# =========================================================
+# Button - kinematic grab point (id only, no script)
+# =========================================================
+class EditorButton:
+  def __init__(self, x, y):
+    self.x, self.y = x, y
+    self.r = BUTTON_R
+    self.id = ""
+    self.locked = False
+    self.layer = None
+
+  def hit(self, wx, wy):
+    return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
+
+  def intersects_rect(self, l, r, b, t):
+    nx = max(l, min(self.x, r))
+    ny = max(b, min(self.y, t))
+    return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
+
+  def to_json(self):
+    d = {"x": int(self.x), "y": int(self.y)}
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    if self.locked:
+      d["locked"] = True
+    return d
+
+  def badge_screen_pos(self, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    r = self.r * ed.zoom
+    return sx + r + 2, sy - r - 2
+
+  def draw(self, screen, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    r = max(1, int(self.r * ed.zoom))
+    pygame.draw.circle(screen, BUTTON_FILL, (int(sx), int(sy)), r)
+    edge_w = max(1, int(2 * ed.zoom))
+    pygame.draw.circle(screen, BUTTON_EDGE, (int(sx), int(sy)), r, edge_w)
+    if self.locked:
+      screen.blit(make_circle_stripe_surface(r),
+                  (int(sx) - r, int(sy) - r))

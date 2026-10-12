@@ -8,7 +8,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact, EditorTrigger,
+  EditorArtifact, EditorTrigger, EditorButton,
 )
 from . import settings
 
@@ -75,7 +75,7 @@ class DragMixin:
 
   # ---------- bounds ----------
   def _obj_bounds(self, obj):
-    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact)):
+    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
       return (obj.x - obj.r, obj.x + obj.r, obj.y - obj.r, obj.y + obj.r)
     l, r, b, t = obj.world_rect()
     return (l, r, b, t)
@@ -242,6 +242,8 @@ class DragMixin:
         self.set_tool("artifact")
       elif self.tab_trigger_rect().collidepoint(pos):
         self.set_tool("trigger")
+      elif self.tab_button_rect().collidepoint(pos):
+        self.set_tool("button")
       return
 
     wx, wy = self.from_screen(x, y)
@@ -334,7 +336,13 @@ class DragMixin:
       self.ghost_target = [wx, wy]
       return
 
-    if self.tool == "peg":
+    if self.tool == "button":
+      obj = EditorButton(wx, wy)
+      self.objects.append(obj)
+      self._set_selection([obj])
+      self._begin_move(wx, wy, obj)
+      self._mark_scene_dirty()
+    elif self.tool == "peg":
       obj = EditorPeg(wx, wy)
       self.objects.append(obj)
       self._set_selection([obj])
@@ -905,7 +913,7 @@ class DragMixin:
 
   # ---------- visibility ----------
   def _visible(self, obj, sw, sh):
-    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact)):
+    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
       sx, sy = self.to_screen(obj.x, obj.y)
       r = obj.r * self.zoom + 6
       return (sx + r >= 0 and sx - r <= sw and

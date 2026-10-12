@@ -18,6 +18,8 @@ from .const import (
   ARTIFACT_FILL,
   ARTIFACT_EDGE,
   ARTIFACT_EDGE_W,
+  TRIGGER_FILL, TRIGGER_EDGE, TRIGGER_EDGE_W,
+  BUTTON_R, BUTTON_FILL, BUTTON_EDGE,
   ARTIFACT_LETTER_FG,
 )
 from .const import (
@@ -254,7 +256,7 @@ class RenderMixin:
 
   def _draw_id_labels(self):
     # <STRANGE>#1012: zoom-scaled font; peg id centered on the body.
-    from .objects import EditorPeg, EditorSpawner, EditorArtifact
+    from .objects import EditorPeg, EditorSpawner, EditorArtifact, EditorButton
     fs = max(9, int(16 * self.zoom))
     font = pygame.font.SysFont(None, fs, bold=True)
     sw, sh = self.screen.get_size()
@@ -265,7 +267,7 @@ class RenderMixin:
       if not self._visible(obj, sw, sh):
         continue
       surf = font.render(str(oid), True, (240, 240, 240))
-      if isinstance(obj, EditorPeg):
+      if isinstance(obj, (EditorPeg, EditorButton)):
         sx, sy = self.to_screen(obj.x, obj.y)
         px = sx - surf.get_width() / 2
         py = sy - surf.get_height() / 2
@@ -298,14 +300,14 @@ class RenderMixin:
       return
     phase = pygame.time.get_ticks() / 1000.0
     _clip_line.PAINTER = _make_painter(self.screen)
-    from .objects import EditorPeg, EditorSpawner, EditorArtifact
+    from .objects import EditorPeg, EditorSpawner, EditorArtifact, EditorButton
     sw, sh = self.screen.get_size()
     for obj in self.objects:
       if id(obj) not in targets:
         continue
       if not self._visible(obj, sw, sh):
         continue
-      if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact)):
+      if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
         sx, sy = self.to_screen(obj.x, obj.y)
         r = max(2, int(obj.r * self.zoom))
         rect = pygame.Rect(int(sx - r), int(sy - r), r * 2, r * 2)
@@ -587,6 +589,7 @@ class RenderMixin:
     self.draw_tab(self.tab_spawner_rect(), "spawner", self.tool == "spawner")
     self.draw_tab(self.tab_artifact_rect(), "artifact", self.tool == "artifact")
     self.draw_tab(self.tab_trigger_rect(), "trigger", self.tool == "trigger")
+    self.draw_tab(self.tab_button_rect(), "button", self.tool == "button")
 
     z = f"{int(self.zoom * 100)}%"
     surf = render_text(self.font, z, GOLD)
@@ -628,6 +631,9 @@ class RenderMixin:
       f = pygame.font.SysFont(None, 20, bold=True)
       ts = f.render("S", True, (255, 255, 255))
       self.screen.blit(ts, ts.get_rect(center=rr.center))
+    elif name == "button":
+      pygame.draw.circle(self.screen, BUTTON_FILL, (cx, cy), BUTTON_R + 3)
+      pygame.draw.circle(self.screen, BUTTON_EDGE, (cx, cy), BUTTON_R + 3, 2)
     elif name == "trigger":
       rr = pygame.Rect(0, 0, 72, 44)
       rr.center = r.center
@@ -686,38 +692,42 @@ class RenderMixin:
   # ---------- tab rects ----------
   def tab_ghost_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(10, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(10, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_eraser_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(140, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(130, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_peg_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(270, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(250, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_plat_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(400, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(370, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_bg_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(530, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(490, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_item_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(660, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(610, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_spawner_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(790, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(730, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_artifact_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(920, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(850, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_trigger_rect(self):
     h = self.screen.get_height()
-    return pygame.Rect(1050, h - BOT_H + 6, 120, BOT_H - 12)
+    return pygame.Rect(970, h - BOT_H + 6, 110, BOT_H - 12)
+
+  def tab_button_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(1090, h - BOT_H + 6, 110, BOT_H - 12)
 
  
