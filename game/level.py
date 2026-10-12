@@ -379,4 +379,4 @@ class Level:
   def drawables(self):
     # <NOTE>#444 single source for the render list; held items are drawn by Player, not here
     free_items = [it for it in self.items if it.held_by is None]
-    return self.backgrounds + self.platforms + self.pegs + free_items
+    return self.backgrounds + self.platforms + self.pegs + self.buttons + free_items
