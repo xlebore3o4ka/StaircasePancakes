@@ -825,12 +825,17 @@ class Player:
       if self.grab_cooldown[i] > 0:
         self.grab_cooldown[i] = max(0.0, self.grab_cooldown[i] - dt)
 
-    # <STRANGE>#1103 mirror grab/press state to the button so it can dim itself
+    # <STRANGE>#1137 aggregate per-button: reset, then set True if either holding hand is pressed
+    for b in getattr(self, "_all_buttons", []) or []:
+      b.grabbed = False
+      b.press_held = False
     for i in range(2):
       g = self.grabbed[i]
       if g is not None and getattr(g[0], "is_button", False):
-        g[0].grabbed = True
-        g[0].press_held = self.button_hold[i]
+        btn = g[0]
+        btn.grabbed = True
+        if self.button_hold[i]:
+          btn.press_held = True
 
     # <STRANGE>#931 snapshot the current player state for networking
     self._write_state()

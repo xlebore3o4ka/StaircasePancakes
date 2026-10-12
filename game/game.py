@@ -41,6 +41,7 @@ class Game:
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       level = Level(space, self.map_path, sound=sound, cheats=self.cheats)
       player.level = level
+      player._all_buttons = level.buttons
       # <STRANGE>#942 remote ghosts: name -> RemotePlayer
       remotes = {}
       # <STRANGE>#967 ghost items owned by other players
