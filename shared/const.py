@@ -90,13 +90,14 @@ STEP_INTERVAL = 0.32
 
 BUTTON_FILL = (60, 140, 220)
 BUTTON_EDGE = (255, 255, 255)
-BUTTON_PRESSED_FILL = (80, 80, 80)
-BUTTON_PRESSED_EDGE = (150, 150, 150)
-BUTTON_POP_DUR = 0.2
-BUTTON_POP_SCALE = 1.4
+# <NOTE>#1112 dim factor while a hand holds the button (0 = normal, 1 = black)
+BUTTON_GRAB_DIM = 0.15
+# <NOTE>#1113 additional dim while Q/E is held on the grabbed button
+BUTTON_PRESS_DIM = 0.35
+# <NOTE>#1114 seconds for the extra dim to fade after release
+BUTTON_PRESS_FADE = 0.3
 HUD_BUTTON_ALPHA = 128
 HUD_BUTTON_R_MULT = 0.9
-HUD_BUTTON_GREY = (110, 110, 110)
 # <NOTE>#1068 max body-to-button distance while held; exceeded -> auto-release
 BUTTON_MAX_REACH = 90
 # <NOTE>#1020 on_tick fires this many times per second while player is inside a trigger

@@ -3,7 +3,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W, BUTTON_MAX_REACH, BUTTON_FILL, BUTTON_EDGE, BUTTON_POP_DUR, HUD_BUTTON_ALPHA, HUD_BUTTON_R_MULT, HUD_BUTTON_GREY
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W, BUTTON_MAX_REACH, BUTTON_FILL, BUTTON_EDGE, HUD_BUTTON_ALPHA, HUD_BUTTON_R_MULT
 from shared.smooth import smooth, per_sec
 from ..net.player_state import PlayerState
 from shared.physics_util import has_ground_contact
@@ -423,7 +423,8 @@ class Player:
         obj.grab_count -= 1
       # <STRANGE>#1070 broadcast button release to any trigger the player is inside
       if getattr(obj, "is_button", False):
-        obj.hold_visual = False
+        obj.grabbed = False
+        obj.press_held = False
         self.button_hold[i] = False
         self.events.append({"t": "button_release", "tag": obj.id})
     self.grabbed[i] = None
@@ -523,9 +524,7 @@ class Player:
           self.button_hold[0] = False
           g = self.grabbed[0]
           if g is not None and getattr(g[0], "is_button", False):
-            btn = g[0]
-            btn.pop_t = BUTTON_POP_DUR
-            self.events.append({"t": "button_press", "tag": btn.id})
+            self.events.append({"t": "button_press", "tag": g[0].id})
         elif self.use_charged[0]:
           self.use_charged[0] = False
           self._use(0)
@@ -534,9 +533,7 @@ class Player:
           self.button_hold[1] = False
           g = self.grabbed[1]
           if g is not None and getattr(g[0], "is_button", False):
-            btn = g[0]
-            btn.pop_t = BUTTON_POP_DUR
-            self.events.append({"t": "button_press", "tag": btn.id})
+            self.events.append({"t": "button_press", "tag": g[0].id})
         elif self.use_charged[1]:
           self.use_charged[1] = False
           self._use(1)
@@ -816,11 +813,12 @@ class Player:
       if self.grab_cooldown[i] > 0:
         self.grab_cooldown[i] = max(0.0, self.grab_cooldown[i] - dt)
 
-    # <STRANGE>#1103 mirror button hold state to the world button so it renders grey
+    # <STRANGE>#1103 mirror grab/press state to the button so it can dim itself
     for i in range(2):
       g = self.grabbed[i]
       if g is not None and getattr(g[0], "is_button", False):
-        g[0].hold_visual = self.button_hold[i]
+        g[0].grabbed = True
+        g[0].press_held = self.button_hold[i]
 
     # <STRANGE>#931 snapshot the current player state for networking
     self._write_state()
@@ -910,27 +908,23 @@ class Player:
     sx, sy = cam.to_screen(wx, wy)
     screen.blit(surf, surf.get_rect(center=(int(sx), int(sy))))
 
-  def _draw_hud_button(self, screen, sc, hx, hy, slot_r, btn, held):
-    # <STRANGE>#1103 enlarged semi-transparent button icon in the HUD slot; greys while q/e held
-    scale = btn.draw_scale()
-    br = max(1, int(slot_r * HUD_BUTTON_R_MULT * scale))
-    fill = HUD_BUTTON_GREY if held else BUTTON_FILL
-    edge = HUD_BUTTON_GREY if held else BUTTON_EDGE
+  def _draw_hud_button(self, screen, sc, hx, hy, slot_r, btn, idx):
+    # <STRANGE>#1103 button icon in the HUD slot, dimmed by state; fixed size, no scaling
+    br = max(1, int(slot_r * HUD_BUTTON_R_MULT))
+    fill = btn.tint(BUTTON_FILL)
+    edge = btn.tint(BUTTON_EDGE)
+    inner_base = tuple(min(255, int(c / 0.8)) for c in BUTTON_FILL)
+    inner = btn.tint(inner_base)
     surf = pygame.Surface((br * 2, br * 2), pygame.SRCALPHA)
     pygame.draw.circle(surf, (*fill, HUD_BUTTON_ALPHA), (br, br), br)
-    inner = tuple(min(255, int(c / 0.8)) for c in fill)
     inner_r = max(1, int(br / 2.2))
     pygame.draw.circle(surf, (*inner, 180), (br, br), inner_r, CIRCLE_LINE_W)
     pygame.draw.circle(surf, (*edge, 200), (br, br), br, CIRCLE_LINE_W)
     screen.blit(surf, (int(hx) - br, int(hy) - br))
-    # <STRANGE>#1109 small Q/E label just below the icon, same style as held-item label
-    lbl = self._hud_labels[0 if hx < screen.get_width() / 2 else 1]
-    sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
-    sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))
-    small = pygame.transform.smoothscale(lbl, (sw2, sh2))
-    small.set_alpha(HUD_LABEL_ALPHA_HELD)
-    ly = int(hy + slot_r - sh2 * 0.35)
-    screen.blit(small, small.get_rect(center=(int(hx), ly)))
+    # <STRANGE>#1109 Q/E label centered, same size as the empty-hand label
+    lbl = self._hud_labels[idx]
+    lbl.set_alpha(HUD_LABEL_ALPHA_EMPTY)
+    screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
 
   def _ensure_hud_labels(self):
     # <STRANGE>#392 lazy cache; Q/E rendered once with white, alpha applied per blit via set_alpha
@@ -997,7 +991,7 @@ class Player:
         grab_btn = g[0]
       lbl = self._hud_labels[i]
       if grab_btn is not None:
-        self._draw_hud_button(screen, sc, hx, hy, r, grab_btn, self.button_hold[i])
+        self._draw_hud_button(screen, sc, hx, hy, r, grab_btn, i)
       elif it is None:
         # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
         lbl.set_alpha(HUD_LABEL_ALPHA_EMPTY)

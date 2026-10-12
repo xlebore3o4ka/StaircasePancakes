@@ -2,7 +2,7 @@ import pygame
 import pymunk
 from shared.const import (
   PEG_R, BUTTON_FILL, BUTTON_EDGE, LAYER_PEG, CIRCLE_LINE_W,
-  BUTTON_PRESSED_FILL, BUTTON_PRESSED_EDGE, BUTTON_POP_DUR, BUTTON_POP_SCALE,
+  BUTTON_GRAB_DIM, BUTTON_PRESS_DIM, BUTTON_PRESS_FADE,
 )
 
 
@@ -16,9 +16,10 @@ class Button:
     self.id = button_id
     # <STRANGE>#1082 fixed radius, same as a peg
     self.r = PEG_R
-    # <STRANGE>#1103 visual state: greyed while Q/E held, brief pop after release
-    self.hold_visual = False
-    self.pop_t = 0.0
+    # <STRANGE>#1103 visual state; grabbed is set by Player while a hand holds, press_held by Q/E
+    self.grabbed = False
+    self.press_held = False
+    self.press_fade = 0.0
     self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     self.body.position = pos
     shape = pymunk.Circle(self.body, self.r)
@@ -29,31 +30,35 @@ class Button:
     return [(self.body.position, pymunk.Vec2d(0, 0))]
 
   def update(self, dt):
-    if self.pop_t > 0:
-      self.pop_t = max(0.0, self.pop_t - dt)
+    # <STRANGE>#1112 press_fade rises to 1 while held, decays to 0 after release
+    if self.press_held:
+      self.press_fade = 1.0
+    elif self.press_fade > 0:
+      self.press_fade = max(0.0, self.press_fade - dt / BUTTON_PRESS_FADE)
 
-  def draw_scale(self):
-    # <STRANGE>#1108 triangle: 1 -> peak -> 1 across BUTTON_POP_DUR, linear both halves
-    if self.pop_t <= 0:
-      return 1.0
-    k = 1.0 - self.pop_t / BUTTON_POP_DUR
-    if k < 0.5:
-      t = k * 2.0
-    else:
-      t = (1.0 - k) * 2.0
-    return 1.0 + (BUTTON_POP_SCALE - 1.0) * t
+  def _dim(self):
+    d = BUTTON_GRAB_DIM if self.grabbed else 0.0
+    d += BUTTON_PRESS_DIM * self.press_fade
+    return min(1.0, d)
+
+  def tint(self, col):
+    # <STRANGE>#1113 darken channel-wise; edge (white) turns grey, fill turns darker blue
+    d = self._dim()
+    if d <= 0:
+      return col
+    return tuple(max(0, int(c * (1.0 - d))) for c in col[:3])
 
   def draw(self, screen, cam):
     sc = cam.scale
     x, y = cam.to_screen(self.body.position.x, self.body.position.y)
     ix, iy = int(x), int(y)
     r = max(1, int(self.r * sc))
-    fill = BUTTON_PRESSED_FILL if self.hold_visual else BUTTON_FILL
-    edge = BUTTON_PRESSED_EDGE if self.hold_visual else BUTTON_EDGE
+    fill = self.tint(BUTTON_FILL)
+    edge = self.tint(BUTTON_EDGE)
+    inner_base = tuple(min(255, int(c / 0.8)) for c in BUTTON_FILL)
+    inner = self.tint(inner_base)
     pygame.draw.circle(screen, fill, (ix, iy), r)
     # <STRANGE>#1082 inner ring: outline only, radius 1/2.2 of the outer circle
-    # <STRANGE>#1085 ring colour is lighter than the base (inverse of peg's 0.8 darkening)
-    inner_edge = tuple(min(255, int(c / 0.8)) for c in fill)
     inner_r = max(1, int(r / 2.2))
-    pygame.draw.circle(screen, inner_edge, (ix, iy), inner_r, CIRCLE_LINE_W)
+    pygame.draw.circle(screen, inner, (ix, iy), inner_r, CIRCLE_LINE_W)
     pygame.draw.circle(screen, edge, (ix, iy), r, CIRCLE_LINE_W)
