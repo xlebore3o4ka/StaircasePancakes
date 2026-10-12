@@ -541,7 +541,9 @@ class Player:
         self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + step)
       # <STRANGE>#852 pocket weight: while a hand's pocket holds an item, drain is +10% and regen is -10%
       pocket_mul = 1.1 if self.pocket[i] is not None else 1.0
-      if self.grabbed[i] is not None:
+      g = self.grabbed[i]
+      # <STRANGE>#1098 buttons cost no stamina; only rope grabs drain
+      if g is not None and not getattr(g[0], "is_button", False):
         self.stamina[i] -= per_sec(STAMINA_HOLD_DRAIN * pocket_mul, dt) / max(num_grabbed, 1)
         if self.stamina[i] <= 0:
           self.stamina[i] = 0.0
