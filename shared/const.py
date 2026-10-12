@@ -91,7 +91,7 @@ STEP_INTERVAL = 0.32
 BUTTON_FILL = (60, 140, 220)
 BUTTON_EDGE = (255, 255, 255)
 # <NOTE>#1127 dim while Q/E is held on the grabbed button (0 = normal, 1 = black)
-BUTTON_PRESS_DIM = 0.5
+BUTTON_PRESS_DIM = 0.3
 # <NOTE>#1128 seconds to smooth between pressed and released look
 BUTTON_PRESS_LERP = 0.55
 HUD_BUTTON_ALPHA = 128
