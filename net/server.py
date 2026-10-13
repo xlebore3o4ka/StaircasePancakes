@@ -1,12 +1,15 @@
 import argparse
 import asyncio
+import hashlib
 import json
+import os
 import websockets
 from shared.version import read as _read_version, parse as _parse_version
 
 
 _clients = {}  # name -> websocket
 _map_path = None
+_map_hash = None
 
 
 async def handler(ws):
@@ -26,10 +29,10 @@ async def handler(ws):
           print(f"! reject {msg.get('name')}: version {req_ver!r} vs {cur_ver!r}")
           await ws.close(code=4001, reason="version mismatch")
           return
-        req_map = msg.get("map")
-        # <STRANGE>#995 reject mismatched map before registering; close the socket so client sees the failure
-        if _map_path is not None and req_map != _map_path:
-          print(f"! reject {msg.get('name')}: map {req_map!r} != {_map_path!r}")
+        req_hash = msg.get("map_hash")
+        # <STRANGE>#1144 compare content hashes, not paths; path may differ but bytes must match
+        if _map_hash is not None and req_hash != _map_hash:
+          print(f"! reject {msg.get('name')}: map hash {req_hash!r} != {_map_hash!r}")
           await ws.close(code=4000, reason="map mismatch")
           return
         name = msg.get("name") or f"anon-{id(ws)}"
@@ -69,14 +72,16 @@ async def run(port):
 
 
 def main():
-  global _map_path
+  global _map_path, _map_hash
   ap = argparse.ArgumentParser()
   ap.add_argument("--port", type=int, default=8765)
   ap.add_argument("--map", default="levels/test.json",
-                  help="level json every client must be using")
+                  help="level file every client must match (content-hashed)")
   args = ap.parse_args()
   _map_path = args.map
-  print(f"map: {_map_path}")
+  with open(_map_path, "rb") as f:
+    _map_hash = hashlib.sha1(f.read()).hexdigest()
+  print(f"map: {_map_path} (sha1 {_map_hash[:8]})")
   try:
     asyncio.run(run(args.port))
   except KeyboardInterrupt:

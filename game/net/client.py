@@ -8,10 +8,11 @@ from shared.version import read as _read_version
 
 class NetClient:
   # <STRANGE>#950 websocket runs in a background thread with its own asyncio loop; main thread only touches queues
-  def __init__(self, url, name, map_path=None):
+  def __init__(self, url, name, map_path=None, map_hash=None):
     self.url = url
     self.name = name
     self.map_path = map_path
+    self.map_hash = map_hash
     self._in = queue.Queue()
     self._out = queue.Queue()
     self._stop = threading.Event()
@@ -58,6 +59,7 @@ class NetClient:
         self.ready = True
         await ws.send(json.dumps({"t": "hello", "name": self.name,
                                      "map": self.map_path,
+                                     "map_hash": self.map_hash,
                                      "version": _read_version()}))
         await asyncio.gather(self._sender(ws), self._receiver(ws))
     except Exception as e:

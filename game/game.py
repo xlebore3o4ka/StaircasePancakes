@@ -39,6 +39,7 @@ class Game:
       spawn_y = BODY_R
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
+      # <STRANGE>#1144 level is created before the net client so we can hash its content
       level = Level(space, self.map_path, sound=sound, cheats=self.cheats)
       player.level = level
       player._all_buttons = level.buttons
@@ -50,7 +51,8 @@ class Game:
       # <STRANGE>#955 net is optional; without --server the rest of the loop is untouched
       net = None
       if self.server_url:
-        net = NetClient(self.server_url, self.name or "anon", map_path=self.map_path)
+        net = NetClient(self.server_url, self.name or "anon",
+                        map_path=self.map_path, map_hash=level.content_hash)
         net.connect()
         # <STRANGE>#1007 block until server welcomes us or fails; better to crash early than drop into single
         t0 = pygame.time.get_ticks()

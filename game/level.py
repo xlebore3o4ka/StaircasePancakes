@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import random
@@ -40,6 +41,9 @@ class Level:
     # <STRANGE>#1041 active smooth-move animations; each entry drives one object over time
     self.movers = []
     json_path = self._resolve_path(path)
+    # <STRANGE>#1143 hash of the whole level file (tar or json) for server-side content match
+    with open(path, "rb") as f:
+        self.content_hash = hashlib.sha1(f.read()).hexdigest()
     # <STRANGE>#1027 scripts resolve relative to the json's directory; works for both json and tar layouts
     self.base_dir = os.path.dirname(json_path)
     data = json.load(open(json_path))
