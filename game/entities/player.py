@@ -1089,9 +1089,10 @@ def draw_player_body(screen, cam, src, is_local):
   # <STRANGE>#926 unified renderer for local and remote players; src may be Player or RemotePlayer
   sc = cam.scale
   bx, by = cam.to_screen(*src.body.position)
-  # <STRANGE>#1166 body tints red as hp drops, same curve as arms
+  # <STRANGE>#1166 body tints red as hp drops
+  # <STRANGE>#1188 body max is 255, arms max is 223: player reads slightly lighter than hands
   hp_t = max(0.0, min(1.0, getattr(src, "hp", HP_MAX) / HP_MAX))
-  body_color = (223, int(223 * hp_t), int(223 * hp_t))
+  body_color = (255, int(255 * hp_t), int(255 * hp_t))
   pygame.draw.circle(screen, body_color, (int(bx), int(by)), int(BODY_R * sc))
   for i, arm in enumerate(src.arms):
     ax, ay = cam.to_screen(*arm.position)
