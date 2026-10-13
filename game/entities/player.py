@@ -31,6 +31,8 @@ STAMINA_LOW_THRESH = 50
 STAMINA_LOW_MUL = 1.5
 STAMINA_GRAB_MIN = 15
 SHAKE_MAX = 5
+# <NOTE>#1190 shake ramps in below this stamina value, zero at this point, max at 0
+SHAKE_STAMINA_MIN = 20
 HP_MAX = 100
 # <NOTE>#1168 hp regen per second; blocked for HP_REGEN_DELAY after any hit
 HP_REGEN = 10.0
@@ -1033,9 +1035,9 @@ class Player:
       hx = cx + (-offset if i == 0 else offset)
       hy = cy
       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
-      # <STRANGE>#673 HUD slot shakes as one unit when stamina is low; same amplitude as the world arm
-      if s_t < 0.5:
-        hud_shake = SHAKE_MAX * (1 - s_t * 2) * sc
+      # <STRANGE>#673 HUD slot shakes as one unit when stamina is low; same ramp as world arm
+      if s_t < SHAKE_STAMINA_MIN / STAMINA_MAX:
+        hud_shake = SHAKE_MAX * (1.0 - s_t * STAMINA_MAX / SHAKE_STAMINA_MIN) * sc
         hx += random.uniform(-hud_shake, hud_shake)
         hy += random.uniform(-hud_shake, hud_shake)
       # <STRANGE>#1183 HUD arms follow the same hp-scaled cap as world arms
@@ -1098,8 +1100,10 @@ def draw_player_body(screen, cam, src, is_local):
     ax, ay = cam.to_screen(*arm.position)
     s_t = max(0.0, min(1.0, src.stamina[i] / STAMINA_MAX))
     shake = 0.0
-    if is_local and s_t < 0.5:
-      shake = SHAKE_MAX * (1 - s_t * 2) * sc
+    # <STRANGE>#1190 ramp starts at SHAKE_STAMINA_MIN and maxes at 0
+    if is_local and s_t < SHAKE_STAMINA_MIN / STAMINA_MAX:
+      k = 1.0 - s_t * STAMINA_MAX / SHAKE_STAMINA_MIN
+      shake = SHAKE_MAX * k * sc
       ax += random.uniform(-shake, shake)
       ay += random.uniform(-shake, shake)
     if is_local and src.shake_t[i] > 0:
