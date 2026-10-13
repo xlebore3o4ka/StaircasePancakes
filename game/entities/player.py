@@ -622,7 +622,6 @@ class Player:
       if fall_v > FALL_DMG_MIN_V:
         dmg = int((fall_v - FALL_DMG_MIN_V) / FALL_DMG_STEP)
         if dmg > 0:
-          print(f"fall: v={fall_v:.0f} dmg={dmg}")
           self.take_damage(dmg)
     self._was_grounded = grounded
     # <STRANGE>#385 diagnostic: catch the phantom bounce moment; remove once root cause is confirmed
