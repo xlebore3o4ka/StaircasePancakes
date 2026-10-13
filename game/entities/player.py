@@ -35,6 +35,9 @@ HP_MAX = 100
 # <NOTE>#1168 hp regen per second; blocked for HP_REGEN_DELAY after any hit
 HP_REGEN = 10.0
 HP_REGEN_DELAY = 2.0
+# <NOTE>#1173 fall damage kicks in above this falling speed; +1 hp per each extra FALL_DMG_STEP units
+FALL_DMG_MIN_V = 700
+FALL_DMG_STEP = 50
 
 class Player:
   layer = LAYER_PLAYER
@@ -96,6 +99,8 @@ class Player:
     self.hp = float(HP_MAX)
     # <STRANGE>#1168 regen cooldown, resets on every hit
     self.hp_regen_t = 0.0
+    # <STRANGE>#1173 track ground contact edge to fire damage once per landing
+    self._was_grounded = False
     self.held = [None, None]
     self.throw_requested = [False, False]
     self.shake_t = [0.0, 0.0]
@@ -611,6 +616,14 @@ class Player:
         mul = STAMINA_LOW_MUL if self.stamina[i] > STAMINA_LOW_THRESH else 1.0
         self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + per_sec(STAMINA_REGEN * mul / pocket_mul, dt))
     grounded = self._is_grounded()
+    # <STRANGE>#1173 landing edge: fall damage from the pre-step vy (still the impact speed)
+    if grounded and not self._was_grounded:
+      fall_v = max(0.0, -self._pre_vy)
+      if fall_v > FALL_DMG_MIN_V:
+        dmg = int((fall_v - FALL_DMG_MIN_V) / FALL_DMG_STEP)
+        if dmg > 0:
+          self.take_damage(dmg)
+    self._was_grounded = grounded
     # <STRANGE>#385 diagnostic: catch the phantom bounce moment; remove once root cause is confirmed
     if self.body.velocity.y > 550 and self.body.position.y < BODY_R * 3:
       print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
