@@ -42,10 +42,9 @@ class Game:
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       # <STRANGE>#1144 level is created before the net client so we can hash its content
-      # <STRANGE>#1148 hash level file up front so the net client can send it before Level exists
-      import hashlib
-      with open(self.map_path, "rb") as _f:
-        _map_hash = hashlib.sha1(_f.read()).hexdigest()
+      # <STRANGE>#1148 canonical content hash so identical levels match across different tar mtimes
+      from shared.level_hash import hash_level
+      _map_hash = hash_level(self.map_path)
       net = None
       script_seed = None
       if self.server_url:

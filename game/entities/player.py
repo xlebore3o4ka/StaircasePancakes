@@ -52,8 +52,8 @@ LOW_HP_ALPHA_MIN = 1
 LOW_HP_ALPHA_MAX = 50
 LOW_HP_COLOR = (180, 0, 0)
 # <NOTE>#1173 fall damage kicks in above this falling speed; +1 hp per each extra FALL_DMG_STEP units
-FALL_DMG_MIN_V = 700
-FALL_DMG_STEP = 15
+FALL_DMG_MIN_V = 800
+FALL_DMG_STEP = 12
 
 class Player:
   layer = LAYER_PLAYER

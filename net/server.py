@@ -1,11 +1,11 @@
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import random
 import tarfile
 import websockets
+from shared.level_hash import hash_level
 from shared.version import read as _read_version, parse as _parse_version
 
 
@@ -99,8 +99,7 @@ def main():
                   help="level file every client must match (content-hashed)")
   args = ap.parse_args()
   _map_path = args.map
-  with open(_map_path, "rb") as f:
-    _map_hash = hashlib.sha1(f.read()).hexdigest()
+  _map_hash = hash_level(_map_path)
   seed = _read_seed(_map_path)
   if seed is None:
     seed = random.randint(0, 2**31)

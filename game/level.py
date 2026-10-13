@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import random
@@ -45,9 +44,9 @@ class Level:
     # <STRANGE>#1195 set by game.py; scripts use it for ctx.shake
     self.cam = None
     json_path = self._resolve_path(path)
-    # <STRANGE>#1143 hash of the whole level file (tar or json) for server-side content match
-    with open(path, "rb") as f:
-        self.content_hash = hashlib.sha1(f.read()).hexdigest()
+    # <STRANGE>#1203 content hash: same JSON+scripts -> same hash regardless of tar mtimes
+    from shared.level_hash import hash_level
+    self.content_hash = hash_level(path)
     # <STRANGE>#1027 scripts resolve relative to the json's directory; works for both json and tar layouts
     self.base_dir = os.path.dirname(json_path)
     data = json.load(open(json_path))
