@@ -46,8 +46,8 @@ HURT_SHAKE_AMP_CAP = 24.0
 HURT_SHAKE_DUR_BASE = 0.12
 HURT_SHAKE_DUR_PER_DMG = 0.01
 HURT_SHAKE_DUR_CAP = 0.45
-# <NOTE>#1200 red overlay on low hp: alpha 1 at hp=50, 50 at hp=0
-LOW_HP_THRESH = 50
+# <NOTE>#1200 red overlay on low hp: alpha 1 at hp=LOW_HP_THRESH, 50 at hp=0
+LOW_HP_THRESH = 80
 LOW_HP_ALPHA_MIN = 1
 LOW_HP_ALPHA_MAX = 50
 LOW_HP_COLOR = (180, 0, 0)
