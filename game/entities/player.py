@@ -46,6 +46,11 @@ HURT_SHAKE_AMP_CAP = 24.0
 HURT_SHAKE_DUR_BASE = 0.12
 HURT_SHAKE_DUR_PER_DMG = 0.01
 HURT_SHAKE_DUR_CAP = 0.45
+# <NOTE>#1200 red overlay on low hp: alpha 1 at hp=50, 50 at hp=0
+LOW_HP_THRESH = 50
+LOW_HP_ALPHA_MIN = 1
+LOW_HP_ALPHA_MAX = 50
+LOW_HP_COLOR = (180, 0, 0)
 # <NOTE>#1173 fall damage kicks in above this falling speed; +1 hp per each extra FALL_DMG_STEP units
 FALL_DMG_MIN_V = 700
 FALL_DMG_STEP = 15
@@ -1100,6 +1105,14 @@ class Player:
         # <STRANGE>#405 small text sits slightly inside the circle outline near the bottom
         ly = int(hy + r - sh2 * 0.35)
         screen.blit(small, small.get_rect(center=(int(hx), ly)))
+    # <STRANGE>#1200 red overlay grows as hp drops below LOW_HP_THRESH
+    if self.hp < LOW_HP_THRESH:
+      k = (LOW_HP_THRESH - self.hp) / LOW_HP_THRESH
+      a = int(LOW_HP_ALPHA_MIN + (LOW_HP_ALPHA_MAX - LOW_HP_ALPHA_MIN) * k)
+      if a > 0:
+        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        overlay.fill((*LOW_HP_COLOR, a))
+        screen.blit(overlay, (0, 0))
 
 class _HUDScreenCam:
   # <STRANGE>#354 minimal stand-in for Camera; item.draw_at only needs .scale and .to_screen
