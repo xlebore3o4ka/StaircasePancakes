@@ -202,6 +202,13 @@ class Player:
     self._pre_v = pymunk.Vec2d(self.body.velocity.x, self.body.velocity.y)
 
   def post_step(self, dt):
+    # <STRANGE>#1152 clamp total velocity: a kinematic body slamming into us can produce a huge bias impulse
+    vx = self.body.velocity.x
+    vy = self.body.velocity.y
+    mag2 = vx * vx + vy * vy
+    if mag2 > MAX_PLAYER_V * MAX_PLAYER_V:
+      k = MAX_PLAYER_V / (mag2 ** 0.5)
+      self.body.velocity = (vx * k, vy * k)
     v = self.body.velocity.y
     if self.jumped_this_frame:
       # <STRANGE>#746 trim bias that piles on top of JUMP_V in the take-off frame

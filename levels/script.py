@@ -9,10 +9,12 @@ def on_load(ctx):
   if btn1 is None:
     raise RuntimeError("btn1 not found")
   ctx.log(f"loaded btn1")
+
   btn2 = ctx.by_id("my_button2")
   if btn2 is None:
     raise RuntimeError("btn2 not found")
   ctx.log(f"loaded btn2")
+  
   door = ctx.by_id("door")
   if door is None:
     raise RuntimeError("door not found")

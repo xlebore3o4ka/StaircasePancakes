@@ -94,6 +94,12 @@ BUTTON_EDGE = (255, 255, 255)
 BUTTON_PRESS_DIM = 0.3
 # <NOTE>#1128 seconds to smooth between pressed and released look
 BUTTON_PRESS_LERP = 0.55
+# <NOTE>#1140 horizontal force applied when the player is squeezed between two surfaces
+SQUEEZE_PUSH = 2000
+# <NOTE>#1152 hard cap on player velocity magnitude after each physics step
+MAX_PLAYER_V = 2000
+# <NOTE>#1153 cap on kinematic body velocity so a fast tween doesn't slam the player through geometry
+MAX_KINEMATIC_V = 900
 # <NOTE>#1131 push force per pixel of overlap between player body and button
 BUTTON_PUSH_FORCE = 60
 HUD_BUTTON_ALPHA = 128

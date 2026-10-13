@@ -10,7 +10,7 @@ from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
 from .entities.background import Background, BG_FILL
 from .entities.item import make_item
-from shared.const import LINE_W
+from shared.const import LINE_W, MAX_KINEMATIC_V
 from .entities.trigger import Trigger
 from .entities.button import Button
 from .debug_view import DebugArrows
@@ -334,6 +334,12 @@ class Level:
         cur_y = body.position.y
         vx = ((nx - cur_x) / dt) if (nx is not None and dt > 0) else 0.0
         vy = ((ny - cur_y) / dt) if (ny is not None and dt > 0) else 0.0
+        # <STRANGE>#1153 cap so a fast tween doesn't tunnel through or slam bodies out with a huge bias impulse
+        mag = (vx * vx + vy * vy) ** 0.5
+        if mag > MAX_KINEMATIC_V:
+          k = MAX_KINEMATIC_V / mag
+          vx *= k
+          vy *= k
         body.velocity = (vx, vy)
         if m["t"] >= m["dur"]:
           body.velocity = (0, 0)
