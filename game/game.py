@@ -190,8 +190,9 @@ class Game:
             if result is not None and not hasattr(result, "net_id"):
               player.pending_grab = (result, pos)
           player.spawn_queue.clear()
+        # <STRANGE>#1179 capture pre-step velocity once, before all substeps; per-substep capture loses the impact speed
+        player.record_pre_step()
         for _ in range(substeps):
-          player.record_pre_step()
           space.step(dt / substeps)
           # <STRANGE>#525 rebar sticking is checked after physics so arbiter list is fresh
           level.post_step(player, cam)
