@@ -31,6 +31,7 @@ STAMINA_LOW_THRESH = 50
 STAMINA_LOW_MUL = 1.5
 STAMINA_GRAB_MIN = 15
 SHAKE_MAX = 2
+HP_MAX = 100
 
 class Player:
   layer = LAYER_PLAYER
@@ -88,6 +89,8 @@ class Player:
     self.grab_cooldown = [0.0, 0.0]
     self.joints = [None, None]
     self.stamina = [float(STAMINA_MAX), float(STAMINA_MAX)]
+    # <STRANGE>#1166 health; no damage source yet, only visuals react
+    self.hp = float(HP_MAX)
     self.held = [None, None]
     self.throw_requested = [False, False]
     self.shake_t = [0.0, 0.0]
@@ -1048,7 +1051,10 @@ def draw_player_body(screen, cam, src, is_local):
   # <STRANGE>#926 unified renderer for local and remote players; src may be Player or RemotePlayer
   sc = cam.scale
   bx, by = cam.to_screen(*src.body.position)
-  pygame.draw.circle(screen, (255, 255, 255), (int(bx), int(by)), int(BODY_R * sc))
+  # <STRANGE>#1166 body tints red as hp drops, same curve as arms
+  hp_t = max(0.0, min(1.0, getattr(src, "hp", HP_MAX) / HP_MAX))
+  body_color = (223, int(223 * hp_t), int(223 * hp_t))
+  pygame.draw.circle(screen, body_color, (int(bx), int(by)), int(BODY_R * sc))
   for i, arm in enumerate(src.arms):
     ax, ay = cam.to_screen(*arm.position)
     s_t = max(0.0, min(1.0, src.stamina[i] / STAMINA_MAX))

@@ -51,6 +51,8 @@ class RemotePlayer:
     self.body = _FakeBody()
     self.arms = [_FakeArm(), _FakeArm()]
     self.stamina = [float(STAMINA_MAX), float(STAMINA_MAX)]
+    # <STRANGE>#1166 default full hp for remote ghosts; synced later
+    self.hp = 100.0
     self.arm_r = [float(ARM_R), float(ARM_R)]
     self.held = [None, None]
     self._target_pos = (0.0, 0.0)
