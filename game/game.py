@@ -215,7 +215,8 @@ class Game:
         # <STRANGE>#620 height is distance from spawn, not absolute y
         hud_info.draw(w.screen, player.body.position.y - spawn_y)
         if self.debuginfo:
-          debug_info.draw(w.screen, player.body)
+          debug_info.update(dt, player)
+          debug_info.draw(w.screen)
         w.flip()
 
       level.unload()
