@@ -32,7 +32,7 @@ STAMINA_LOW_MUL = 1.5
 STAMINA_GRAB_MIN = 15
 SHAKE_MAX = 5
 # <NOTE>#1190 shake ramps in below this stamina value, zero at this point, max at 0
-SHAKE_STAMINA_MIN = 20
+SHAKE_STAMINA_MIN = 80
 HP_MAX = 100
 # <NOTE>#1168 hp regen per second; blocked for HP_REGEN_DELAY after any hit
 HP_REGEN = 10.0
