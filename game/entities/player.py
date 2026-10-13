@@ -590,6 +590,10 @@ class Player:
       self.hp_regen_t = max(0.0, self.hp_regen_t - dt)
     elif self.hp < HP_MAX:
       self.hp = min(HP_MAX, self.hp + HP_REGEN * dt)
+    # <STRANGE>#1185 hp caps stamina: hp is the physical max, current stamina can never exceed it
+    for i in range(2):
+      if self.stamina[i] > self.hp:
+        self.stamina[i] = self.hp
     num_grabbed = sum(1 for g in self.grabbed if g is not None)
     for i in range(2):
       if self.cheats:
@@ -602,7 +606,8 @@ class Player:
         if step > self.stamina_boost[i]:
           step = self.stamina_boost[i]
         self.stamina_boost[i] -= step
-        self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + step)
+        # <STRANGE>#1185 soda boost also capped at hp
+        self.stamina[i] = min(self.hp, self.stamina[i] + step)
       # <STRANGE>#852 pocket weight: while a hand's pocket holds an item, drain is +10% and regen is -10%
       pocket_mul = 1.1 if self.pocket[i] is not None else 1.0
       g = self.grabbed[i]
@@ -614,7 +619,8 @@ class Player:
           self._release(i)
       else:
         mul = STAMINA_LOW_MUL if self.stamina[i] > STAMINA_LOW_THRESH else 1.0
-        self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + per_sec(STAMINA_REGEN * mul / pocket_mul, dt))
+        # <STRANGE>#1185 regen caps at hp, not STAMINA_MAX
+        self.stamina[i] = min(self.hp, self.stamina[i] + per_sec(STAMINA_REGEN * mul / pocket_mul, dt))
     grounded = self._is_grounded()
     # <STRANGE>#1173 landing edge: fall damage from the pre-step vy (still the impact speed)
     if grounded and not self._was_grounded:
