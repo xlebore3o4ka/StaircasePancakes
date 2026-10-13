@@ -1,17 +1,17 @@
 import argparse
 import asyncio
+import base64
 import json
 import os
 import random
 import tarfile
 import websockets
-from shared.level_hash import hash_level
 from shared.version import read as _read_version, parse as _parse_version
 
 
 _clients = {}  # name -> websocket
 _map_path = None
-_map_hash = None
+_map_bytes = None
 _script_seed = None
 
 
@@ -32,17 +32,16 @@ async def handler(ws):
           print(f"! reject {msg.get('name')}: version {req_ver!r} vs {cur_ver!r}")
           await ws.close(code=4001, reason="version mismatch")
           return
-        req_hash = msg.get("map_hash")
-        # <STRANGE>#1144 compare content hashes, not paths; path may differ but bytes must match
-        if _map_hash is not None and req_hash != _map_hash:
-          print(f"! reject {msg.get('name')}: map hash {req_hash!r} != {_map_hash!r}")
-          await ws.close(code=4000, reason="map mismatch")
-          return
         name = msg.get("name") or f"anon-{id(ws)}"
         _clients[name] = ws
         print(f"+ {name} connected, total={len(_clients)}")
-        # <STRANGE>#1007 ack to the joiner; also ship the deterministic script seed
-        await ws.send(json.dumps({"t": "welcome", "script_seed": _script_seed}))
+        # <STRANGE>#1205 server-authoritative map: ship bytes, seed, and file name
+        await ws.send(json.dumps({
+          "t": "welcome",
+          "script_seed": _script_seed,
+          "map_name": os.path.basename(_map_path),
+          "map_b64": base64.b64encode(_map_bytes).decode(),
+        }))
         # <STRANGE>#946 announce to everyone else so they can spawn a ghost immediately
         await _broadcast({"t": "joined", "name": name}, except_ws=ws)
       elif name is not None:
@@ -92,19 +91,20 @@ async def run(port):
 
 
 def main():
-  global _map_path, _map_hash
+  global _map_path, _map_bytes
   ap = argparse.ArgumentParser()
   ap.add_argument("--port", type=int, default=8765)
   ap.add_argument("--map", default="levels/test.json",
                   help="level file every client must match (content-hashed)")
   args = ap.parse_args()
   _map_path = args.map
-  _map_hash = hash_level(_map_path)
+  with open(_map_path, "rb") as f:
+    _map_bytes = f.read()
   seed = _read_seed(_map_path)
   if seed is None:
     seed = random.randint(0, 2**31)
   _script_seed = seed
-  print(f"map: {_map_path} (sha1 {_map_hash[:8]}) script seed {_script_seed}")
+  print(f"map: {_map_path} ({len(_map_bytes)} bytes) script seed {_script_seed}")
   try:
     asyncio.run(run(args.port))
   except KeyboardInterrupt:

@@ -8,11 +8,9 @@ from shared.version import read as _read_version
 
 class NetClient:
   # <STRANGE>#950 websocket runs in a background thread with its own asyncio loop; main thread only touches queues
-  def __init__(self, url, name, map_path=None, map_hash=None):
+  def __init__(self, url, name):
     self.url = url
     self.name = name
-    self.map_path = map_path
-    self.map_hash = map_hash
     self._in = queue.Queue()
     self._out = queue.Queue()
     self._stop = threading.Event()
@@ -25,6 +23,9 @@ class NetClient:
     self.ready = False
     # <STRANGE>#1148 deterministic script seed from server
     self.script_seed = None
+    # <STRANGE>#1205 server-authoritative map content
+    self.map_bytes = None
+    self.map_name = None
 
   def connect(self):
     self._thread = threading.Thread(target=self._run, daemon=True)
@@ -60,8 +61,6 @@ class NetClient:
         print(f"net: connected to {self.url} as {self.name}")
         self.ready = True
         await ws.send(json.dumps({"t": "hello", "name": self.name,
-                                     "map": self.map_path,
-                                     "map_hash": self.map_hash,
                                      "version": _read_version()}))
         await asyncio.gather(self._sender(ws), self._receiver(ws))
     except Exception as e:
@@ -93,6 +92,11 @@ class NetClient:
         if msg.get("t") == "welcome":
           self.welcome = True
           self.script_seed = msg.get("script_seed")
+          self.map_name = msg.get("map_name")
+          b64 = msg.get("map_b64")
+          if b64:
+            import base64 as _b64
+            self.map_bytes = _b64.b64decode(b64)
           continue
         self._in.put(msg)
     except websockets.ConnectionClosed as e:

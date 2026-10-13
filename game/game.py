@@ -42,26 +42,32 @@ class Game:
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
       # <STRANGE>#1144 level is created before the net client so we can hash its content
-      # <STRANGE>#1148 canonical content hash so identical levels match across different tar mtimes
-      from shared.level_hash import hash_level
-      _map_hash = hash_level(self.map_path)
+      # <STRANGE>#1205 with --server the map comes from the server, local --map is ignored
       net = None
       script_seed = None
+      map_path = self.map_path
       if self.server_url:
-        net = NetClient(self.server_url, self.name or "anon",
-                        map_path=self.map_path, map_hash=_map_hash)
+        net = NetClient(self.server_url, self.name or "anon")
         net.connect()
-        # <STRANGE>#1007 block until server welcomes us or fails; better to crash early than drop into single
         t0 = pygame.time.get_ticks()
         while not net.welcome and net.fatal is None:
-          if pygame.time.get_ticks() - t0 > 3000:
+          if pygame.time.get_ticks() - t0 > 5000:
             raise RuntimeError("server did not answer hello (timeout)")
           pygame.time.wait(20)
         if net.fatal:
           raise RuntimeError(net.fatal)
+        if net.map_bytes is None:
+          raise RuntimeError("server did not ship a map")
         script_seed = net.script_seed
+        # <STRANGE>#1205 persist to a temp file so Level can tar-extract / read normally
+        import tempfile
+        suffix = ".tar" if (net.map_name or "").endswith(".tar") else ".json"
+        tf = tempfile.NamedTemporaryFile(prefix="map_", suffix=suffix, delete=False)
+        tf.write(net.map_bytes)
+        tf.close()
+        map_path = tf.name
 
-      level = Level(space, self.map_path, sound=sound, cheats=self.cheats,
+      level = Level(space, map_path, sound=sound, cheats=self.cheats,
                     script_seed=script_seed)
       level.cam = cam
       level.cam = cam
