@@ -37,7 +37,7 @@ HP_REGEN = 10.0
 HP_REGEN_DELAY = 2.0
 # <NOTE>#1173 fall damage kicks in above this falling speed; +1 hp per each extra FALL_DMG_STEP units
 FALL_DMG_MIN_V = 700
-FALL_DMG_STEP = 50
+FALL_DMG_STEP = 25
 
 class Player:
   layer = LAYER_PLAYER
