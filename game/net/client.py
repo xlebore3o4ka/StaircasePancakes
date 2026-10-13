@@ -23,6 +23,8 @@ class NetClient:
     self.welcome = False
     # <STRANGE>#1007 True once the websocket handshake completed
     self.ready = False
+    # <STRANGE>#1148 deterministic script seed from server
+    self.script_seed = None
 
   def connect(self):
     self._thread = threading.Thread(target=self._run, daemon=True)
@@ -90,6 +92,7 @@ class NetClient:
           continue
         if msg.get("t") == "welcome":
           self.welcome = True
+          self.script_seed = msg.get("script_seed")
           continue
         self._in.put(msg)
     except websockets.ConnectionClosed as e:

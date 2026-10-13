@@ -1,8 +1,14 @@
+import random
+import zlib
+
+
 class ScriptCtx:
   # <STRANGE>#1021 API for level scripts; grows over time, keep stable names
-  def __init__(self, name, level):
+  def __init__(self, name, level, script_seed):
     self._name = name
     self._level = level
+    # <STRANGE>#1148 deterministic per-trigger RNG; same at both clients if script_seed matches
+    self.random = random.Random(script_seed ^ zlib.crc32(name.encode()))
 
   def log(self, msg):
     print(f"[{self._name}] {msg}")

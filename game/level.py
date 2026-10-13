@@ -29,7 +29,7 @@ class Level:
       raise RuntimeError(f"{path}: no level.json inside archive")
     return inner
 
-  def __init__(self, space, path, sound=None, cheats=False):
+  def __init__(self, space, path, sound=None, cheats=False, script_seed=None):
     self.space = space
     self.sound = sound
     # <STRANGE>#973 one-shot world events to broadcast; drained each frame by game.py
@@ -59,6 +59,8 @@ class Level:
     if self.seed is None:
       self.seed = random.randrange(2**31)
     random.seed(self.seed)
+    # <STRANGE>#1148 script_seed is separate: server-provided in multiplayer, falls back to level seed in single
+    self.script_seed = script_seed if script_seed is not None else self.seed
     # <STRANGE>#239 pegs accept both [x,y] and {x,y}; keeps old levels valid
     # <STRANGE>#699 layer from JSON overrides class default; editor writes it, game must read it back
     self.pegs = []
@@ -189,7 +191,7 @@ class Level:
         continue
       self.by_id[oid] = o
     for t in self.triggers:
-      t.load(self.base_dir, self)
+      t.load(self.base_dir, self, self.script_seed)
 
   def spawn_item(self, pos, spec, vel=(0, 0)):
     # <STRANGE>#575 spec is a full dict (type + extras); fill in x/y and pass through
