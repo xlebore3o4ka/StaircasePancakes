@@ -35,7 +35,7 @@ SHAKE_MAX = 5
 SHAKE_STAMINA_MIN = 80
 HP_MAX = 100
 # <NOTE>#1168 hp regen per second; blocked for HP_REGEN_DELAY after any hit
-HP_REGEN = 10.0
+HP_REGEN = 2.0
 HP_REGEN_DELAY = 2.0
 # <NOTE>#1173 fall damage kicks in above this falling speed; +1 hp per each extra FALL_DMG_STEP units
 FALL_DMG_MIN_V = 700
