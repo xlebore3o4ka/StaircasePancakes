@@ -8,8 +8,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact,
-  EditorArtifact,
+  EditorArtifact, EditorTrigger, EditorButton,
 )
 from . import settings
 
@@ -61,7 +60,7 @@ class DragMixin:
       return
 
     want = pygame.SYSTEM_CURSOR_ARROW
-    if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
+    if isinstance(self.selected, (EditorPlatform, EditorBackground, EditorTrigger)) \
        and not self.selected.locked:
       mx, my = pygame.mouse.get_pos()
       wx, wy = self.from_screen(mx, my)
@@ -76,7 +75,7 @@ class DragMixin:
 
   # ---------- bounds ----------
   def _obj_bounds(self, obj):
-    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact)):
+    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
       return (obj.x - obj.r, obj.x + obj.r, obj.y - obj.r, obj.y + obj.r)
     l, r, b, t = obj.world_rect()
     return (l, r, b, t)
@@ -241,6 +240,10 @@ class DragMixin:
         self.set_tool("spawner")
       elif self.tab_artifact_rect().collidepoint(pos):
         self.set_tool("artifact")
+      elif self.tab_trigger_rect().collidepoint(pos):
+        self.set_tool("trigger")
+      elif self.tab_button_rect().collidepoint(pos):
+        self.set_tool("button")
       return
 
     wx, wy = self.from_screen(x, y)
@@ -250,7 +253,7 @@ class DragMixin:
     zone = self._resize_zone_world()
 
     if shift:
-      if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
+      if isinstance(self.selected, (EditorPlatform, EditorBackground, EditorTrigger)) \
          and not self.selected.locked:
         edge = self.selected.edge_hit(wx, wy, zone)
         if edge:
@@ -301,7 +304,7 @@ class DragMixin:
           return
       return
 
-    if isinstance(self.selected, (EditorPlatform, EditorBackground)) \
+    if isinstance(self.selected, (EditorPlatform, EditorBackground, EditorTrigger)) \
        and not self.selected.locked:
       edge = self.selected.edge_hit(wx, wy, zone)
       if edge:
@@ -333,7 +336,13 @@ class DragMixin:
       self.ghost_target = [wx, wy]
       return
 
-    if self.tool == "peg":
+    if self.tool == "button":
+      obj = EditorButton(wx, wy)
+      self.objects.append(obj)
+      self._set_selection([obj])
+      self._begin_move(wx, wy, obj)
+      self._mark_scene_dirty()
+    elif self.tool == "peg":
       obj = EditorPeg(wx, wy)
       self.objects.append(obj)
       self._set_selection([obj])
@@ -360,8 +369,21 @@ class DragMixin:
       self._set_selection([obj])
       self._begin_move(wx, wy, obj)
       self._mark_scene_dirty()
+    elif self.tool == "trigger":
+      obj = EditorTrigger(wx, wy, 1, 1)
+      self.objects.append(obj)
+      self._set_selection([obj])
+      self.drag = ("create", (wx, wy))
+      self._mark_scene_dirty()
     elif self.tool == "artifact":
       cur_type = getattr(self, "current_artifact_type", "bag")
+      # <STRANGE>#1032: collect previous positions of this artifact type
+      prev_positions = []
+      for o in self.objects:
+        if isinstance(o, EditorArtifact) and o.artifact_type == cur_type:
+          prev_positions.append((o.x, o.y))
+      hist = self._artifact_history.setdefault(cur_type, [])
+      all_targets_xy = list(prev_positions) + hist + [(wx, wy)]
       self.objects = [o for o in self.objects
                       if not (isinstance(o, EditorArtifact)
                               and o.artifact_type == cur_type)]
@@ -370,6 +392,21 @@ class DragMixin:
       self._set_selection([obj])
       self._begin_move(wx, wy, obj)
       self._mark_scene_dirty()
+      if prev_positions or hist:
+        self._artifact_history[cur_type] = all_targets_xy[:-1]
+        # info toast + world markers on all positions
+        try:
+          from .messages import INFO
+          from types import SimpleNamespace
+          targets = [SimpleNamespace(x=x, y=y) for (x, y) in all_targets_xy]
+          self.messages.set("artifact_moved:" + cur_type, INFO,
+                            "Artifact moved: " + cur_type,
+                            targets, duration=5.0, ttl=5.0)
+          for (x, y) in all_targets_xy:
+            self.world_markers.append({"kind": "info_artifact",
+                                       "x": x, "y": y, "t": 5.0})
+        except Exception:
+          pass
 
   # ---------- mouse move ----------
   def on_mouse_move(self, world):
@@ -737,7 +774,7 @@ class DragMixin:
   def _begin_resize(self, edge):
     self._resize_data = []
     for obj in self.selection:
-      if isinstance(obj, (EditorPlatform, EditorBackground)) and not obj.locked:
+      if isinstance(obj, (EditorPlatform, EditorBackground, EditorTrigger)) and not obj.locked:
         self._resize_data.append((obj, obj.world_rect()))
     self.drag = ("resize", edge)
     # <STRANGE>#400: ???????? ???????????? ?????????????????? ??? ????????????????, ?????? ???????????? ????????
@@ -876,7 +913,7 @@ class DragMixin:
 
   # ---------- visibility ----------
   def _visible(self, obj, sw, sh):
-    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact)):
+    if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
       sx, sy = self.to_screen(obj.x, obj.y)
       r = obj.r * self.zoom + 6
       return (sx + r >= 0 and sx - r <= sw and

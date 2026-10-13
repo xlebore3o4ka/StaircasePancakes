@@ -70,6 +70,12 @@ class EventsMixin:
         self._zoom_at((mx, my), self.zoom / ZOOM_STEP)
       return
 
+    if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+      try:
+        if self._handle_message_click(e.pos):
+          return
+      except Exception:
+        pass
     if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:
       if self._try_open_context_menu(e.pos):
         return
@@ -211,6 +217,10 @@ class EventsMixin:
       self.set_tool("spawner")
     elif e.key == pygame.K_8:
       self.set_tool("bag")
+    elif e.key == pygame.K_9:
+      self.set_tool("trigger")
+    elif e.key == pygame.K_0:
+      self.set_tool("button")
     elif e.key == pygame.K_l:
       self.set_tool("lock")
     elif e.key == pygame.K_u:
@@ -353,10 +363,9 @@ class EventsMixin:
       options.append(("Change type...", ("change_type", None)))
     if not is_group and isinstance(obj, EditorArtifact):
       options.append(("Change artifact type...", ("change_artifact_type", None)))
-    if not is_group and isinstance(obj, EditorSpawner):
+    # <STRANGE>#1080: Open inspector entry for every object
+    if not is_group:
       options.append(("Open inspector", ("open_inspector", None)))
-    if not is_group and isinstance(obj, EditorItem) and obj.item_type == "cube":
-      options.append(("Open contents...", ("open_inspector", None)))
     options.append(("Layer  +1", ("layer", 1)))
     options.append(("Layer  -1", ("layer", -1)))
     options.append(("Layer  +5", ("layer", 5)))

@@ -7,8 +7,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact,
-  EditorArtifact,
+  EditorArtifact, EditorTrigger, EditorButton,
 )
 
 
@@ -17,20 +16,28 @@ class UndoMixin:
   def _obj_to_state(self, o):
     if isinstance(o, EditorPeg):
       return {"t": "peg", "x": o.x, "y": o.y,
+              "id": getattr(o, "id", ""),
+              "locked": o.locked, "layer": o.layer}
+    if isinstance(o, EditorButton):
+      return {"t": "button", "x": o.x, "y": o.y,
+              "id": getattr(o, "id", ""),
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorPlatform):
       return {"t": "plat", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
+              "id": getattr(o, "id", ""),
               "fill": tuple(o.fill), "edge": tuple(o.edge),
               "locked": o.locked, "layer": o.layer,
               "polygon": bool(getattr(o, "polygon", False)),
               "points": [list(p) for p in getattr(o, "points", [])]}
     if isinstance(o, EditorBackground):
       return {"t": "bg", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
+              "id": getattr(o, "id", ""),
               "fill": tuple(o.fill), "locked": o.locked, "layer": o.layer,
               "polygon": bool(getattr(o, "polygon", False)),
               "points": [list(p) for p in getattr(o, "points", [])]}
     if isinstance(o, EditorItem):
       return {"t": "item", "x": o.x, "y": o.y, "item_type": o.item_type,
+              "id": getattr(o, "id", ""),
               "contents": [dict(e) for e in o.contents],
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorSpawner):
@@ -40,6 +47,13 @@ class UndoMixin:
               "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorArtifact):
       return {"t": "bag", "x": o.x, "y": o.y,
+              "id": getattr(o, "id", ""),
+              "locked": o.locked, "layer": o.layer}
+    if isinstance(o, EditorTrigger):
+      return {"t": "trigger", "x": o.x, "y": o.y,
+              "w": o.w, "h": o.h,
+              "id": getattr(o, "id", ""),
+              "script": getattr(o, "script", ""),
               "locked": o.locked, "layer": o.layer}
     return None
 
@@ -47,6 +61,8 @@ class UndoMixin:
     t = s["t"]
     if t == "peg":
       o = EditorPeg(s["x"], s["y"])
+    if t == "button":
+      o = EditorButton(s["x"], s["y"])
     elif t == "plat":
       o = EditorPlatform(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"]); o.edge = tuple(s["edge"])
@@ -63,12 +79,18 @@ class UndoMixin:
     elif t == "spawner":
       o = EditorSpawner(s["x"], s["y"])
       o.items = [dict(e) for e in s.get("entries", [])]
+    elif t == "trigger":
+      o = EditorTrigger(s["x"], s["y"], s.get("w"), s.get("h"))
+      o.id = s.get("id", "")
+      o.script = s.get("script", "")
     elif t == "bag":
       o = EditorArtifact(s["x"], s["y"])
     else:
       return None
     o.locked = s.get("locked", False)
     o.layer = s.get("layer", None)
+    if hasattr(o, "id"):
+      o.id = s.get("id", "")
     return o
 
   # ---------- snapshots ----------
@@ -247,9 +269,8 @@ class UndoMixin:
     self._sync_inspector()
 
   def _sync_inspector(self):
-    if isinstance(self.selected, EditorSpawner):
-      self.push_inspector(self.selected)
-    elif isinstance(self.selected, EditorItem) and self.selected.item_type == "cube":
+    # <STRANGE>#1002: open inspector for any selected world object
+    if self.selected is not None:
       self.push_inspector(self.selected)
     else:
       self._close_all_inspectors()

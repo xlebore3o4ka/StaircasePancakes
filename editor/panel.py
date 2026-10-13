@@ -75,19 +75,15 @@ class TopPanel:
     # <STRANGE>#574: Save/Load ??? ???????????????????? ???????????? ?????????? ?? ??????????????, ???? ?? ????????????????
     self.save_btn = UIButton(0, 0, 80, PANEL_HEADER_H - 10, "Save", editor.save)
     self.load_btn = UIButton(0, 0, 80, PANEL_HEADER_H - 10, "Load", editor.load)
-    # <STRANGE>#820: version label + inline edit; clicking toggles the input
     self.version_btn = UIButton(0, 0, 96, PANEL_HEADER_H - 10,
                                 "v: " + str(getattr(editor, "level_version", "0.0.0")),
                                 self._toggle_version_input)
-    self.version_input = UITextInput(
-        0, 0, 96, PANEL_HEADER_H - 10, placeholder="0.0.0",
-        text=str(getattr(editor, "level_version", "0.0.0")),
+    self.version_input = UITextInput(0, 0, 96, PANEL_HEADER_H - 10,
+        placeholder="0.0.0", text=str(getattr(editor, "level_version", "0.0.0")),
         on_commit=self._commit_version)
     self.version_input.visible = False
+    # <STRANGE>#1007: version is read-only, no editable widget
     self.header_widgets = [self.toggle_btn, self.save_btn, self.load_btn]
-    # <STRANGE>#821: version widgets are always active (header-level)
-    self.header_widgets.append(self.version_btn)
-    self.header_widgets.append(self.version_input)
     self.body_widgets[2].extend([self.grid_btn,
                                   self.grid_xy_lbl,
                                   self.grid_step_input,
@@ -156,17 +152,11 @@ class TopPanel:
     tw, th = self.toggle_btn.rect.size
     self.toggle_btn.rect.topleft = (screen_w - pad - tw,
                                     (PANEL_HEADER_H - th) // 2)
-    # <STRANGE>#824: [v: x.y.z] [Save] [Load] [tabs...]
+    # Save/Load ??? ?????????? ?????????? ???????????? "Level editor"
     cx = 130
     cy = (PANEL_HEADER_H - self.save_btn.rect.h) // 2
-    # version widget first (either label button or input)
-    self.version_btn.rect.topleft = (cx, cy)
-    self.version_input.rect.topleft = (cx, cy)
-    cx += self.version_btn.rect.w + 6
-    # Save
     self.save_btn.rect.topleft = (cx, cy)
     cx += self.save_btn.rect.w + 4
-    # Load
     self.load_btn.rect.topleft = (cx, cy)
     cx += self.load_btn.rect.w + 20
     # Tabs ??? ?????????? Save/Load
@@ -189,9 +179,7 @@ class TopPanel:
     self.toggle_btn.label = "Hide" if self.expanded else "Show"
     self.layout(self.editor.screen.get_width())
 
-  # ---------- level version UI ----------
   def _toggle_version_input(self):
-    # <STRANGE>#822: switch between label and input
     if self.version_input.visible:
       self.version_input.focused = False
       self.version_input.visible = False
@@ -207,7 +195,6 @@ class TopPanel:
     self.layout(self.editor.screen.get_width())
 
   def _commit_version(self, txt):
-    # <STRANGE>#823: apply version and hide input
     try:
       self.editor._set_level_version(txt)
     except Exception:
@@ -262,14 +249,9 @@ class TopPanel:
       pygame.draw.rect(screen, PANEL_TAB_BORDER, r, 1, border_radius=4)
       surf = render_text(self.font_small, btn.label, fg)
       screen.blit(surf, surf.get_rect(center=r.center))
-    # <STRANGE>#576: header widgets (Hide/Save/Load + version)
+    # <STRANGE>#576: header-?????????????? (Hide/Save/Load)
     for w in self.header_widgets:
       w.draw(screen, self.font_small, (0, 0))
-    # <STRANGE>#825: refresh version label each frame (may change on load)
-    try:
-      self.version_btn.label = "v: " + str(getattr(self.editor, "level_version", "0.0.0"))
-    except Exception:
-      pass
     if self.expanded:
       for w in self.body_widgets[self.active_tab]:
         w.draw(screen, self.font_body, (0, 0))

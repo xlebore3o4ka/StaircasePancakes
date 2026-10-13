@@ -3,7 +3,7 @@ import math
 import random
 import pygame
 import pymunk
-from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W
+from shared.const import BODY_R, ARM_R, ARM_DX, JUMP_V, PEG_R, ITEM_OFFSET, ITEM_USE_SHAKE_TIME, ITEM_USE_SHAKE_AMP, ARM_HOLD_ALPHA, ARM_HOLD_SCALE, THROW_MAX_SPEED, THROW_SMOOTH_FRAMES, SPAWN_BOUNCE_V, REEL_MAX_FORCE, HUD_BASE_ALPHA, HUD_BASE_ALPHA_EMPTY, HUD_LABEL_ALPHA, HUD_LABEL_ALPHA_EMPTY, HUD_LABEL_ALPHA_HELD, HUD_LABEL_SCALE_HELD, HUD_FLASH_ALPHA, HUD_FLASH_DURATION, STAMINA_BOOST_RATE, LAYER_PLAYER, HUD_ITEMSMODE_RING_ALPHA, LINE_W, HIT_VOL_MIN, HIT_VOL_MAX, HIT_COOLDOWN, STEP_INTERVAL, USE_PULSE_PERIOD, CIRCLE_LINE_W, BUTTON_MAX_REACH, BUTTON_FILL, BUTTON_EDGE, HUD_BUTTON_ALPHA, HUD_BUTTON_R_MULT, MAX_PLAYER_V
 from shared.smooth import smooth, per_sec
 from ..net.player_state import PlayerState
 from shared.physics_util import has_ground_contact
@@ -113,6 +113,10 @@ class Player:
     self._hint_font = None
     # <STRANGE>#931 network snapshot, refreshed every frame; name set externally by Game
     self.state = PlayerState()
+    # <STRANGE>#1070 button grab/release events, drained each frame by game.py
+    self.events = []
+    # <STRANGE>#1103 q/e held while a hand is grabbed on a button
+    self.button_hold = [False, False]
     # <STRANGE>#964 monotonic counter for net_id per player
     self._net_counter = 0
     # <STRANGE>#991 ids we sent last tick; diff reveals items that are no longer free
@@ -198,14 +202,23 @@ class Player:
     self._pre_v = pymunk.Vec2d(self.body.velocity.x, self.body.velocity.y)
 
   def post_step(self, dt):
+    # <STRANGE>#1152 clamp total velocity: a kinematic body slamming into us can produce a huge bias impulse
+    vx = self.body.velocity.x
+    vy = self.body.velocity.y
+    mag2 = vx * vx + vy * vy
+    if mag2 > MAX_PLAYER_V * MAX_PLAYER_V:
+      k = MAX_PLAYER_V / (mag2 ** 0.5)
+      self.body.velocity = (vx * k, vy * k)
     v = self.body.velocity.y
     if self.jumped_this_frame:
       # <STRANGE>#746 trim bias that piles on top of JUMP_V in the take-off frame
       if v > JUMP_V * 1.05:
         self.body.velocity = (self.body.velocity.x, JUMP_V)
       return
-    # <STRANGE>#773 no peg, positive vy, and we were already moving upward at most ~200: this is ground chatter, kill it
-    if (v > 0 and not any(g is not None for g in self.grabbed)
+    # <STRANGE>#773 no rope, positive vy, and we were already moving upward at most ~200: this is ground chatter, kill it
+    # <STRANGE>#1122 buttons don't count as ropes: holding one still sits on the floor, so bias must be clamped
+    rope_grab = any(g is not None and not getattr(g[0], "is_button", False) for g in self.grabbed)
+    if (v > 0 and not rope_grab
         and self._pre_vy < 200 and has_ground_contact(self.body)):
       self.body.velocity = (self.body.velocity.x, 0.0)
     # <STRANGE>#694 impact sfx: any new contact with floor/platform while moving into it fast
@@ -414,7 +427,15 @@ class Player:
       self.space.remove(self.joints[i])
       self.joints[i] = None
     if self.grabbed[i] is not None:
-      self.grabbed[i][0].grab_count -= 1
+      obj = self.grabbed[i][0]
+      if hasattr(obj, "grab_count"):
+        obj.grab_count -= 1
+      # <STRANGE>#1070 broadcast button release to any trigger the player is inside
+      if getattr(obj, "is_button", False):
+        obj.grabbed = False
+        obj.press_held = False
+        self.button_hold[i] = False
+        self.events.append({"t": "button_release", "tag": obj.id})
     self.grabbed[i] = None
     self.rope_len[i] = None
 
@@ -453,8 +474,14 @@ class Player:
         self.jump = True
         self.jump_queued = True
       elif e.scancode == 20:
-        # <STRANGE>#819 charge on hold, fire on release; instant items bypass this
-        if self.held[0] is not None:
+        # <STRANGE>#1103 if grabbed a button, q starts the button-press hold
+        if self.grabbed[0] is not None and getattr(self.grabbed[0][0], "is_button", False):
+          self.button_hold[0] = True
+          self.events.append({"t": "button_down", "tag": self.grabbed[0][0].id})
+          if self.sound is not None:
+            self.sound.play("button_down")
+        elif self.held[0] is not None:
+          # <STRANGE>#819 charge on hold, fire on release; instant items bypass this
           if getattr(self.held[0], "instant_use", False):
             self.hud_flash[0] = 1.0
             self._use(0)
@@ -462,7 +489,12 @@ class Player:
             self.use_charged[0] = True
             self.hud_flash[0] = 1.0
       elif e.scancode == 8:
-        if self.held[1] is not None:
+        if self.grabbed[1] is not None and getattr(self.grabbed[1][0], "is_button", False):
+          self.button_hold[1] = True
+          self.events.append({"t": "button_down", "tag": self.grabbed[1][0].id})
+          if self.sound is not None:
+            self.sound.play("button_down")
+        elif self.held[1] is not None:
           if getattr(self.held[1], "instant_use", False):
             self.hud_flash[1] = 1.0
             self._use(1)
@@ -503,11 +535,25 @@ class Player:
           self._swap_hands()
       # <STRANGE>#819 q/e fire on release
       elif e.scancode == 20:
-        if self.use_charged[0]:
+        if self.button_hold[0]:
+          self.button_hold[0] = False
+          g = self.grabbed[0]
+          if g is not None and getattr(g[0], "is_button", False):
+            self.events.append({"t": "button_up", "tag": g[0].id})
+            if self.sound is not None:
+              self.sound.play("button_up")
+        elif self.use_charged[0]:
           self.use_charged[0] = False
           self._use(0)
       elif e.scancode == 8:
-        if self.use_charged[1]:
+        if self.button_hold[1]:
+          self.button_hold[1] = False
+          g = self.grabbed[1]
+          if g is not None and getattr(g[0], "is_button", False):
+            self.events.append({"t": "button_up", "tag": g[0].id})
+            if self.sound is not None:
+              self.sound.play("button_up")
+        elif self.use_charged[1]:
           self.use_charged[1] = False
           self._use(1)
       # <STRANGE>#558 F release clears items-only mode
@@ -534,7 +580,9 @@ class Player:
         self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + step)
       # <STRANGE>#852 pocket weight: while a hand's pocket holds an item, drain is +10% and regen is -10%
       pocket_mul = 1.1 if self.pocket[i] is not None else 1.0
-      if self.grabbed[i] is not None:
+      g = self.grabbed[i]
+      # <STRANGE>#1098 buttons cost no stamina; only rope grabs drain
+      if g is not None and not getattr(g[0], "is_button", False):
         self.stamina[i] -= per_sec(STAMINA_HOLD_DRAIN * pocket_mul, dt) / max(num_grabbed, 1)
         if self.stamina[i] <= 0:
           self.stamina[i] = 0.0
@@ -543,16 +591,11 @@ class Player:
         mul = STAMINA_LOW_MUL if self.stamina[i] > STAMINA_LOW_THRESH else 1.0
         self.stamina[i] = min(STAMINA_MAX, self.stamina[i] + per_sec(STAMINA_REGEN * mul / pocket_mul, dt))
     grounded = self._is_grounded()
-    # <TODO>#385 diagnostic: only fire on a truly anomalous spike; legit swings exceed JUMP_V all the time
-    if (self.body.velocity.y > JUMP_V * 1.6
-        and not any(g is not None for g in self.grabbed)
-        and not self.move[0] and not self.move[1]
-        and self.body.position.y < BODY_R * 4):
-      print(f"BOUNCE v.y={self.body.velocity.y:.0f} v.x={self.body.velocity.x:.0f} pos=({self.body.position.x:.1f},{self.body.position.y:.1f}) grounded={grounded}")
     # <STRANGE>#385 diagnostic: catch the phantom bounce moment; remove once root cause is confirmed
     if self.body.velocity.y > 550 and self.body.position.y < BODY_R * 3:
       print(f"BOUNCE v.y={self.body.velocity.y:.0f} y={self.body.position.y:.0f} grounded={grounded} grabbed={[g is not None for g in self.grabbed]} move={self.move}")
-    pitoned = any(g is not None for g in self.grabbed)
+    # <STRANGE>#1092 pitoned means "hanging on a rope"; a button doesn't count, so ground drag stays
+    pitoned = any(g is not None and not getattr(g[0], "is_button", False) for g in self.grabbed)
     # <STRANGE>#729 while held to a peg, never use ground drag; brushing floor mid-swing would kill momentum
     drag = AIR_DRAG if pitoned else (GROUND_DRAG if grounded else AIR_DRAG)
     # <STRANGE>#430 cheats re-queue every frame while space is held, so air-jump becomes flight
@@ -562,11 +605,13 @@ class Player:
       self.body.velocity = (self.body.velocity.x, JUMP_V)
       self.jump_queued = False
       self.jumped_this_frame = True
-      n = sum(1 for g in self.grabbed if g is not None)
+      # <STRANGE>#1100 buttons don't pay jump cost; only rope grabs do
+      n = sum(1 for g in self.grabbed if g is not None and not getattr(g[0], "is_button", False))
       if n > 0:
         cost = STAMINA_JUMP_COST / n
         for i in range(2):
-          if self.grabbed[i] is not None:
+          g = self.grabbed[i]
+          if g is not None and not getattr(g[0], "is_button", False):
             self.stamina[i] -= cost
       for i in range(2):
         self._release(i)
@@ -607,32 +652,64 @@ class Player:
             and not self.grab_lock[i] and self.grab_cooldown[i] <= 0
             and self.stamina[i] > STAMINA_GRAB_MIN):
           for obj in pegs:
+            # <STRANGE>#1095 buttons need actual touch to grab; pegs keep the generous buffer
+            if getattr(obj, "is_button", False):
+              limit = getattr(obj, "r", PEG_R) + ARM_R
+            else:
+              limit = GRAB_DIST
             hit = None
             for world_pt, anchor in obj.grab_points():
-              if arm.position.get_distance(world_pt) <= GRAB_DIST:
+              if arm.position.get_distance(world_pt) <= limit:
                 hit = (world_pt, anchor)
                 break
             if hit:
               world_pt, anchor = hit
               self.grabbed[i] = (obj, anchor, world_pt)
-              obj.grab_count += 1
+              if hasattr(obj, "grab_count"):
+                obj.grab_count += 1
               # <STRANGE>#752 peg grab sfx, fires on the frame the hand latches
               if self.sound is not None:
                 self.sound.play("peg_grab")
-              cur = self.body.position.get_distance(world_pt)
-              # <STRANGE>#617 rope not rod: min=0 so body can hug walls without the joint fighting collision; max caps distance
-              max_len = max(cur, ARM_DX)
-              self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, 0, max_len)
-              self.joints[i].max_force = REEL_MAX_FORCE
-              self.rope_len[i] = max_len
-              self.space.add(self.joints[i])
+              if getattr(obj, "is_button", False):
+                # <STRANGE>#1070 button: no joint, body stays under gravity, hand visually pulls to the button
+                self.joints[i] = None
+                self.rope_len[i] = None
+                self.events.append({"t": "button_grab", "tag": obj.id})
+              else:
+                cur = self.body.position.get_distance(world_pt)
+                # <STRANGE>#617 rope not rod: min=0 so body can hug walls without the joint fighting collision; max caps distance
+                max_len = max(cur, ARM_DX)
+                self.joints[i] = pymunk.SlideJoint(self.body, obj.body, (0, 0), anchor, 0, max_len)
+                self.joints[i].max_force = REEL_MAX_FORCE
+                self.rope_len[i] = max_len
+                self.space.add(self.joints[i])
               break
         if self.grabbed[i] is not None:
+          # <STRANGE>#1066 recompute world anchor every frame so a moving peg carries the hand with it
+          _obj, _anchor, _ = self.grabbed[i]
+          world_pt = _obj.body.local_to_world(_anchor)
+          self.grabbed[i] = (_obj, _anchor, world_pt)
+          if getattr(_obj, "is_button", False):
+            d = world_pt - self.body.position
+            # <STRANGE>#1070 auto-release if body strays too far from the button
+            if d.length > BUTTON_MAX_REACH:
+              self._release(i)
+              # <STRANGE>#1094 cooldown stops grab/release chatter when hovering right at max reach
+              self.grab_cooldown[i] = 0.3
+              continue
+            if d.length > 0:
+              self.arm_dir[i] = d.normalized()
+            target_pos = world_pt
+            self.arm_pos[i] += (target_pos - self.arm_pos[i]) * smooth(self.arm_lerp_grab, dt)
+            arm.position = self.arm_pos[i]
+            arm.velocity = (0, 0)
+            target_r = PRESS_R if self.pressed[i] and not self.grab_lock[i] and self.stamina[i] > STAMINA_GRAB_MIN else ARM_R
+            self.arm_r[i] += (target_r - self.arm_r[i]) * smooth(self.lerp_t, dt)
+            continue
           if self.rope_len[i] > ARM_DX:
             self.rope_len[i] = max(ARM_DX, self.rope_len[i] - per_sec(REEL_SPEED, dt))
             # <STRANGE>#618 min stays 0; only max reels in. Body can go closer than ARM_DX if physics pushes it
             self.joints[i].max = self.rope_len[i]
-          world_pt = self.grabbed[i][2]
           d = world_pt - self.body.position
           if d.length > 0:
             self.arm_dir[i] = d.normalized()
@@ -755,6 +832,18 @@ class Player:
       if self.grab_cooldown[i] > 0:
         self.grab_cooldown[i] = max(0.0, self.grab_cooldown[i] - dt)
 
+    # <STRANGE>#1137 aggregate per-button: reset, then set True if either holding hand is pressed
+    for b in getattr(self, "_all_buttons", []) or []:
+      b.grabbed = False
+      b.press_held = False
+    for i in range(2):
+      g = self.grabbed[i]
+      if g is not None and getattr(g[0], "is_button", False):
+        btn = g[0]
+        btn.grabbed = True
+        if self.button_hold[i]:
+          btn.press_held = True
+
     # <STRANGE>#931 snapshot the current player state for networking
     self._write_state()
 
@@ -843,6 +932,27 @@ class Player:
     sx, sy = cam.to_screen(wx, wy)
     screen.blit(surf, surf.get_rect(center=(int(sx), int(sy))))
 
+  def _draw_hud_button(self, screen, sc, hx, hy, slot_r, btn, idx):
+    # <STRANGE>#1103 button icon in the HUD slot, dimmed by state; fixed size, no scaling
+    br = max(1, int(slot_r * HUD_BUTTON_R_MULT))
+    fill = btn.tint(BUTTON_FILL)
+    edge = btn.tint(BUTTON_EDGE)
+    inner_base = tuple(min(255, int(c / 0.8)) for c in BUTTON_FILL)
+    inner = btn.tint(inner_base)
+    surf = pygame.Surface((br * 2, br * 2), pygame.SRCALPHA)
+    pygame.draw.circle(surf, (*fill, HUD_BUTTON_ALPHA), (br, br), br)
+    inner_r = max(1, int(br / 2.2))
+    pygame.draw.circle(surf, (*inner, 180), (br, br), inner_r, CIRCLE_LINE_W)
+    pygame.draw.circle(surf, (*edge, 200), (br, br), br, CIRCLE_LINE_W)
+    screen.blit(surf, (int(hx) - br, int(hy) - br))
+    # <STRANGE>#1117 small Q/E label centered, same size as held-item label
+    lbl = self._hud_labels[idx]
+    sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
+    sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))
+    small = pygame.transform.smoothscale(lbl, (sw2, sh2))
+    small.set_alpha(HUD_LABEL_ALPHA_EMPTY)
+    screen.blit(small, small.get_rect(center=(int(hx), int(hy))))
+
   def _ensure_hud_labels(self):
     # <STRANGE>#392 lazy cache; Q/E rendered once with white, alpha applied per blit via set_alpha
     if self._hud_labels is not None:
@@ -901,9 +1011,16 @@ class Player:
         ring_w = max(1, int(LINE_W * sc))
         pygame.draw.circle(surf, (255, 255, 255, HUD_ITEMSMODE_RING_ALPHA), (r, r), r - ring_w // 2, CIRCLE_LINE_W)
       screen.blit(surf, (int(hx) - r, int(hy) - r))
-      # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
+      # <STRANGE>#1103 if the hand is grabbed on a button, replace the Q/E label with a button icon
+      grab_btn = None
+      g = self.grabbed[i]
+      if g is not None and getattr(g[0], "is_button", False):
+        grab_btn = g[0]
       lbl = self._hud_labels[i]
-      if it is None:
+      if grab_btn is not None:
+        self._draw_hud_button(screen, sc, hx, hy, r, grab_btn, i)
+      elif it is None:
+        # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
         lbl.set_alpha(HUD_LABEL_ALPHA_EMPTY)
         screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
       else:

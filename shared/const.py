@@ -81,12 +81,33 @@ THROW_SMOOTH_FRAMES = 4
 
 SOUND_DIR = "sounds"
 SOUND_VOLUME = 0.6
-SOUND_NAMES = ["hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar", "pickup_peg", "pickup_bag", "put_bag", "open_cube", "rebar_throw", "rebar_stick", "peg_grab", "step", "peg_place", "peg_bounce"]
+SOUND_NAMES = ["hit", "soda", "pickup_cube", "pickup_soda", "pickup_rebar", "pickup_peg", "pickup_bag", "put_bag", "open_cube", "rebar_throw", "rebar_stick", "peg_grab", "step", "peg_place", "peg_bounce", "button_down", "button_up"]
 # <NOTE>#693 impact tuning: below MIN no sound, above MAX full volume
 HIT_VOL_MIN = 250
 HIT_VOL_MAX = 1800
 HIT_COOLDOWN = 0.08
 STEP_INTERVAL = 0.32
+
+BUTTON_FILL = (60, 140, 220)
+BUTTON_EDGE = (255, 255, 255)
+# <NOTE>#1127 dim while Q/E is held on the grabbed button (0 = normal, 1 = black)
+BUTTON_PRESS_DIM = 0.3
+# <NOTE>#1128 seconds to smooth between pressed and released look
+BUTTON_PRESS_LERP = 0.55
+# <NOTE>#1140 horizontal force applied when the player is squeezed between two surfaces
+SQUEEZE_PUSH = 2000
+# <NOTE>#1152 hard cap on player velocity magnitude after each physics step
+MAX_PLAYER_V = 2000
+# <NOTE>#1153 cap on kinematic body velocity so a fast tween doesn't slam the player through geometry
+MAX_KINEMATIC_V = 900
+# <NOTE>#1131 push force per pixel of overlap between player body and button
+BUTTON_PUSH_FORCE = 60
+HUD_BUTTON_ALPHA = 128
+HUD_BUTTON_R_MULT = 0.9
+# <NOTE>#1068 max body-to-button distance while held; exceeded -> auto-release
+BUTTON_MAX_REACH = 90
+# <NOTE>#1020 on_tick fires this many times per second while player is inside a trigger
+TRIGGER_TICK_HZ = 20
 # <NOTE>#962 drop remote ghost if no state received for this long
 NET_TIMEOUT_SEC = 3.0
 # <NOTE>#824 pulse period for the charged hold-to-use white flash on held items

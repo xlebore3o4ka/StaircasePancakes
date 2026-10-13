@@ -11,9 +11,7 @@ from .const import (
   DEFAULT_ITEM_TYPE, DEFAULT_ARTIFACT_TYPE,
 )
 from .objects import default_layer_for
-
-# <STRANGE>#802: level version source of truth: shared/version.py (game),
-# persisted per-editor in editor/settings.json via editor.settings.
+from .messages import MessageStore, WARN, INFO, ERROR, DEFERRED
 from . import settings as _editor_settings
 try:
   from shared import version as _game_version
@@ -21,7 +19,6 @@ except Exception:
   _game_version = None
 
 def _game_version_read():
-  """Return current game version string, or '0.0.0' if unavailable."""
   if _game_version is None:
     return "0.0.0"
   try:
@@ -30,17 +27,9 @@ def _game_version_read():
     return "0.0.0"
 
 def _version_parse(v):
-  """Parse 'X.Y.Z' into (X, Y, Z); fallback to (0,0,0)."""
-  if _game_version is not None:
-    try:
-      return tuple(_game_version.parse(v))
-    except Exception:
-      pass
   try:
     parts = str(v).split(".")
-    nums = []
-    for p in parts[:3]:
-      nums.append(int(p))
+    nums = [int(p) for p in parts[:3]]
     while len(nums) < 3:
       nums.append(0)
     return tuple(nums)
@@ -48,18 +37,17 @@ def _version_parse(v):
     return (0, 0, 0)
 
 def _version_incompatible(level_v, game_v):
-  """True if level requires a newer game (major.minor mismatch)."""
   lv = _version_parse(level_v)
   gv = _version_parse(game_v)
   return (lv[0], lv[1]) != (gv[0], gv[1]) and lv > gv
-
 from .panel import TopPanel
 
 
 class CoreMixin:
   def __init__(self):
     pygame.init()
-    self.screen = pygame.display.set_mode((1280, 800))
+    # <STRANGE>#1100: bigger window so all tabs + zoom indicator fit
+    self.screen = pygame.display.set_mode((1440, 820))
     pygame.display.set_caption("level editor")
     self.clock = pygame.time.Clock()
     self.font = pygame.font.SysFont(None, 22)
@@ -120,15 +108,22 @@ class CoreMixin:
     self._locked_list = []
     self._scene_dirty = True
 
-    # <STRANGE>#803/#860: level_version always tracks the current game client.
     self.level_version = _game_version_read()
-    self.loaded_version = None   # version read from the last loaded file
-    self.version_warning = ""    # text for the toast
-    self.version_warning_t = 0.0  # remaining seconds
-    # <STRANGE>#840: total toast duration (slide + hold + slide)
+    self.loaded_version = None
+    self.version_warning = ""
+    self.version_warning_t = 0.0
     self.version_warning_total = 3.6
     self.version_input_visible = False
     self.version_input_text = self.level_version
+    self.messages = MessageStore()
+    # <STRANGE>#1061: files embedded into the level tar (name -> bytes)
+    self.embedded_files = {}
+    # <STRANGE>#1091: ignore input until this timestamp (ms)
+    self._swallow_events_until = 0
+    # <STRANGE>#1031: per-artifact-type history of past positions
+    self._artifact_history = {}
+    # list of {kind, x, y, t} markers drawn in the world (info dots etc)
+    self.world_markers = []
     self.panel = TopPanel(self)
     self.inspector_stack = []
     # <STRANGE>#560: grid step (?????? ?? rbxl studio) ??? ?????????????? ??????????
@@ -314,23 +309,18 @@ class CoreMixin:
       self.ghost[0] += dx * GHOST_LERP
       self.ghost[1] += dy * GHOST_LERP
 
-  # ---------- level version helpers ----------
+  # ---------- level version ----------
   def _refresh_version_warning(self):
-    """<STRANGE>#804: recompute warning and (re)start its toast timer."""
     game_v = _game_version_read()
     if _version_incompatible(self.level_version, game_v):
-      self.version_warning = (
-          "level %s > game %s" % (self.level_version, game_v))
+      self.version_warning = "level %s > game %s" % (self.level_version, game_v)
       self.version_warning_t = self.version_warning_total
     else:
       self.version_warning = ""
       self.version_warning_t = 0.0
 
   def _set_level_version(self, v):
-    # <STRANGE>#805/#861: in-memory only; save() overrides with game version.
-    v = (v or "").strip()
-    if not v:
-      v = _game_version_read()
+    v = (v or "").strip() or _game_version_read()
     self.level_version = v
     self.version_input_text = v
     self._refresh_version_warning()
@@ -339,16 +329,78 @@ class CoreMixin:
     if self.version_warning_t > 0.0:
       self.version_warning_t = max(0.0, self.version_warning_t - dt)
 
+  def _flush_pygame_events(self):
+    # <STRANGE>#1090: after tkinter dialogs SDL has queued events.
+    # Drop them all and swallow the first frames of input.
+    try:
+      pygame.event.clear()
+      pygame.event.pump()
+      pygame.event.clear()
+    except Exception:
+      pass
+    self._swallow_events_until = pygame.time.get_ticks() + 150
+
+  def _tick_world_markers(self, dt):
+    alive = []
+    for m in self.world_markers:
+      m["t"] -= dt
+      if m["t"] > 0:
+        alive.append(m)
+    self.world_markers = alive
+
+  def _recompute_messages(self):
+    # <STRANGE>#1003: scan for duplicate non-empty ids among all objects
+    id_map = {}
+    for o in self.objects:
+      oid = getattr(o, "id", "")
+      if oid:
+        id_map.setdefault(oid, []).append(o)
+      # also scan spawner entries
+      if hasattr(o, "items"):
+        for e in o.items:
+          eid = e.get("id", "")
+          if eid:
+            id_map.setdefault(eid, []).append(o)
+    dups = {k: v for k, v in id_map.items() if len(v) > 1}
+    # <STRANGE>#1020: only unlocked duplicates are a real warning.
+    # If <=1 unlocked among the duplicates, defer it (grey #, no stripes).
+    seen = set()
+    for key, objs in dups.items():
+      mk = "dup_id:" + key
+      seen.add(mk)
+      unlocked = [o for o in objs if not getattr(o, "locked", False)]
+      if len(unlocked) >= 2:
+        self.messages.set(mk, WARN, "Duplicate ID " + key, unlocked)
+      else:
+        self.messages.set(mk, DEFERRED, "Duplicate ID " + key, [])
+    for k in list(self.messages.active.keys()):
+      if k.startswith("dup_id:") and k not in seen:
+        self.messages.clear(k)
+
   # ---------- main loop ----------
   def run(self):
     while self.running:
       dt = self.clock.tick(60) / 1000.0
+      # <STRANGE>#1050: skip timers on frames right after a blocking
+      # dialog (tkinter save/load/browse), otherwise messages expire
+      # before the user sees them.
+      if dt > 0.5:
+        dt = 0.0
+      _now_ms = pygame.time.get_ticks()
+      _swallow = _now_ms < getattr(self, "_swallow_events_until", 0)
       for e in pygame.event.get():
+        if _swallow and e.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP,
+                                   pygame.KEYDOWN, pygame.KEYUP,
+                                   pygame.MOUSEMOTION):
+          continue
         self.handle_event(e)
       self.update_cursor()
       self.update_ghost()
       self.panel.update(dt)
-      self._tick_version_warning(dt)
+      if self._scene_dirty:
+        self._recompute_messages()
+      self.messages.update(dt)
+      self._tick_world_markers(dt)
       for p in self.inspector_stack:
         p.update(dt)
       self.draw()

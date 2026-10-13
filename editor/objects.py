@@ -22,6 +22,9 @@ from .const import (
   ARTIFACT_EDGE_W,
   ARTIFACT_LETTER_FG,
   DEFAULT_ARTIFACT_TYPE,
+  TRIGGER_FILL, TRIGGER_EDGE, TRIGGER_EDGE_W, TRIGGER_LABEL_COLOR,
+  TRIGGER_DEFAULT_W, TRIGGER_DEFAULT_H,
+  BUTTON_R, BUTTON_FILL, BUTTON_EDGE,
 )
 from .helpers import make_stripe_surface, make_circle_stripe_surface
 from . import settings
@@ -99,9 +102,11 @@ def default_layer_for(obj):
     return LAYER_BG
   if isinstance(obj, EditorPlatform):
     return LAYER_PLATFORM
-  if isinstance(obj, EditorPeg):
+  if isinstance(obj, (EditorPeg, EditorButton)):
     return LAYER_PEG
   if isinstance(obj, (EditorItem, EditorSpawner, EditorArtifact)):
+    return LAYER_ITEM
+  if isinstance(obj, EditorTrigger):
     return LAYER_ITEM
   return 0
 
@@ -128,6 +133,8 @@ class EditorPeg:
   def to_json(self):
     # <STRANGE>#702: ?????????? ?????? dict, ?????????? ?????????????????? layer/locked
     d = {"x": int(self.x), "y": int(self.y), "layer": int(self.layer)}
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
     if self.locked:
       d["locked"] = True
     return d
@@ -263,6 +270,8 @@ class EditorPlatform:
     }
     if self.layer is not None:
       d["layer"] = int(self.layer)
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
       d["points"] = [[int(p[0]), int(p[1])] for p in self.points]
@@ -428,7 +437,8 @@ class EditorBackground:
     }
     if self.layer is not None:
       d["layer"] = int(self.layer)
-    # <STRANGE>#506: ?? JSON ?????????? ?????????????? ???????????? ???????? ?????????? >= 3
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
       d["points"] = [[int(p[0]), int(p[1])] for p in self.points]
@@ -544,6 +554,8 @@ class EditorItem:
     }
     if self.layer is not None:
       d["layer"] = int(self.layer)
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
     if self.item_type == "cube" and self.contents:
       d["contents"] = [dict(e) for e in self.contents]
     return d
@@ -651,7 +663,11 @@ class EditorArtifact:
     return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
 
   def to_json(self):
-    return [int(self.x), int(self.y)]
+    # <STRANGE>#1001: bag is now a dict, old [x, y] migrates on load
+    d = {"x": int(self.x), "y": int(self.y)}
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
+    return d
 
   def badge_screen_pos(self, ed):
     sx, sy = ed.to_screen(self.x, self.y)
@@ -673,3 +689,119 @@ class EditorArtifact:
       except Exception:
         pass
     sx, sy = ed.to_screen(self.x, self.y)
+
+# =========================================================
+# Trigger - axis-aligned invisible-in-game zone
+# =========================================================
+class EditorTrigger:
+  def __init__(self, x, y, w=None, h=None):
+    self.x, self.y = x, y
+    if w is None: w = TRIGGER_DEFAULT_W
+    if h is None: h = TRIGGER_DEFAULT_H
+    self.w, self.h = w, h
+    self.id = ""
+    self.script = ""
+    self.locked = False
+    self.layer = None
+
+  def world_rect(self):
+    return (self.x - self.w / 2, self.x + self.w / 2,
+            self.y - self.h / 2, self.y + self.h / 2)
+
+  def hit(self, wx, wy):
+    l, r, b, t = self.world_rect()
+    return l <= wx <= r and b <= wy <= t
+
+  def intersects_rect(self, l, r, b, t):
+    ol, orr, ob, ot = self.world_rect()
+    return not (orr < l or ol > r or ot < b or ob > t)
+
+  def edge_hit(self, wx, wy, zone=RESIZE_ZONE):
+    l, r, b, t = self.world_rect()
+    in_x = l - zone <= wx <= r + zone
+    in_y = b - zone <= wy <= t + zone
+    if not (in_x and in_y):
+      return None
+    if abs(wx - l) <= zone: return "left"
+    if abs(wx - r) <= zone: return "right"
+    if abs(wy - t) <= zone: return "top"
+    if abs(wy - b) <= zone: return "bottom"
+    return None
+
+  def to_json(self):
+    d = {"x": int(self.x), "y": int(self.y),
+         "w": int(self.w), "h": int(self.h)}
+    if self.id: d["id"] = str(self.id)
+    if self.script: d["script"] = str(self.script)
+    if self.locked: d["locked"] = True
+    if self.layer is not None: d["layer"] = int(self.layer)
+    return d
+
+  def badge_screen_pos(self, ed):
+    l, r, b, t = self.world_rect()
+    x1, y0 = ed.to_screen(r, t)
+    return x1 - 12, y0 + 12
+
+  def draw(self, screen, ed):
+    l, r, b, t = self.world_rect()
+    x0, y0 = ed.to_screen(l, t)
+    x1, y1 = ed.to_screen(r, b)
+    rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                       int(abs(x1 - x0)), int(abs(y1 - y0)))
+    ov = pygame.Surface((max(1, rect.w), max(1, rect.h)), pygame.SRCALPHA)
+    ov.fill(TRIGGER_FILL)
+    screen.blit(ov, rect.topleft)
+    pygame.draw.rect(screen, TRIGGER_EDGE, rect, TRIGGER_EDGE_W)
+    if self.id:
+      try:
+        f = pygame.font.SysFont(None, 18, bold=True)
+        surf = f.render(str(self.id), True, TRIGGER_LABEL_COLOR)
+        screen.blit(surf, (rect.x + 4, rect.y + 2))
+      except Exception:
+        pass
+    if self.locked:
+      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
+
+# =========================================================
+# Button - kinematic grab point (id only, no script)
+# =========================================================
+class EditorButton:
+  def __init__(self, x, y):
+    self.x, self.y = x, y
+    self.r = BUTTON_R
+    self.id = ""
+    self.locked = False
+    self.layer = None
+
+  def hit(self, wx, wy):
+    return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
+
+  def intersects_rect(self, l, r, b, t):
+    nx = max(l, min(self.x, r))
+    ny = max(b, min(self.y, t))
+    return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= self.r ** 2
+
+  def to_json(self):
+    d = {"x": int(self.x), "y": int(self.y)}
+    if getattr(self, "id", ""):
+      d["id"] = str(self.id)
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    if self.locked:
+      d["locked"] = True
+    return d
+
+  def badge_screen_pos(self, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    r = self.r * ed.zoom
+    return sx + r + 2, sy - r - 2
+
+  def draw(self, screen, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    r = max(1, int(self.r * ed.zoom))
+    pygame.draw.circle(screen, BUTTON_FILL, (int(sx), int(sy)), r)
+    edge_w = max(1, int(2 * ed.zoom))
+    pygame.draw.circle(screen, BUTTON_EDGE, (int(sx), int(sy)), r, edge_w)
+    if self.locked:
+      screen.blit(make_circle_stripe_surface(r),
+                  (int(sx) - r, int(sy) - r))

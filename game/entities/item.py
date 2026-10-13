@@ -3,7 +3,7 @@ import random
 import pygame
 import pymunk
 from shared.const import (
-  ARM_R, ITEM_GRAB_DIST, ITEM_TYPES,
+  ARM_R, ITEM_GRAB_DIST,
   LINE_W, CIRCLE_LINE_W,
   CUBE_FILL, CUBE_EDGE, CUBE_FRICTION, CUBE_ELASTICITY, CUBE_LINEAR_DAMPING,
   SODA_W, SODA_H, SODA_BLUE, SODA_WHITE, SODA_STAMINA, LAYER_ITEM,
@@ -97,6 +97,7 @@ class Item:
 
   def __init__(self, space, pos, w, h):
     self.space = space
+    self.id = None
     self.w = w
     self.h = h
     self.held_by = None
@@ -385,13 +386,17 @@ class PortablePegItem(Item):
     r = max(1, int(PEG_R * sc))
     fill = _tint(self.FILL, whiten)
     edge = _tint(PEG_EDGE, whiten)
+    inner_r = max(1, int(r / 2.2))
+    inner = tuple(int(c * 0.8) for c in fill[:3])
     if alpha < 255:
       surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
       pygame.draw.circle(surf, (*fill, alpha), (r, r), r)
+      pygame.draw.circle(surf, (*inner, alpha), (r, r), inner_r)
       pygame.draw.circle(surf, (*edge, alpha), (r, r), r, CIRCLE_LINE_W)
       screen.blit(surf, (int(x) - r, int(y) - r))
     else:
       pygame.draw.circle(screen, fill, (int(x), int(y)), r)
+      pygame.draw.circle(screen, inner, (int(x), int(y)), inner_r)
       pygame.draw.circle(screen, edge, (int(x), int(y)), r, CIRCLE_LINE_W)
 
 

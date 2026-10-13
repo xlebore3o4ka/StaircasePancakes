@@ -19,11 +19,11 @@ NET_TICK_HZ = 20
 
 
 class Game:
-  def __init__(self, cheats=False, map_path="levels/test.json", spawninfo=False,
+  def __init__(self, cheats=False, map_path="levels/test.json", debugview=False,
                name=None, server=None):
     self.cheats = cheats
     self.map_path = map_path
-    self.spawninfo = spawninfo
+    self.debugview = debugview
     self.name = name
     self.server_url = server
 
@@ -39,17 +39,16 @@ class Game:
       spawn_y = BODY_R
       # <STRANGE>#189 camera viewport is always LOGICAL_W x LOGICAL_H; scale only affects rendering, not world size
       cam = Camera(0, BODY_R, LOGICAL_W, LOGICAL_H, w.scale)
-      level = Level(space, self.map_path, sound=sound, cheats=self.cheats)
-      player.level = level
-      # <STRANGE>#942 remote ghosts: name -> RemotePlayer
-      remotes = {}
-      # <STRANGE>#967 ghost items owned by other players
-      ghost_items = GhostItems()
-
-      # <STRANGE>#955 net is optional; without --server the rest of the loop is untouched
+      # <STRANGE>#1144 level is created before the net client so we can hash its content
+      # <STRANGE>#1148 hash level file up front so the net client can send it before Level exists
+      import hashlib
+      with open(self.map_path, "rb") as _f:
+        _map_hash = hashlib.sha1(_f.read()).hexdigest()
       net = None
+      script_seed = None
       if self.server_url:
-        net = NetClient(self.server_url, self.name or "anon", map_path=self.map_path)
+        net = NetClient(self.server_url, self.name or "anon",
+                        map_path=self.map_path, map_hash=_map_hash)
         net.connect()
         # <STRANGE>#1007 block until server welcomes us or fails; better to crash early than drop into single
         t0 = pygame.time.get_ticks()
@@ -59,6 +58,18 @@ class Game:
           pygame.time.wait(20)
         if net.fatal:
           raise RuntimeError(net.fatal)
+        script_seed = net.script_seed
+
+      level = Level(space, self.map_path, sound=sound, cheats=self.cheats,
+                    script_seed=script_seed)
+      player.level = level
+      player._all_buttons = level.buttons
+      # <STRANGE>#942 remote ghosts: name -> RemotePlayer
+      remotes = {}
+      # <STRANGE>#967 ghost items owned by other players
+      ghost_items = GhostItems()
+
+      if net is not None:
         # <STRANGE>#983 broadcast local sfx with emitter position; receiver culls offscreen
         # <STRANGE>#989 field is "snd" because the server overwrites "name" with the sender name
         sound.on_play = lambda n, v: net.send({
@@ -90,6 +101,10 @@ class Game:
             running = False
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
+        level.update_buttons(dt, player)
+        level.update_triggers(dt, (player.body.position.x, player.body.position.y), player.events)
+        player.events.clear()
+        level.update_movers(dt)
         for rp in remotes.values():
           rp.update(dt)
         # <STRANGE>#963 drop remotes that stopped sending; covers server death and ghost of a disconnected peer
@@ -190,13 +205,14 @@ class Game:
         ghost_items.draw(w.screen, cam)
         for rp in remotes.values():
           rp.draw(w.screen, cam)
-        if self.spawninfo:
-          level.draw_spawners(w.screen, cam, player.body.position)
+        if self.debugview:
+          level.draw_debug(w.screen, cam, player.body.position)
         player.draw_hud(w.screen, cam)
         hud_info.update(dt)
         # <STRANGE>#620 height is distance from spawn, not absolute y
         hud_info.draw(w.screen, player.body.position.y - spawn_y)
         w.flip()
 
+      level.unload()
       if net is not None:
         net.close()
