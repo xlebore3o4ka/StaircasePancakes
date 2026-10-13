@@ -95,10 +95,26 @@ class UndoMixin:
 
   # ---------- snapshots ----------
   def _snapshot(self):
-    return [self._obj_to_state(o) for o in self.objects]
+    # <STRANGE>#1120: filter out None (unknown-type states) so undo never
+    # carries a bad entry that would blow up later on restore.
+    out = []
+    for o in self.objects:
+      if o is None:
+        continue
+      st = self._obj_to_state(o)
+      if st is not None:
+        out.append(st)
+    return out
 
   def _restore(self, snap):
-    self.objects = [self._make_from_state(s) for s in snap]
+    objs = []
+    for s in snap:
+      if s is None:
+        continue
+      o = self._make_from_state(s)
+      if o is not None:
+        objs.append(o)
+    self.objects = objs
     self._clear_selection()
     self._mark_scene_dirty()
 

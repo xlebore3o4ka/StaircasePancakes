@@ -23,6 +23,49 @@ from .editor_render import RenderMixin
 
 
 class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
+  def _ensure_embedded_scripts(self, path):
+    # <STRANGE>#1111: before packing .tar, load any trigger.script
+    # that references a file on disk but isn't embedded yet.
+    import os as _os
+    from .objects import EditorTrigger
+    if not hasattr(self, "embedded_files") or self.embedded_files is None:
+      self.embedded_files = {}
+    base_dirs = []
+    try:
+      base_dirs.append(_os.path.dirname(_os.path.abspath(path)))
+    except Exception:
+      pass
+    base_dirs.append("levels")
+    base_dirs.append(".")
+    added = []
+    for trig in self.objects:
+      if not isinstance(trig, EditorTrigger):
+        continue
+      rel = getattr(trig, "script", "")
+      if not rel:
+        continue
+      if rel in self.embedded_files:
+        continue
+      # try to read from disk in a few candidate dirs
+      for d in base_dirs:
+        candidate = _os.path.join(d, rel)
+        try:
+          if _os.path.isfile(candidate):
+            with open(candidate, "rb") as f:
+              self.embedded_files[rel] = f.read()
+            added.append(rel)
+            break
+        except Exception:
+          continue
+    if added:
+      try:
+        from .messages import INFO
+        self.messages.toast_only(
+            INFO, "Embedded %d script(s): %s" %
+            (len(added), ", ".join(added[:3])), 3.0)
+      except Exception:
+        pass
+
   # ---------- save / load ----------
   def save(self):
     root = tk.Tk()
@@ -65,6 +108,10 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     if bag is not None:
       out["bag"] = bag
     if str(path).lower().endswith(".tar"):
+      try:
+        self._ensure_embedded_scripts(path)
+      except Exception:
+        pass
       tar_io.save_level(path, out, extra_files=getattr(self, "embedded_files", None))
     else:
       with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -154,6 +201,10 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       obj.id = str(pd.get("id", ""))
       if "layer" in pd:
         obj.layer = int(pd["layer"])
+      # <STRANGE>#1112: restore polygon/points for platforms
+      if pd.get("polygon"):
+        obj.polygon = True
+        obj.points = [[int(p[0]), int(p[1])] for p in pd.get("points", [])]
       self.objects.append(obj)
     for bd in data.get("backgrounds", []):
       obj = EditorBackground(bd["x"], bd["y"],

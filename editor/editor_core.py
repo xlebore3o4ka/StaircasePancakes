@@ -264,8 +264,10 @@ class CoreMixin:
     items = []
     locked = []
     for i, obj in enumerate(self.objects):
+      if obj is None:
+        continue
       items.append((self._effective_layer(obj), i, "obj", obj))
-      if obj.locked:
+      if getattr(obj, "locked", False):
         locked.append(obj)
     items.append((LAYER_FLOOR, -1, "floor", None))
     items.append((GHOST_LAYER, -1, "ghost", None))
