@@ -7,6 +7,7 @@ from .level import Level
 from .entities.floor import FloorFill
 from .core.sound import SoundManager
 from .entities.hud_info import HudInfo
+from .debug_info import DebugInfo
 from .net.remote_player import RemotePlayer
 from .net.client import NetClient
 from .net.player_state import to_wire, from_wire
@@ -20,10 +21,11 @@ NET_TICK_HZ = 20
 
 class Game:
   def __init__(self, cheats=False, map_path="levels/test.json", debugview=False,
-               name=None, server=None):
+               debuginfo=False, name=None, server=None):
     self.cheats = cheats
     self.map_path = map_path
     self.debugview = debugview
+    self.debuginfo = debuginfo
     self.name = name
     self.server_url = server
 
@@ -80,6 +82,7 @@ class Game:
 
       floor_fill = FloorFill()
       hud_info = HudInfo()
+      debug_info = DebugInfo()
       clock = pygame.time.Clock()
       running = True
       while running:
@@ -211,6 +214,8 @@ class Game:
         hud_info.update(dt)
         # <STRANGE>#620 height is distance from spawn, not absolute y
         hud_info.draw(w.screen, player.body.position.y - spawn_y)
+        if self.debuginfo:
+          debug_info.draw(w.screen, player.body)
         w.flip()
 
       level.unload()
