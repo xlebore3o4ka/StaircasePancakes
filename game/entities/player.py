@@ -211,6 +211,7 @@ class Player:
       it = self.held[i]
       st.held[i] = getattr(it, "net_type", None) if it is not None else None
       st.stamina[i] = self.stamina[i]
+    st.hp = float(self.hp)
     st.angle = self.body.angle
     st.jumped = self.jumped_this_frame
     st.items = self._collect_free_items()

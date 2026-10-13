@@ -58,6 +58,7 @@ class RemotePlayer:
     self._target_pos = (0.0, 0.0)
     self._target_arms = [(0.0, 0.0), (0.0, 0.0)]
     self._target_stamina = [float(STAMINA_MAX), float(STAMINA_MAX)]
+    self._target_hp = 100.0
     self._target_held = [None, None]
     self.lerp_t = 0.35
     self.last_seen = 0.0
@@ -70,6 +71,7 @@ class RemotePlayer:
     self._target_pos = st.pos
     self._target_arms = list(st.arms)
     self._target_stamina = list(st.stamina)
+    self._target_hp = float(st.hp)
     self._target_held = list(st.held)
     # <STRANGE>#981 reset timeout so ghost doesn't get pruned while states keep arriving
     self.last_seen = 0.0
@@ -80,6 +82,7 @@ class RemotePlayer:
       for i in range(2):
         self.arms[i].position = st.arms[i]
       self.stamina = list(st.stamina)
+      self.hp = float(st.hp)
 
   def update(self, dt):
     k = smooth(self.lerp_t, dt)
@@ -94,6 +97,8 @@ class RemotePlayer:
                                a[1] + (t[1] - a[1]) * k)
       self.stamina[i] += (self._target_stamina[i] - self.stamina[i]) * k
       self.held[i] = self._target_held[i]
+    # <STRANGE>#1193 hp lerps too: body colour smooths as remote takes damage
+    self.hp += (self._target_hp - self.hp) * k
     self.last_seen += dt
 
   GHOST_ALPHA = 140

@@ -14,6 +14,7 @@ class PlayerState:
   held: list[str | None] = field(default_factory=lambda: [None, None])
   grabbed: list[bool] = field(default_factory=lambda: [False, False])
   stamina: list[float] = field(default_factory=lambda: [0.0, 0.0])
+  hp: float = 100.0
   angle: float = 0.0
   jumped: bool = False
   # <STRANGE>#964 free items touched by this player; list of {id, type, x, y, angle}
@@ -31,6 +32,7 @@ def to_wire(st):
     "held": [st.held[0], st.held[1]],
     "grabbed": [bool(st.grabbed[0]), bool(st.grabbed[1])],
     "stamina": [float(st.stamina[0]), float(st.stamina[1])],
+    "hp": float(st.hp),
     "angle": float(st.angle),
     "items": st.items,
   }
@@ -51,6 +53,7 @@ def from_wire(msg):
   st.grabbed = [bool(g[0]), bool(g[1])]
   st_g = msg.get("stamina", [100.0, 100.0])
   st.stamina = [float(st_g[0]), float(st_g[1])]
+  st.hp = float(msg.get("hp", 100.0))
   st.angle = float(msg.get("angle", 0.0))
   st.items = list(msg.get("items", []))
   return st
