@@ -32,6 +32,9 @@ STAMINA_LOW_MUL = 1.5
 STAMINA_GRAB_MIN = 15
 SHAKE_MAX = 2
 HP_MAX = 100
+# <NOTE>#1168 hp regen per second; blocked for HP_REGEN_DELAY after any hit
+HP_REGEN = 10.0
+HP_REGEN_DELAY = 2.0
 
 class Player:
   layer = LAYER_PLAYER
@@ -91,6 +94,8 @@ class Player:
     self.stamina = [float(STAMINA_MAX), float(STAMINA_MAX)]
     # <STRANGE>#1166 health; no damage source yet, only visuals react
     self.hp = float(HP_MAX)
+    # <STRANGE>#1168 regen cooldown, resets on every hit
+    self.hp_regen_t = 0.0
     self.held = [None, None]
     self.throw_requested = [False, False]
     self.shake_t = [0.0, 0.0]
@@ -137,6 +142,13 @@ class Player:
     self._hud_labels = None
     # <STRANGE>#434 pending stamina from soda; drips into stamina[] at STAMINA_BOOST_RATE per second
     self.stamina_boost = [0.0, 0.0]
+
+  def take_damage(self, amount):
+    # <STRANGE>#1168 public hook for future damage sources; resets regen cooldown
+    if amount <= 0:
+      return
+    self.hp = max(0.0, self.hp - amount)
+    self.hp_regen_t = HP_REGEN_DELAY
 
   def _is_grounded(self):
     b = self.body.position
@@ -568,6 +580,11 @@ class Player:
     self._backgrounds = backgrounds or []
     # <STRANGE>#592 new frame: clear the jump flag so post_step can clamp again unless we jump this frame
     self.jumped_this_frame = False
+    # <STRANGE>#1168 hp regen; paused for HP_REGEN_DELAY seconds after a hit
+    if self.hp_regen_t > 0:
+      self.hp_regen_t = max(0.0, self.hp_regen_t - dt)
+    elif self.hp < HP_MAX:
+      self.hp = min(HP_MAX, self.hp + HP_REGEN * dt)
     num_grabbed = sum(1 for g in self.grabbed if g is not None)
     for i in range(2):
       if self.cheats:
