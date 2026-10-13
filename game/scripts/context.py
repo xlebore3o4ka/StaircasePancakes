@@ -23,3 +23,7 @@ class ScriptCtx:
 
   def cancel_move(self, oid):
     self._level.cancel_move(oid)
+
+  def shake(self, dur, amp, freq=0.0):
+    # <STRANGE>#1195 screen shake; freq=0 means random jitter, >0 means smooth oscillation
+    self._level.shake(dur, amp, freq)

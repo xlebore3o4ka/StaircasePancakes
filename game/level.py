@@ -40,6 +40,10 @@ class Level:
     self._arrows = DebugArrows()
     # <STRANGE>#1041 active smooth-move animations; each entry drives one object over time
     self.movers = []
+    # <STRANGE>#1195 set by game.py; scripts use it for ctx.shake
+    self.cam = None
+    # <STRANGE>#1195 set by game.py; scripts use it for ctx.shake
+    self.cam = None
     json_path = self._resolve_path(path)
     # <STRANGE>#1143 hash of the whole level file (tar or json) for server-side content match
     with open(path, "rb") as f:
@@ -349,6 +353,16 @@ class Level:
       if m["t"] < m["dur"]:
         keep.append(m)
     self.movers = keep
+
+  def shake(self, dur, amp, freq=0.0):
+    # <STRANGE>#1195 forwarded to camera; no-op if the level has no camera yet
+    if self.cam is not None:
+      self.cam.shake(dur, amp, freq)
+
+  def shake(self, dur, amp, freq=0.0):
+    # <STRANGE>#1195 forwarded to camera; no-op if the level has no camera yet
+    if self.cam is not None:
+      self.cam.shake(dur, amp, freq)
 
   def update_buttons(self, dt, player=None):
     # <STRANGE>#1103 tick pop animations

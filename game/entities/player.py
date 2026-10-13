@@ -37,6 +37,15 @@ HP_MAX = 100
 # <NOTE>#1168 hp regen per second; blocked for HP_REGEN_DELAY after any hit
 HP_REGEN = 5.0
 HP_REGEN_DELAY = 2.0
+# <NOTE>#1196 hurt sfx reaches full volume at this damage; below it scales linearly
+HURT_VOL_DMG_FULL = 40
+# <NOTE>#1196 screen shake per damage
+HURT_SHAKE_AMP_BASE = 4.0
+HURT_SHAKE_AMP_PER_DMG = 0.6
+HURT_SHAKE_AMP_CAP = 24.0
+HURT_SHAKE_DUR_BASE = 0.12
+HURT_SHAKE_DUR_PER_DMG = 0.01
+HURT_SHAKE_DUR_CAP = 0.45
 # <NOTE>#1173 fall damage kicks in above this falling speed; +1 hp per each extra FALL_DMG_STEP units
 FALL_DMG_MIN_V = 700
 FALL_DMG_STEP = 15
@@ -157,7 +166,14 @@ class Player:
     self.hp = max(0.0, self.hp - amount)
     self.hp_regen_t = HP_REGEN_DELAY
     if self.sound is not None:
-      self.sound.play("hurt")
+      # <STRANGE>#1196 volume scales with damage up to HURT_VOL_DMG_FULL
+      vol = max(0.15, min(1.0, amount / HURT_VOL_DMG_FULL))
+      self.sound.play("hurt", volume=vol)
+    # <STRANGE>#1196 shake on damage; forwarded through level to cam
+    if self.level is not None:
+      amp = min(HURT_SHAKE_AMP_CAP, HURT_SHAKE_AMP_BASE + amount * HURT_SHAKE_AMP_PER_DMG)
+      dur = min(HURT_SHAKE_DUR_CAP, HURT_SHAKE_DUR_BASE + amount * HURT_SHAKE_DUR_PER_DMG)
+      self.level.shake(dur, amp)
 
   def _is_grounded(self):
     b = self.body.position

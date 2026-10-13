@@ -64,6 +64,8 @@ class Game:
 
       level = Level(space, self.map_path, sound=sound, cheats=self.cheats,
                     script_seed=script_seed)
+      level.cam = cam
+      level.cam = cam
       player.level = level
       player._all_buttons = level.buttons
       # <STRANGE>#942 remote ghosts: name -> RemotePlayer
@@ -199,6 +201,8 @@ class Game:
           # <STRANGE>#657 player bias clamp runs after every substep
           player.post_step(dt)
         cam.follow(player.body.position, dt)
+        cam.update(dt)
+        cam.update(dt)
         w.screen.fill((89, 95, 102))
         # <NOTE>#445 single sorted pass: backgrounds -> floor -> platforms/pegs -> items -> player
         drawables = level.drawables() + [floor_fill, player]
