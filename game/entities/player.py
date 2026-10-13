@@ -1032,7 +1032,9 @@ class Player:
         hud_shake = SHAKE_MAX * (1 - s_t * 2) * sc
         hx += random.uniform(-hud_shake, hud_shake)
         hy += random.uniform(-hud_shake, hud_shake)
-      arm_color = (223, int(223 * s_t), int(223 * s_t))
+      # <STRANGE>#1183 HUD arms follow the same hp-scaled cap as world arms
+      hp_t = max(0.0, min(1.0, self.hp / HP_MAX))
+      arm_color = (223, int(223 * s_t * hp_t), int(223 * s_t * hp_t))
       it = self.held[i]
       base_a = HUD_BASE_ALPHA if it is not None else HUD_BASE_ALPHA_EMPTY
       alpha = int(base_a + HUD_FLASH_ALPHA * self.hud_flash[i])
@@ -1118,7 +1120,9 @@ def draw_player_body(screen, cam, src, is_local):
         hx = arm.position.x + ITEM_OFFSET * (-1 if i == 0 else 1)
         hy = arm.position.y
         fx["item"].draw_at(screen, cam, (hx, hy), 0.0, 255, scale)
-    arm_color = (223, int(223 * s_t), int(223 * s_t))
+    # <STRANGE>#1183 arm max colour follows hp: with low hp, arms can't be fully white
+    hp_t = max(0.0, min(1.0, getattr(src, "hp", HP_MAX) / HP_MAX))
+    arm_color = (223, int(223 * s_t * hp_t), int(223 * s_t * hp_t))
     if is_local and held is not None:
       r = int(src.arm_r[i] * ARM_HOLD_SCALE * sc)
       size = r * 2
