@@ -156,6 +156,8 @@ class Player:
       return
     self.hp = max(0.0, self.hp - amount)
     self.hp_regen_t = HP_REGEN_DELAY
+    if self.sound is not None:
+      self.sound.play("hurt")
 
   def _is_grounded(self):
     b = self.body.position
@@ -618,6 +620,9 @@ class Player:
         self.stamina[i] -= per_sec(STAMINA_HOLD_DRAIN * pocket_mul, dt) / max(num_grabbed, 1)
         if self.stamina[i] <= 0:
           self.stamina[i] = 0.0
+          # <STRANGE>#1191 same hurt sfx, quieter, when the hand drops from exhaustion
+          if self.sound is not None:
+            self.sound.play("hurt", volume=1.0 / 1.25)
           self._release(i)
       else:
         mul = STAMINA_LOW_MUL if self.stamina[i] > STAMINA_LOW_THRESH else 1.0
