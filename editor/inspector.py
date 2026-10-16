@@ -46,11 +46,19 @@ def _is_trigger(owner):
     return False
 
 
-def _has_id(owner):
-  # <STRANGE>#1004: spawner has no id, everything else does
+def _is_anchor(owner):
   try:
-    from .objects import EditorSpawner
-    if isinstance(owner, EditorSpawner):
+    from .objects import EditorAnchor
+    return isinstance(owner, EditorAnchor)
+  except Exception:
+    return False
+
+
+def _has_id(owner):
+  # <STRANGE>#1004/#1423: spawner and anchor have no id
+  try:
+    from .objects import EditorSpawner, EditorAnchor
+    if isinstance(owner, (EditorSpawner, EditorAnchor)):
       return False
   except Exception:
     pass
@@ -149,6 +157,9 @@ class InspectorPanel:
       if _has_id(view):
         positions["id_y"] = y
         y += INSPECTOR_ROW_H + 6
+      if _is_anchor(view):
+        positions["variant_y"] = y
+        y += INSPECTOR_ROW_H + 6
       if _is_trigger(view):
         positions["script_y"] = y
         y += INSPECTOR_ROW_H + 14
@@ -198,6 +209,10 @@ class InspectorPanel:
         id_row = pygame.Rect(fr.x + pad, pos["id_y"],
                              fr.w - pad * 2, INSPECTOR_ROW_H)
         items.append((id_row, "id", None))
+      if _is_anchor(view):
+        var_row = pygame.Rect(fr.x + pad, pos["variant_y"],
+                              fr.w - pad * 2, INSPECTOR_ROW_H)
+        items.append((var_row, "anchor_variant", None))
       if _is_trigger(view):
         script_row = pygame.Rect(fr.x + pad, pos["script_y"],
                                  fr.w - pad * 2, INSPECTOR_ROW_H)
@@ -318,6 +333,23 @@ class InspectorPanel:
       return
     if kind == "layer_inc":
       self._bump_layer(+1)
+      return
+    if kind == "anchor_variant":
+      if _is_anchor(self.owner):
+        order = ["A", "B", "S"]
+        cur = getattr(self.owner, "variant", "A")
+        try:
+          idx = order.index(cur)
+        except ValueError:
+          idx = -1
+        new_v = order[(idx + 1) % len(order)]
+        self.owner.variant = new_v
+        if new_v == "S":
+          self.editor.objects = [
+              o for o in self.editor.objects
+              if o is self.owner or not (hasattr(o, "variant")
+                                         and getattr(o, "variant", "") == "S")]
+        self.editor._mark_scene_dirty()
       return
     if kind == "id":
       if self.focused_text is not None:
@@ -604,6 +636,16 @@ class InspectorPanel:
       if _has_id(view):
         self._draw_text_row(s, pos["id_y"] - oy, "id",
                             getattr(view, "id", ""), "id")
+      if _is_anchor(view):
+        yr = pos["variant_y"] - oy
+        row = pygame.Rect(pad, yr, INSPECTOR_W - pad * 2, INSPECTOR_ROW_H)
+        self._row_bg(s, row, self._is_hover("anchor_variant", None))
+        s.blit(self.font.render("variant", True, INSPECTOR_LABEL),
+               (row.x + 10, row.y + (row.h - self.font.get_height()) // 2))
+        vs = self.font.render(str(getattr(view, "variant", "A")) + "  >",
+                              True, INSPECTOR_TITLE)
+        s.blit(vs, (row.right - vs.get_width() - 10,
+                    row.y + (row.h - vs.get_height()) // 2))
       if _is_trigger(view):
         self._draw_text_row(s, pos["script_y"] - oy, "script",
                             view.script, "trigger_script",

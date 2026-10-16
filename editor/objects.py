@@ -25,6 +25,9 @@ from .const import (
   TRIGGER_FILL, TRIGGER_EDGE, TRIGGER_EDGE_W, TRIGGER_LABEL_COLOR,
   TRIGGER_DEFAULT_W, TRIGGER_DEFAULT_H,
   BUTTON_R, BUTTON_FILL, BUTTON_EDGE,
+  ANCHOR_SIZE, ANCHOR_A_FILL, ANCHOR_A_EDGE,
+  ANCHOR_B_FILL, ANCHOR_B_EDGE, ANCHOR_S_FILL, ANCHOR_S_EDGE,
+  ANCHOR_ZONE_EDGE, ANCHOR_VARIANTS, DEFAULT_ANCHOR_VARIANT,
 )
 from .helpers import make_stripe_surface, make_circle_stripe_surface
 from . import settings
@@ -108,6 +111,8 @@ def default_layer_for(obj):
     return LAYER_ITEM
   if isinstance(obj, EditorTrigger):
     return LAYER_ITEM
+  if isinstance(obj, EditorAnchor):
+    return LAYER_ITEM
   return 0
 
 
@@ -121,6 +126,7 @@ class EditorPeg:
     self.locked = False
     # <STRANGE>#701: ?????????????? ???????? ???????? ??? 5
     self.layer = 5
+    self.id = ""
 
   def hit(self, wx, wy):
     return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
@@ -173,6 +179,7 @@ class EditorPlatform:
     self.edge = PLAT_EDGE
     self.locked = False
     self.layer = None
+    self.id = ""
     # platform polygon mode
     self.polygon = False
     self.points = []
@@ -333,6 +340,7 @@ class EditorBackground:
     self.fill = BG_DEFAULT_COLOR
     self.locked = False
     self.layer = None
+    self.id = ""
     # <STRANGE>#500: polygon-?????????? ????????. ?????????? ??? ???????????????????????? ???????????? (x,y).
     self.polygon = False
     self.points = []          # [[dx, dy], ...]
@@ -500,6 +508,7 @@ class EditorItem:
     self.item_type = item_type
     self.locked = False
     self.layer = None
+    self.id = ""
     self.contents = []
     if item_type == "cube" and contents:
       self.contents = [self._clean_entry(e) for e in contents]
@@ -653,6 +662,7 @@ class EditorArtifact:
     self.r = ARTIFACT_R
     self.locked = False
     self.layer = None
+    self.id = ""
 
   def hit(self, wx, wy):
     return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
@@ -805,3 +815,98 @@ class EditorButton:
     if self.locked:
       screen.blit(make_circle_stripe_surface(r),
                   (int(sx) - r, int(sy) - r))
+
+# =========================================================
+# Anchor - reactive zone endpoints (A/B) and start point (S)
+# =========================================================
+class EditorAnchor:
+  def __init__(self, x, y, variant=DEFAULT_ANCHOR_VARIANT):
+    self.x, self.y = x, y
+    self.variant = variant if variant in ANCHOR_VARIANTS else DEFAULT_ANCHOR_VARIANT
+    self.binding = ""
+    self.name = ""
+    self.weight = 1
+    self.max_limit = 1
+    self.locked = False
+    self.layer = None
+
+  @property
+  def size(self):
+    return ANCHOR_SIZE
+
+  def hit(self, wx, wy):
+    h = self.size / 2
+    return abs(wx - self.x) <= h and abs(wy - self.y) <= h
+
+  def intersects_rect(self, l, r, b, t):
+    h = self.size / 2
+    ol, orr = self.x - h, self.x + h
+    ob, ot = self.y - h, self.y + h
+    return not (orr < l or ol > r or ot < b or ob > t)
+
+  def to_json(self):
+    d = {"x": int(self.x), "y": int(self.y), "variant": self.variant}
+    if self.binding:
+      d["binding"] = str(self.binding)
+    if self.name:
+      d["name"] = str(self.name)
+    if int(self.weight) != 1:
+      d["weight"] = int(self.weight)
+    if int(self.max_limit) != 1:
+      d["max_limit"] = int(self.max_limit)
+    if self.locked:
+      d["locked"] = True
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    return d
+
+  def badge_screen_pos(self, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    h = self.size / 2 * ed.zoom
+    return sx + h + 2, sy - h - 2
+
+  def _label_text(self, ed=None):
+    # <STRANGE>#1440: letter + binding; truncated to 3 chars if too long
+    letter = str(getattr(self, "variant", "A"))
+    bnd = str(getattr(self, "binding", ""))
+    # <STRANGE>#1461: S binding is automatic - ask editor for the pair map
+    if letter == "S" and not bnd and ed is not None:
+      try:
+        _p, _f, assigned, _zs = ed._anchor_pairs()
+        bnd = assigned.get(id(self), "") or ""
+      except Exception:
+        bnd = ""
+    return letter + bnd
+
+  def draw(self, screen, ed):
+    fills = {"A": ANCHOR_A_FILL, "B": ANCHOR_B_FILL, "S": ANCHOR_S_FILL}
+    edges = {"A": ANCHOR_A_EDGE, "B": ANCHOR_B_EDGE, "S": ANCHOR_S_EDGE}
+    fill = fills.get(self.variant, ANCHOR_A_FILL)
+    edge = edges.get(self.variant, ANCHOR_A_EDGE)
+    sx, sy = ed.to_screen(self.x, self.y)
+    h = max(2, int(self.size / 2 * ed.zoom))
+    rect = pygame.Rect(int(sx - h), int(sy - h), h * 2, h * 2)
+    ov = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+    ov.fill((fill[0], fill[1], fill[2], 140))
+    screen.blit(ov, rect.topleft)
+    pygame.draw.rect(screen, edge, rect, 2)
+    label = self._label_text(ed)
+    try:
+      # <STRANGE>#1441: shrink font until it fits; else truncate to 3 chars
+      fs = max(8, int(h * 1.1))
+      while fs > 8:
+        f = pygame.font.SysFont(None, fs, bold=True)
+        ts = f.render(label, True, (255, 255, 255))
+        if ts.get_width() <= rect.w - 4 and ts.get_height() <= rect.h - 4:
+          break
+        fs -= 1
+      f = pygame.font.SysFont(None, max(8, fs), bold=True)
+      txt = label
+      if f.size(txt)[0] > rect.w - 4:
+        txt = label[:3]
+      ts = f.render(txt, True, (255, 255, 255))
+      screen.blit(ts, ts.get_rect(center=rect.center))
+    except Exception:
+      pass
+    if self.locked:
+      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)

@@ -54,8 +54,13 @@ class TopPanel:
     self.snap_btn.active = editor.snap_enabled
     self.poly_btn = UIButton(0, 0, 72, PANEL_WIDGET_H, "Poly",
                              editor.toggle_polygon_edit)
+    # <STRANGE>#1141: Think toggle enters the thinking mode (separate tool set)
+    self.think_btn = UIToggleButton(0, 0, 72, PANEL_WIDGET_H,
+                                    "Think", self._on_think_toggle)
+    self.think_btn.active = getattr(editor, "mind_mode", False)
     self.body_widgets[1].extend([self.lock_btn, self.zone_unlock_btn,
-                                  self.snap_btn, self.poly_btn])
+                                  self.snap_btn, self.poly_btn,
+                                  self.think_btn])
 
     # --- GRID ---
     self.grid_btn = UIToggleButton(0, 0, 80, PANEL_WIDGET_H,
@@ -143,6 +148,14 @@ class TopPanel:
   def _on_snap_toggle(self, active):
     self.editor.snap_enabled = active
 
+  def _on_think_toggle(self, active):
+    # <STRANGE>#1142: switch mind mode on/off
+    self.editor.mind_mode = active
+    if active:
+      self.editor.set_tool("planner")
+    else:
+      self.editor.set_tool("peg")
+
   def height(self):
     return PANEL_HEADER_H + (PANEL_BODY_H if self.expanded else 0)
 
@@ -167,12 +180,18 @@ class TopPanel:
       tx += PANEL_TAB_W + 4
     # body
     y = PANEL_HEADER_H + (PANEL_BODY_H - PANEL_WIDGET_H) // 2
-    for tab_widgets in self.body_widgets:
+    for tab_idx, tab_widgets in enumerate(self.body_widgets):
       x = pad
       for w in tab_widgets:
         w.rect.x = x
         w.rect.y = y
         x += w.rect.width + pad
+        # <STRANGE>#1143: separator before Poly, then Think
+        if tab_idx == 1:
+          if w is self.snap_btn:
+            x += 14
+          elif w is self.poly_btn:
+            x += 14
 
   def _toggle(self):
     self.expanded = not self.expanded
@@ -208,6 +227,9 @@ class TopPanel:
   def sync_tool(self, name):
     self.lock_btn.active = (name == "lock")
     self.zone_unlock_btn.active = (name == "unlock_zone")
+    # <STRANGE>#1144: keep Think button in sync with the mode flag
+    if hasattr(self, "think_btn"):
+      self.think_btn.active = bool(getattr(self.editor, "mind_mode", False))
 
   def _active_widgets(self):
     # <STRANGE>#575: header (Hide/Save/Load) ?????????????? ????????????
@@ -255,3 +277,10 @@ class TopPanel:
     if self.expanded:
       for w in self.body_widgets[self.active_tab]:
         w.draw(screen, self.font_body, (0, 0))
+      # <STRANGE>#1145: vertical divider before Poly (only one)
+      if self.active_tab == 1 and hasattr(self, "poly_btn"):
+        sep_col = (90, 96, 110)
+        y0 = self.snap_btn.rect.top + 2
+        y1 = self.snap_btn.rect.bottom - 2
+        x1 = self.snap_btn.rect.right + 6
+        pygame.draw.line(screen, sep_col, (x1, y0), (x1, y1), 1)

@@ -1,4 +1,5 @@
 """Обработка событий: клавиатура, mouse down/up/motion, контекстные меню."""
+import json as _json
 import pygame
 
 from .const import (
@@ -6,7 +7,7 @@ from .const import (
   ARTIFACT_TYPES,
   DEFAULT_ARTIFACT_TYPE,
 )
-from .objects import EditorItem, EditorSpawner, EditorArtifact
+from .objects import EditorItem, EditorSpawner, EditorArtifact, EditorAnchor
 from .widgets import ContextMenu
 
 
@@ -76,6 +77,21 @@ class EventsMixin:
           return
       except Exception:
         pass
+      try:
+        if self._handle_plan_click(e.pos):
+          return
+      except Exception:
+        pass
+      try:
+        if self._handle_markup_click(e.pos):
+          return
+      except Exception:
+        pass
+      try:
+        if self._handle_anchor_click(e.pos):
+          return
+      except Exception:
+        pass
     if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:
       if self._try_open_context_menu(e.pos):
         return
@@ -99,6 +115,10 @@ class EventsMixin:
       if self.drag is not None and self.drag[0] == "poly_select_rect":
         # <STRANGE>#552: additive = shift, ???????????????????????? ?? drag data
         self._finalize_polygon_select_rect(self.drag[1])
+      if self.drag is not None and self.drag[0] == "plan_drag":
+        self._finalize_plan_drag()
+      if self.drag is not None and self.drag[0] == "plan_drag":
+        self._finalize_plan_drag()
       if self.drag is not None and self.drag[0] == "zone_unlock":
         self._apply_zone_unlock()
       if self.drag is not None and self.drag[0] == "create" and self.selected is not None:
@@ -148,6 +168,359 @@ class EventsMixin:
       elif self.drag is not None:
         self.on_mouse_move(self.from_screen(*e.pos))
 
+  def _handle_plan_click(self, pos):
+    # <STRANGE>#1167: hit test on plan panel buttons
+    if not getattr(self, "mind_mode", False):
+      return False
+    if self.tool != "planner":
+      return False
+    p = getattr(self, "plan", None)
+    if p is None:
+      return False
+    info = getattr(self, "_plan_panel_pos", None)
+    if not isinstance(info, dict):
+      return False
+    # <STRANGE>#1183: editable rows first (screen coords, from render)
+    rows = info.get("rows", {})
+    for key in ("dx", "dy", "dur"):
+      r = rows.get(key)
+      if r is not None and r.collidepoint(pos):
+        if self.plan_focus is not None:
+          self._plan_field_commit()
+        self.plan_focus = key
+        self.plan_buffer = ""
+        self.plan_cursor_blink = 0.0
+        return True
+    re_ = rows.get("ease")
+    if re_ is not None and re_.collidepoint(pos):
+      order = ["linear", "in", "out", "inout"]
+      cur = self.plan.get("ease", "out")
+      try:
+        idx = order.index(cur)
+      except ValueError:
+        idx = -1
+      self.plan["ease"] = order[(idx + 1) % len(order)]
+      self._mark_scene_dirty()
+      return True
+    # buttons (screen coords from render)
+    for r, key in info.get("buttons", []):
+      if r.collidepoint(pos):
+        if key == "preview":
+          if getattr(self, "plan_preview_active", False):
+            self._stop_plan_preview()
+          else:
+            self._start_plan_preview()
+        elif key == "copy":
+          self._copy_plan_text()
+        elif key == "clear":
+          try:
+            self._stop_plan_preview()
+          except Exception:
+            pass
+          self.plan = None
+          self._mark_scene_dirty()
+        return True
+    # <STRANGE>#1191: clicked inside the panel but not on an interactive row -> unfocus
+    try:
+      px, py, pw, ph = 10, self.panel.height() + 8, 300, 10
+      if self.plan is not None:
+        info_obj = getattr(self, "_plan_panel_pos", None)
+        if isinstance(info_obj, dict):
+          pass
+      if self.plan_focus is not None:
+        self._plan_field_commit()
+    except Exception:
+      pass
+    return False
+
+  def _handle_anchor_click(self, pos):
+    # <STRANGE>#1473: buttons first, then rows based on variant
+    if not getattr(self, "mind_mode", False):
+      return False
+    if self.tool != "anchor":
+      return False
+    info = getattr(self, "_anchor_panel_pos", None)
+    if not isinstance(info, dict):
+      return False
+    for r, key in info.get("buttons", []):
+      if r.collidepoint(pos):
+        if key == "bake":
+          for o in self.selection:
+            if getattr(o, "variant", "") == "S":
+              self._bake_zone(o)
+              break
+        return True
+    first = None
+    for o in self.selection:
+      if hasattr(o, "variant"):
+        first = o
+        break
+    if first is None:
+      return False
+    variant = getattr(first, "variant", "A")
+    if variant in ("A", "B"):
+      valid = ("binding",)
+    elif variant == "S":
+      valid = ("name", "weight", "max_limit")
+    else:
+      return False
+    rows = info.get("rows", {})
+    for key in valid:
+      r = rows.get(key)
+      if r is not None and r.collidepoint(pos):
+        if self.anchor_focus is not None:
+          self._anchor_field_commit()
+        self.anchor_focus = key
+        if key == "weight":
+          self.anchor_buffer = str(int(getattr(first, "weight", 1)))
+        elif key == "max_limit":
+          self.anchor_buffer = str(int(getattr(first, "max_limit", 1)))
+        elif key == "binding":
+          self.anchor_buffer = getattr(first, "binding", "")
+        elif key == "name":
+          self.anchor_buffer = getattr(first, "name", "")
+        self.anchor_cursor_blink = 0.0
+        return True
+    if self.anchor_focus is not None:
+      self._anchor_field_commit()
+    return False
+
+  def _export_anchor_info(self, anchor):
+    # <STRANGE>#1445: full export - zones with their S, free spawns, no overlap
+    try:
+      self._recompute_messages()
+    except Exception:
+      pass
+    store = getattr(self, "messages", None)
+    if store is not None and "anchor_overlap" in getattr(store, "active", {}):
+      try:
+        from .messages import ERROR
+        self.messages.toast_only(ERROR,
+            "Cannot export: zones overlap", 3.0)
+      except Exception:
+        pass
+      return
+    pairs, free_s, assigned, zone_s = self._anchor_pairs()
+    data = {"version": 1, "anchors": [], "zones": [], "free_spawns": []}
+    # zones that have their S
+    good_zones = []
+    for bnd, a, b in pairs:
+      if bnd not in zone_s:
+        continue
+      good_zones.append((bnd, a, b))
+    # anchors: A/B of good zones + free S
+    for bnd, a, b in good_zones:
+      data["anchors"].append(a.to_json())
+      data["anchors"].append(b.to_json())
+    for s in free_s:
+      data["anchors"].append({"x": int(s.x), "y": int(s.y), "variant": "S"})
+    # zones
+    for bnd, a, b in good_zones:
+      l, r, bt, tt = self._anchor_zone_rect(a, b)
+      inside = []
+      for o in self.objects:
+        if hasattr(o, "variant"):
+          continue
+        try:
+          if o.intersects_rect(l, r, bt, tt):
+            inside.append(getattr(o, "id", "") or "<no id>")
+        except Exception:
+          pass
+      zs = None
+      for s in self.objects:
+        if (getattr(s, "variant", "") == "S"
+            and assigned.get(id(s)) == bnd):
+          zs = [int(s.x), int(s.y)]
+          break
+      data["zones"].append({
+        "binding": bnd,
+        "name": getattr(a, "name", "") or getattr(b, "name", ""),
+        "weight": int(getattr(a, "weight", 1)),
+        "max_limit": int(getattr(a, "max_limit", 1)),
+        "A": [int(a.x), int(a.y)],
+        "B": [int(b.x), int(b.y)],
+        "S": zs,
+        "size": [int(abs(b.x - a.x)), int(abs(b.y - a.y))],
+        "objects": inside,
+      })
+    # free spawns
+    for s in free_s:
+      data["free_spawns"].append({"x": int(s.x), "y": int(s.y)})
+    txt = _json.dumps(data, indent=2)
+    try:
+      import tkinter as _tk
+      r = _tk.Tk()
+      r.withdraw()
+      r.clipboard_clear()
+      r.clipboard_append(txt)
+      r.update()
+      r.destroy()
+    except Exception:
+      try:
+        pygame.scrap.put_text(txt)
+      except Exception:
+        pass
+    try:
+      from .messages import INFO
+      self.messages.toast_only(INFO, "Exported %d zone(s)" % len(data["zones"]), 2.5)
+    except Exception:
+      pass
+
+  def _handle_markup_click(self, pos):
+    # <STRANGE>#1307: click handling for the markup panel
+    if not getattr(self, "mind_mode", False):
+      return False
+    if self.tool != "markup":
+      return False
+    info = getattr(self, "_markup_panel_pos", None)
+    if not isinstance(info, dict):
+      return False
+    rows = info.get("rows", {})
+    for key in ("prefix", "postfix", "min", "sep"):
+      r = rows.get(key)
+      if r is not None and r.collidepoint(pos):
+        if self.markup_focus is not None:
+          self._markup_field_commit()
+        self.markup_focus = key
+        if key == "min":
+          self.markup_buffer = str(self.markup.get("min", 0))
+        else:
+          self.markup_buffer = self.markup.get(key, "")
+        self.markup_cursor_blink = 0.0
+        return True
+    for r, key in info.get("buttons", []):
+      if r.collidepoint(pos):
+        if key == "apply":
+          self._markup_apply()
+        elif key == "clear":
+          self.markup_focus = None
+          self.markup_buffer = ""
+          self._clear_selection()
+        return True
+    # clicked inside panel but not on a row/button: commit focus
+    if self.markup_focus is not None:
+      self._markup_field_commit()
+    return False
+
+  def _copy_plan_text(self):
+    # <STRANGE>#1168: put ctx.move_to(...) lines into the clipboard
+    p = getattr(self, "plan", None)
+    if p is None:
+      return
+    dx = float(p.get("dx", 0.0)); dy = float(p.get("dy", 0.0))
+    dur = float(p.get("dur", 0.5)); ease = p.get("ease", "out")
+    lines = []
+    for obj in p.get("objects", []):
+      oid = getattr(obj, "id", "")
+      if not oid:
+        continue
+      tx = int(round(obj.x + dx))
+      ty = int(round(obj.y + dy))
+      lines.append('ctx.move_to(ctx.by_id("%s"), x=%d, y=%d, dur=%.2f, ease="%s")'
+                   % (oid, tx, ty, dur, ease))
+    text = "\n".join(lines)
+    if not text:
+      return
+    try:
+      import tkinter as _tk
+      r = _tk.Tk()
+      r.withdraw()
+      r.clipboard_clear()
+      r.clipboard_append(text)
+      r.update()
+      r.destroy()
+    except Exception:
+      try:
+        pygame.scrap.put_text(text)
+      except Exception:
+        pass
+    try:
+      from .messages import INFO
+      self.messages.toast_only(INFO, "Copied %d line(s)" % len(lines), 2.5)
+    except Exception:
+      pass
+
+  def _finalize_plan_drag(self):
+    # <STRANGE>#1153: commit the plan, or warn if any selected object has no id.
+    if getattr(self, "_plan_preview", None) is None:
+      self._plan_preview = None
+      self._plan_drag_data = []
+      return
+    dx = self._plan_preview.get("dx", 0.0)
+    dy = self._plan_preview.get("dy", 0.0)
+    objs = list(self.selection)
+    no_id = [o for o in objs if not getattr(o, "id", "")]
+    if no_id:
+      try:
+        from .messages import WARN
+        self.messages.set("plan_no_id", WARN,
+                          "Cannot plan: %d object(s) have no id" % len(no_id),
+                          no_id, ttl=5.0)
+      except Exception:
+        pass
+      self.plan = None
+    else:
+      self.plan = {
+        "dx": float(dx),
+        "dy": float(dy),
+        "objects": objs,
+        "orig_positions": {id(o): (o.x, o.y) for o in objs},
+        "dur": 0.5,
+        "ease": "out",
+      }
+      try:
+        self.messages.clear("plan_no_id")
+      except Exception:
+        pass
+    print("PLAN-FINALIZE: plan=%s objects=%d dx=%s dy=%s" % (
+        self.plan is not None,
+        len(self.plan.get("objects", [])) if self.plan else 0,
+        self.plan.get("dx") if self.plan else None,
+        self.plan.get("dy") if self.plan else None))
+    self._plan_preview = None
+    self._plan_drag_data = []
+    self._plan_start = None
+    self.drag = None
+    self._mark_scene_dirty()
+
+  def _finalize_plan_drag(self):
+    # <STRANGE>#1153: commit the plan, or warn if any selected object has no id.
+    if getattr(self, "_plan_preview", None) is None:
+      self._plan_preview = None
+      self._plan_drag_data = []
+      return
+    dx = self._plan_preview.get("dx", 0.0)
+    dy = self._plan_preview.get("dy", 0.0)
+    objs = list(self.selection)
+    no_id = [o for o in objs if not getattr(o, "id", "")]
+    if no_id:
+      try:
+        from .messages import WARN
+        self.messages.set("plan_no_id", WARN,
+                          "Cannot plan: %d object(s) have no id" % len(no_id),
+                          no_id, ttl=5.0)
+      except Exception:
+        pass
+      self.plan = None
+    else:
+      self.plan = {
+        "dx": float(dx),
+        "dy": float(dy),
+        "objects": objs,
+        "orig_positions": {id(o): (o.x, o.y) for o in objs},
+        "dur": 0.5,
+        "ease": "out",
+      }
+      try:
+        self.messages.clear("plan_no_id")
+      except Exception:
+        pass
+    self._plan_preview = None
+    self._plan_drag_data = []
+    self._plan_start = None
+    self.drag = None
+    self._mark_scene_dirty()
+
   # ---------- keyboard ----------
   def _on_keydown(self, e):
     ctrl = bool(e.mod & pygame.KMOD_CTRL)
@@ -181,6 +554,15 @@ class EventsMixin:
         self.set_tool("peg" if self.tool == "lock" else "lock")
       return
 
+    if getattr(self, "plan_focus", None) is not None:
+      self._plan_field_key(e)
+      return
+    if getattr(self, "markup_focus", None) is not None:
+      self._markup_field_key(e)
+      return
+    if getattr(self, "anchor_focus", None) is not None:
+      self._anchor_field_key(e)
+      return
     if e.key == pygame.K_ESCAPE:
       if self.polygon_edit is not None:
         self.exit_polygon_edit()
@@ -201,6 +583,26 @@ class EventsMixin:
         self.delete_selected()
     elif e.key == pygame.K_SPACE:
       self.cam_x, self.cam_y = self.ghost[0], self.ghost[1]
+    elif e.key == pygame.K_p and getattr(self, "mind_mode", False):
+      # <STRANGE>#1165: P toggles preview
+      if getattr(self, "plan_preview_active", False):
+        self._stop_plan_preview()
+      else:
+        self._start_plan_preview()
+    elif e.key == pygame.K_c and getattr(self, "mind_mode", False) and bool(e.mod & pygame.KMOD_CTRL):
+      pass
+    elif e.key == pygame.K_t:
+      # <STRANGE>#1148: T toggles the thinking mode
+      mm = not getattr(self, "mind_mode", False)
+      self.mind_mode = mm
+      try:
+        self.panel.think_btn.active = mm
+      except Exception:
+        pass
+      if mm:
+        self.set_tool("planner")
+      else:
+        self.set_tool("peg")
     elif e.key == pygame.K_1:
       self.set_tool("ghost")
     elif e.key == pygame.K_2:
@@ -248,6 +650,9 @@ class EventsMixin:
       return True
     if self.tool == "artifact":
       self._open_pick_artifact_menu(pos)
+      return True
+    if self.tool == "anchor":
+      self._open_pick_anchor_menu(pos)
       return True
     return False
 
@@ -350,7 +755,7 @@ class EventsMixin:
       kind = type(obj).__name__.replace("Editor", "")
       title = f"{kind}  ·  layer {cur}" + ("  (default)" if is_default else "")
 
-    from .objects import EditorBackground, EditorPlatform
+    from .objects import EditorBackground, EditorPlatform, EditorAnchor
     options = []
     if not is_group and isinstance(obj, (EditorBackground, EditorPlatform)):
       if getattr(obj, "polygon", False):
@@ -366,6 +771,10 @@ class EventsMixin:
     # <STRANGE>#1080: Open inspector entry for every object
     if not is_group:
       options.append(("Open inspector", ("open_inspector", None)))
+    # <STRANGE>#1407: anchors can export their pair info
+    if not is_group and isinstance(obj, EditorAnchor):
+      options.append(("Change variant...", ("change_anchor_variant", None)))
+      options.append(("Export info", ("export_anchor", None)))
     options.append(("Layer  +1", ("layer", 1)))
     options.append(("Layer  -1", ("layer", -1)))
     options.append(("Layer  +5", ("layer", 5)))
@@ -410,6 +819,12 @@ class EventsMixin:
         return
       if act == "open_inspector":
         self.push_inspector(obj)
+        return
+      if act == "export_anchor":
+        self._export_anchor_info(obj)
+        return
+      if act == "change_anchor_variant":
+        self._open_change_anchor_variant_menu(obj, pos)
         return
       if act == "layer":
         for t in targets:
@@ -488,6 +903,34 @@ class EventsMixin:
     options = [(t, t) for t in ARTIFACT_TYPES]
     cur = getattr(self, "current_artifact_type", DEFAULT_ARTIFACT_TYPE)
     title = "Place artifact  \u00b7  current: %s" % cur
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+
+  def _open_change_anchor_variant_menu(self, anchor, pos):
+    # <STRANGE>#1422: change variant of an existing anchor
+    from .const import ANCHOR_VARIANTS
+    before = self._snapshot()
+    def on_select(t):
+      if t == anchor.variant:
+        return
+      anchor.variant = t
+      # <STRANGE>#1446: S uniqueness is per-zone, not global - do nothing here
+      self._push_undo_now(before)
+      self._mark_scene_dirty()
+      self._sync_inspector()
+    options = [(v, v) for v in ANCHOR_VARIANTS]
+    title = "Variant  \u00b7  %s" % anchor.variant
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+
+  def _open_pick_anchor_menu(self, pos):
+    # <STRANGE>#1408: pick anchor variant (A / B / S)
+    from .const import ANCHOR_VARIANTS
+    def on_select(t):
+      self.current_anchor_variant = t
+    options = [(v, v) for v in ANCHOR_VARIANTS]
+    cur = getattr(self, "current_anchor_variant", "A")
+    title = "Place anchor  \u00b7  current: %s" % cur
     self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
                                     on_select, title=title)
 

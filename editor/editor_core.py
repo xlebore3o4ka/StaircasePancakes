@@ -40,6 +40,20 @@ def _version_incompatible(level_v, game_v):
   lv = _version_parse(level_v)
   gv = _version_parse(game_v)
   return (lv[0], lv[1]) != (gv[0], gv[1]) and lv > gv
+
+
+def _ease(t, kind):
+  # <STRANGE>#1164: same easings as ctx.move_to
+  t = max(0.0, min(1.0, t))
+  if kind == "linear":
+    return t
+  if kind == "in":
+    return t * t
+  if kind == "out":
+    return 1.0 - (1.0 - t) * (1.0 - t)
+  if kind == "inout":
+    return 2.0 * t * t if t < 0.5 else 1.0 - 2.0 * (1.0 - t) * (1.0 - t)
+  return t
 from .panel import TopPanel
 
 
@@ -128,6 +142,35 @@ class CoreMixin:
     self.inspector_stack = []
     # <STRANGE>#560: grid step (?????? ?? rbxl studio) ??? ?????????????? ??????????
     self.grid_enabled = False
+    # <STRANGE>#1140: mind (thinking) mode flag. Tools are replaced.
+    self.mind_mode = False
+    # <STRANGE>#1150: current plan produced by Planner tool
+    self.plan = None
+    # ephemeral preview during a plan drag
+    self._plan_preview = None
+    # <STRANGE>#1160: preview playback state
+    self.plan_preview_active = False
+    self.plan_preview_t = 0.0
+    self.plan_preview_phase = "forward"  # forward | hold | back
+    self.plan_preview_origin = {}  # id(obj) -> (x, y)
+    # <STRANGE>#1170: inline plan field editing
+    self.plan_focus = None       # 'dx' | 'dy' | 'dur' | None
+    self.plan_buffer = ""        # current typed text
+    self.plan_cursor_blink = 0.0
+    # <STRANGE>#1300: markup tool state (batch id assignment)
+    self.markup = {"prefix": "", "postfix": "", "min": 0, "sep": "_"}
+    self.markup_focus = None
+    self.markup_buffer = ""
+    self.markup_cursor_blink = 0.0
+    # <STRANGE>#1401: anchor tool state
+    self.current_anchor_variant = "A"
+    self.anchor_focus = None
+    self.anchor_buffer = ""
+    self.anchor_cursor_blink = 0.0
+    # <STRANGE>#1150: current plan produced by Planner tool
+    self.plan = None
+    # ephemeral preview during a plan drag
+    self._plan_preview = None
     self.grid_step = 10
     self.grid_step_angle = 15
     # <STRANGE>#508: ?????????????????????????? ?????????????????????????? ?????? (?????? None)
@@ -263,9 +306,16 @@ class CoreMixin:
   def _rebuild_scene_lists(self):
     items = []
     locked = []
+    # <STRANGE>#1130: skip None objects so a bad undo snapshot can't crash us
+    clean = []
+    for obj in self.objects:
+      if obj is not None:
+        clean.append(obj)
+    if len(clean) != len(self.objects):
+      self.objects = clean
     for i, obj in enumerate(self.objects):
       items.append((self._effective_layer(obj), i, "obj", obj))
-      if obj.locked:
+      if getattr(obj, "locked", False):
         locked.append(obj)
     items.append((LAYER_FLOOR, -1, "floor", None))
     items.append((GHOST_LAYER, -1, "ghost", None))
@@ -348,6 +398,428 @@ class CoreMixin:
         alive.append(m)
     self.world_markers = alive
 
+  def _plan_field_positions(self):
+    # <STRANGE>#1182: rows come from the render side (screen coords).
+    info = getattr(self, "_plan_panel_pos", None)
+    if not isinstance(info, dict):
+      return {}
+    return dict(info.get("rows", {}))
+
+  def _plan_field_commit(self):
+    # <STRANGE>#1172: commit the current buffer to the plan field
+    f = self.plan_focus
+    if f is None or self.plan is None:
+      self.plan_focus = None
+      self.plan_buffer = ""
+      return
+    try:
+      v = float(self.plan_buffer)
+    except Exception:
+      v = None
+    if v is not None:
+      if f == "dx":
+        self.plan["dx"] = v
+      elif f == "dy":
+        self.plan["dy"] = v
+      elif f == "dur":
+        self.plan["dur"] = max(0.05, v)
+    self.plan_focus = None
+    self.plan_buffer = ""
+    self._mark_scene_dirty()
+
+  def _plan_field_key(self, e):
+    # <STRANGE>#1173: keyboard handling for plan edit fields
+    if self.plan_focus is None:
+      return False
+    if e.key == pygame.K_ESCAPE:
+      self.plan_focus = None
+      self.plan_buffer = ""
+      return True
+    if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
+      self._plan_field_commit()
+      return True
+    if e.key == pygame.K_BACKSPACE:
+      self.plan_buffer = self.plan_buffer[:-1]
+      return True
+    if e.unicode and (e.unicode.isdigit() or e.unicode in ".+-"):
+      if len(self.plan_buffer) < 12:
+        self.plan_buffer += e.unicode
+      return True
+    return True
+
+  def _tick_plan_preview(self, dt):
+    # <STRANGE>#1161: animate the group forward -> hold -> back
+    if not getattr(self, "plan_preview_active", False):
+      return
+    p = getattr(self, "plan", None)
+    if p is None:
+      self.plan_preview_active = False
+      return
+    dur = float(p.get("dur", 0.5))
+    dx = float(p.get("dx", 0.0))
+    dy = float(p.get("dy", 0.0))
+    HOLD = 0.3
+    phase = self.plan_preview_phase
+    self.plan_preview_t += dt
+    if phase == "forward":
+      k = min(1.0, self.plan_preview_t / max(0.001, dur))
+      k = _ease(k, p.get("ease", "out"))
+    else:
+      # <STRANGE>#1200: hold phase only; return is a teleport, not animation
+      k = 1.0
+    for obj in p.get("objects", []):
+      orig = self.plan_preview_origin.get(id(obj))
+      if orig is None:
+        continue
+      obj.x = orig[0] + dx * k
+      obj.y = orig[1] + dy * k
+    # phases
+    if phase == "forward" and self.plan_preview_t >= dur:
+      self.plan_preview_phase = "hold"
+      self.plan_preview_t = 0.0
+    elif phase == "hold" and self.plan_preview_t >= HOLD:
+      # <STRANGE>#1201: teleport home, no animated return
+      self._stop_plan_preview()
+
+  def _start_plan_preview(self):
+    # <STRANGE>#1162: snapshot origins, begin forward phase
+    p = getattr(self, "plan", None)
+    if p is None:
+      return
+    self.plan_preview_origin = {}
+    for obj in p.get("objects", []):
+      self.plan_preview_origin[id(obj)] = (obj.x, obj.y)
+    self.plan_preview_active = True
+    self.plan_preview_t = 0.0
+    self.plan_preview_phase = "forward"
+    self._mark_scene_dirty()
+
+  def _stop_plan_preview(self):
+    # <STRANGE>#1163: restore origins and stop
+    p = getattr(self, "plan", None)
+    if p is not None:
+      for obj in p.get("objects", []):
+        orig = self.plan_preview_origin.get(id(obj))
+        if orig is not None:
+          obj.x, obj.y = orig
+    self.plan_preview_origin = {}
+    self.plan_preview_active = False
+    self.plan_preview_t = 0.0
+    self.plan_preview_phase = "forward"
+    self._mark_scene_dirty()
+
+  def _markup_field_commit(self):
+    # <STRANGE>#1302: apply the typed buffer to the markup field
+    f = self.markup_focus
+    if f is None:
+      return
+    txt = self.markup_buffer
+    if f == "min":
+      try:
+        self.markup["min"] = int(txt)
+      except Exception:
+        pass
+    else:
+      self.markup[f] = txt
+    self.markup_focus = None
+    self.markup_buffer = ""
+    self._mark_scene_dirty()
+
+  def _markup_field_key(self, e):
+    # <STRANGE>#1303: keyboard for markup fields
+    if self.markup_focus is None:
+      return False
+    if e.key == pygame.K_ESCAPE:
+      self.markup_focus = None
+      self.markup_buffer = ""
+      return True
+    if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
+      self._markup_field_commit()
+      return True
+    if e.key == pygame.K_BACKSPACE:
+      self.markup_buffer = self.markup_buffer[:-1]
+      return True
+    if e.unicode and e.unicode.isprintable():
+      if len(self.markup_buffer) < 32:
+        self.markup_buffer += e.unicode
+      return True
+    return True
+
+  def _markup_apply(self):
+    # <STRANGE>#1304: assign ids to all selected objects in document order
+    objs = list(self.selection)
+    if not objs:
+      return
+    pre = str(self.markup.get("prefix", ""))
+    post = str(self.markup.get("postfix", ""))
+    sep = str(self.markup.get("sep", "_"))
+    n = int(self.markup.get("min", 0))
+    order = [o for o in self.objects if o in objs]
+    before = self._snapshot()
+    for o in order:
+      parts = []
+      if pre:
+        parts.append(pre)
+      parts.append(str(n))
+      if post:
+        parts.append(post)
+      o.id = sep.join(parts)
+      n += 1
+    self._push_undo_now(before)
+    self._mark_scene_dirty()
+    try:
+      from .messages import INFO
+      self.messages.toast_only(INFO, "Marked %d object(s)" % len(order), 2.5)
+    except Exception:
+      pass
+
+  def _anchor_field_commit(self):
+    # <STRANGE>#1470: A/B commit binding; S commits name/weight/max_limit
+    f = self.anchor_focus
+    if f is None:
+      return
+    objs = [o for o in self.selection if hasattr(o, "variant")]
+    if not objs:
+      self.anchor_focus = None
+      self.anchor_buffer = ""
+      return
+    before = self._snapshot()
+    for o in objs:
+      v = getattr(o, "variant", "")
+      if f == "binding" and v in ("A", "B"):
+        o.binding = self.anchor_buffer
+      elif f == "name" and v == "S":
+        o.name = self.anchor_buffer
+      elif f == "weight" and v == "S":
+        try:
+          val = int(self.anchor_buffer)
+          if val < 1: val = 1
+          o.weight = val
+        except Exception:
+          pass
+      elif f == "max_limit" and v == "S":
+        try:
+          val = int(self.anchor_buffer)
+          if val < 1: val = 1
+          o.max_limit = val
+        except Exception:
+          pass
+    self._push_undo_now(before)
+    self.anchor_focus = None
+    self.anchor_buffer = ""
+    self._mark_scene_dirty()
+
+  def _bake_zone(self, s_anchor):
+    # <STRANGE>#1471: bake a zone: N copies of its objects with IDs orig_N
+    import json as _json
+    from tkinter import filedialog as _fd
+    import tkinter as _tk
+    if s_anchor is None or getattr(s_anchor, "variant", "") != "S":
+      return False
+    pairs, free_s, assigned, zone_s = self._anchor_pairs()
+    bnd = assigned.get(id(s_anchor))
+    if bnd is None:
+      return False
+    s_ids = zone_s.get(bnd, [])
+    if len(s_ids) > 1:
+      try:
+        from .messages import ERROR
+        self.messages.toast_only(ERROR,
+            "Cannot bake: zone has multiple S", 3.0)
+      except Exception:
+        pass
+      return False
+    A = B = None
+    for b, a, b_ in pairs:
+      if b == bnd:
+        A = a
+        B = b_
+        break
+    if A is None or B is None:
+      return False
+    l, r, bt, tt = self._anchor_zone_rect(A, B)
+    inside = []
+    for o in self.objects:
+      if hasattr(o, "variant"):
+        continue
+      try:
+        if o.intersects_rect(l, r, bt, tt):
+          inside.append(o)
+      except Exception:
+        pass
+    no_id = [o for o in inside if not getattr(o, "id", "")]
+    if no_id:
+      try:
+        from .messages import ERROR
+        self.messages.toast_only(ERROR,
+            "Cannot bake: %d object(s) have no id" % len(no_id), 3.0)
+      except Exception:
+        pass
+      return False
+    before = self._snapshot()
+    orig_ids = {}
+    orig_states = {}
+    for o in inside:
+      orig_ids[id(o)] = o.id
+      orig_states[id(o)] = self._obj_to_state(o)
+    sx, sy = s_anchor.x, s_anchor.y
+    rel = {}
+    for o in inside:
+      rel[id(o)] = (o.x - sx, o.y - sy)
+    N = max(1, int(getattr(s_anchor, "max_limit", 1)))
+    payload = {
+      "version": 1,
+      "zone": {
+        "binding": str(bnd),
+        "name": str(getattr(s_anchor, "name", "")),
+        "weight": int(getattr(s_anchor, "weight", 1)),
+        "max_limit": int(N),
+        "size": [int(abs(B.x - A.x)), int(abs(B.y - A.y))],
+        "instances": [],
+      },
+      "free_spawns": [],
+    }
+    for sf in free_s:
+      payload["free_spawns"].append({"x": int(sf.x), "y": int(sf.y)})
+    for n in range(1, N + 1):
+      inst = {"n": n, "objects": []}
+      for o in inside:
+        dx, dy = rel[id(o)]
+        inst["objects"].append({
+          "id": orig_ids[id(o)] + ("_%d" % n),
+          "dx": int(round(dx)),
+          "dy": int(round(dy)),
+        })
+      payload["zone"]["instances"].append(inst)
+    for o in inside:
+      o.id = orig_ids[id(o)] + "_1"
+    for n in range(2, N + 1):
+      for o in inside:
+        st = dict(orig_states[id(o)])
+        st["id"] = orig_ids[id(o)] + ("_%d" % n)
+        try:
+          new_o = self._make_from_state(st)
+        except Exception:
+          new_o = None
+        if new_o is not None:
+          self.objects.append(new_o)
+    remove_ids = set()
+    remove_ids.add(id(A))
+    remove_ids.add(id(B))
+    remove_ids.add(id(s_anchor))
+    for sid in s_ids:
+      remove_ids.add(sid)
+    self.objects = [o for o in self.objects if id(o) not in remove_ids]
+    self._push_undo_now(before)
+    self._mark_scene_dirty()
+    # Offer to save JSON
+    try:
+      root = _tk.Tk()
+      root.withdraw()
+      path = _fd.asksaveasfilename(
+          defaultextension=".json",
+          initialdir="levels",
+          initialfile="zone_%s.json" % bnd,
+          filetypes=[("JSON", "*.json")],
+      )
+      root.destroy()
+      self._flush_pygame_events()
+      if path:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+          f.write(_json.dumps(payload, indent=2))
+        try:
+          from .messages import INFO
+          self.messages.toast_only(INFO,
+              "Baked %d copies, saved: %s" % (N, path), 3.5)
+        except Exception:
+          pass
+    except Exception:
+      pass
+    return True
+
+  def _anchor_field_key(self, e):
+    # <STRANGE>#1474: keyboard for anchor fields
+    if self.anchor_focus is None:
+      return False
+    if e.key == pygame.K_ESCAPE:
+      self.anchor_focus = None
+      self.anchor_buffer = ""
+      return True
+    if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
+      self._anchor_field_commit()
+      return True
+    if e.key == pygame.K_BACKSPACE:
+      self.anchor_buffer = self.anchor_buffer[:-1]
+      return True
+    if e.unicode and e.unicode.isprintable():
+      if len(self.anchor_buffer) < 48:
+        self.anchor_buffer += e.unicode
+      return True
+    return True
+
+  @staticmethod
+  def _anchor_zone_rect(a, b):
+    # (l, r, bottom, top)
+    l = min(a.x, b.x); r = max(a.x, b.x)
+    bt = min(a.y, b.y); tt = max(a.y, b.y)
+    return (l, r, bt, tt)
+
+  @staticmethod
+  def _zone_contains_strict(zr, s):
+    # <STRANGE>#1442: strict inside; edges do NOT count
+    l, r, bt, tt = zr
+    return (l < s.x < r) and (bt < s.y < tt)
+
+  @staticmethod
+  def _rects_overlap(z1, z2):
+    l1, r1, b1, t1 = z1
+    l2, r2, b2, t2 = z2
+    return not (r1 <= l2 or r2 <= l1 or t1 <= b2 or t2 <= b1)
+
+  def _anchor_pairs(self):
+    # <STRANGE>#1443: A/B without binding ignored; S auto-binds by geometry;
+    # free S are those outside every zone.
+    a_map = {}
+    b_map = {}
+    for o in self.objects:
+      if not hasattr(o, "variant"):
+        continue
+      v = getattr(o, "variant", "")
+      bnd = str(getattr(o, "binding", ""))
+      if not bnd:
+        continue
+      if v == "A":
+        a_map.setdefault(bnd, []).append(o)
+      elif v == "B":
+        b_map.setdefault(bnd, []).append(o)
+    pairs = []
+    for bnd in sorted(set(list(a_map.keys()) + list(b_map.keys()))):
+      a = a_map.get(bnd, [])
+      b = b_map.get(bnd, [])
+      if a and b:
+        pairs.append((bnd, a[0], b[0]))
+    # S anchors
+    s_all = [o for o in self.objects
+             if getattr(o, "variant", "") == "S"]
+    assigned = {}  # id(s) -> binding
+    free_s = []
+    for s in s_all:
+      hit = None
+      for bnd, a, b in pairs:
+        zr = self._anchor_zone_rect(a, b)
+        if self._zone_contains_strict(zr, s):
+          hit = bnd
+          break
+      if hit is None:
+        free_s.append(s)
+      else:
+        assigned[id(s)] = hit
+    # zones with their S (or None)
+    zone_s = {}
+    for sid, bnd in assigned.items():
+      zone_s.setdefault(bnd, []).append(sid)
+    return pairs, free_s, assigned, zone_s
+
   def _recompute_messages(self):
     # <STRANGE>#1003: scan for duplicate non-empty ids among all objects
     id_map = {}
@@ -376,6 +848,111 @@ class CoreMixin:
     for k in list(self.messages.active.keys()):
       if k.startswith("dup_id:") and k not in seen:
         self.messages.clear(k)
+    # <STRANGE>#1444: anchor warnings (binding duplicates, zone overlap,
+    # missing S in a zone, missing id in a zone)
+    try:
+      pairs, free_s, assigned, zone_s = self._anchor_pairs()
+      # binding duplicates (same binding on >1 A or >1 B)
+      from collections import defaultdict
+      bnds = defaultdict(lambda: {"A": [], "B": []})
+      for o in self.objects:
+        if getattr(o, "variant", "") in ("A", "B"):
+          bnd = str(getattr(o, "binding", ""))
+          if bnd:
+            bnds[bnd][getattr(o, "variant", "")].append(o)
+      dup_targets = []
+      dup_names = []
+      for bnd, d in bnds.items():
+        if len(d["A"]) > 1 or len(d["B"]) > 1:
+          dup_targets.extend(d["A"] + d["B"])
+          dup_names.append(bnd)
+      if dup_targets:
+        self.messages.set("anchor_dup", WARN,
+                          "Anchor binding duplicated: " + ", ".join(sorted(dup_names)),
+                          dup_targets)
+      else:
+        self.messages.clear("anchor_dup")
+      # zone overlap
+      overlap_targets = []
+      for i in range(len(pairs)):
+        for j in range(i + 1, len(pairs)):
+          z1 = self._anchor_zone_rect(pairs[i][1], pairs[i][2])
+          z2 = self._anchor_zone_rect(pairs[j][1], pairs[j][2])
+          if self._rects_overlap(z1, z2):
+            overlap_targets.extend([pairs[i][1], pairs[i][2],
+                                    pairs[j][1], pairs[j][2]])
+      if overlap_targets:
+        self.messages.set("anchor_overlap", ERROR,
+                          "Anchor zones overlap", overlap_targets)
+      else:
+        self.messages.clear("anchor_overlap")
+      # multiple S in one zone (ERROR: exactly one S per zone)
+      multi_s = []
+      multi_names = []
+      for bnd, s_ids in zone_s.items():
+        if len(s_ids) > 1:
+          multi_names.append(bnd)
+          for sid in s_ids:
+            for o in self.objects:
+              if id(o) == sid:
+                multi_s.append(o)
+                break
+      if multi_s:
+        self.messages.set("anchor_multi_s", ERROR,
+                          "Zone has multiple S: " + ", ".join(sorted(multi_names)),
+                          multi_s)
+      else:
+        self.messages.clear("anchor_multi_s")
+      # multiple S in one zone (ERROR: exactly one S per zone)
+      multi_s = []
+      multi_names = []
+      for bnd, s_ids in zone_s.items():
+        if len(s_ids) > 1:
+          multi_names.append(bnd)
+          for sid in s_ids:
+            for o in self.objects:
+              if id(o) == sid:
+                multi_s.append(o)
+                break
+      if multi_s:
+        self.messages.set("anchor_multi_s", ERROR,
+                          "Zone has multiple S: " + ", ".join(sorted(multi_names)),
+                          multi_s)
+      else:
+        self.messages.clear("anchor_multi_s")
+      # zone missing its S
+      miss_targets = []
+      for bnd, a, b in pairs:
+        if bnd not in zone_s:
+          miss_targets.extend([a, b])
+      if miss_targets:
+        self.messages.set("anchor_no_s", INFO,
+                          "Zone without S: %d" % (len(miss_targets) // 2),
+                          miss_targets)
+      else:
+        self.messages.clear("anchor_no_s")
+      # no-id objects inside zones
+      bad = []
+      for bnd, a, b in pairs:
+        l, r, bt, tt = self._anchor_zone_rect(a, b)
+        for o in self.objects:
+          if hasattr(o, "variant"):
+            continue
+          try:
+            if not o.intersects_rect(l, r, bt, tt):
+              continue
+          except Exception:
+            continue
+          if not getattr(o, "id", ""):
+            bad.append(o)
+      if bad:
+        self.messages.set("anchor_no_id", WARN,
+                          "Anchor zone has %d object(s) without id" % len(bad),
+                          bad)
+      else:
+        self.messages.clear("anchor_no_id")
+    except Exception:
+      pass
 
   # ---------- main loop ----------
   def run(self):
@@ -401,6 +978,10 @@ class CoreMixin:
         self._recompute_messages()
       self.messages.update(dt)
       self._tick_world_markers(dt)
+      self._tick_plan_preview(dt)
+      self.plan_cursor_blink = (self.plan_cursor_blink + dt) % 1.0
+      self.markup_cursor_blink = (self.markup_cursor_blink + dt) % 1.0
+      self.anchor_cursor_blink = (self.anchor_cursor_blink + dt) % 1.0
       for p in self.inspector_stack:
         p.update(dt)
       self.draw()
@@ -412,6 +993,13 @@ class CoreMixin:
     self.exit_polygon_edit()
     self.ghost_idle = 0.0
     self.tool = name
+    # <STRANGE>#1305: clear text field focus when switching tools
+    self.plan_focus = None
+    self.plan_buffer = ""
+    self.markup_focus = None
+    self.markup_buffer = ""
+    self.anchor_focus = None
+    self.anchor_buffer = ""
     self.erasing = False
     self._erase_prev = None
     self.zone_start = None

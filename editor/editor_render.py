@@ -20,6 +20,7 @@ from .const import (
   ARTIFACT_EDGE_W,
   TRIGGER_FILL, TRIGGER_EDGE, TRIGGER_EDGE_W,
   BUTTON_R, BUTTON_FILL, BUTTON_EDGE,
+  ANCHOR_SIZE, ANCHOR_ZONE_EDGE,
   ARTIFACT_LETTER_FG,
 )
 from .const import (
@@ -111,6 +112,8 @@ class RenderMixin:
       self._draw_id_labels()
       self._draw_problem_stripes()
       self._draw_world_markers()
+      self._draw_anchor_zones()
+      self._draw_plan_ghost()
 
       for obj in self.selection:
         sx, sy = self.to_screen(obj.x, obj.y)
@@ -130,6 +133,9 @@ class RenderMixin:
 
     for p in self.inspector_stack:
       p.draw(self.screen)
+    self._draw_plan_panel()
+    self._draw_markup_panel()
+    self._draw_anchor_panel()
 
     if self.polygon_edit is not None:
       self.draw_select_rect_preview()
@@ -143,9 +149,16 @@ class RenderMixin:
     # <STRANGE>#526: ???????????????????????????? ???????????? ?????? ???????????????? ?????? ???????????? ????????????
     from .objects import (
       EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
+      EditorButton, EditorAnchor,
     )
     col = (255, 255, 255, 70)
-    if isinstance(obj, (EditorPeg, EditorSpawner)):
+    if isinstance(obj, EditorAnchor):
+      sx, sy = self.to_screen(obj.x, obj.y)
+      r = max(1, int((obj.size / 2) * self.zoom))
+      rr = pygame.Rect(int(sx - r), int(sy - r), r * 2, r * 2)
+      pygame.draw.rect(self.screen, col, rr, 1)
+      return
+    if isinstance(obj, (EditorPeg, EditorSpawner, EditorButton)):
       sx, sy = self.to_screen(obj.x, obj.y)
       r = max(1, int(obj.r * self.zoom))
       pygame.draw.circle(self.screen, col, (int(sx), int(sy)), r, 1)
@@ -238,6 +251,515 @@ class RenderMixin:
     self.screen.blit(bg, (int(x), int(y)))
     self.screen.blit(surf, (int(x) + 3, int(y) + 1))
 
+  def _draw_anchor_zones(self):
+    # <STRANGE>#1409: draw boundary-only rectangles between paired A/B
+    if not hasattr(self, "_anchor_pairs"):
+      return
+    try:
+      pairs, _free, _assigned, _zone_s = self._anchor_pairs()
+    except Exception:
+      return
+    for bnd, a, b in pairs:
+      l = min(a.x, b.x); r = max(a.x, b.x)
+      bt = min(a.y, b.y); tt = max(a.y, b.y)
+      x0, y0 = self.to_screen(l, tt)
+      x1, y1 = self.to_screen(r, bt)
+      rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                         int(abs(x1 - x0)), int(abs(y1 - y0)))
+      if rect.w < 2 or rect.h < 2:
+        continue
+      pygame.draw.rect(self.screen, ANCHOR_ZONE_EDGE, rect, 2)
+
+  def _draw_anchor_panel(self):
+    # <STRANGE>#1472: A/B -> binding only. S -> name/weight/max_limit + objects + Bake
+    if not getattr(self, "mind_mode", False):
+      self._anchor_panel_pos = None
+      return
+    if self.tool != "anchor":
+      self._anchor_panel_pos = None
+      return
+    sel = None
+    for o in self.selection:
+      if hasattr(o, "variant"):
+        sel = o
+        break
+    if sel is None:
+      self._anchor_panel_pos = None
+      return
+    variant = getattr(sel, "variant", "A")
+    font = self.font
+    font_small = pygame.font.SysFont(None, 18)
+    font_title = pygame.font.SysFont(None, 22, bold=True)
+    W = 300
+    top = self.panel.height() + 8
+    left = 10
+    if variant in ("A", "B"):
+      y_title = 10
+      y_info = 42
+      y_rows_start = 68
+      row_h = 24
+      H = y_rows_start + row_h + 16
+      panel = pygame.Surface((W, H), pygame.SRCALPHA)
+      panel.fill((24, 27, 33, 230))
+      pygame.draw.rect(panel, (60, 66, 78), panel.get_rect(), 1, border_radius=6)
+      panel.blit(font_title.render("ANCHOR " + variant,
+                                   True, (225, 230, 240)), (12, y_title))
+      panel.blit(font_small.render("pos %d, %d" % (int(sel.x), int(sel.y)),
+                                   True, (170, 176, 188)), (12, y_info))
+      row = pygame.Rect(left + 12, top + y_rows_start, W - 24, row_h)
+      def _to_local_a(r):
+        return pygame.Rect(r.x - left, r.y - top, r.w, r.h)
+      self._draw_anchor_row(panel, _to_local_a(row), "binding",
+                            getattr(sel, "binding", "") or "<empty>", "binding")
+      self.screen.blit(panel, (left, top))
+      self._anchor_panel_pos = {"rows": {"binding": row}, "buttons": []}
+      return
+    if variant != "S":
+      self._anchor_panel_pos = None
+      return
+    pairs, free_s, assigned, zone_s = self._anchor_pairs()
+    bnd = assigned.get(id(sel))
+    if bnd is None:
+      self._anchor_panel_pos = None
+      return
+    A = B = None
+    for b, a, b_ in pairs:
+      if b == bnd:
+        A = a
+        B = b_
+        break
+    if A is None or B is None:
+      self._anchor_panel_pos = None
+      return
+    l, r_, bt, tt = self._anchor_zone_rect(A, B)
+    inside = []
+    for o in self.objects:
+      if hasattr(o, "variant"):
+        continue
+      try:
+        if o.intersects_rect(l, r_, bt, tt):
+          inside.append(o)
+      except Exception:
+        pass
+    MAX_OBJ = 5
+    shown = inside[:MAX_OBJ]
+    extra = max(0, len(inside) - MAX_OBJ)
+    list_rows = len(shown) + (1 if extra > 0 else 0)
+    if list_rows < 1:
+      list_rows = 1
+    y_title = 10
+    y_info = 42
+    y_rows_start = 68
+    row_h = 24
+    row_gap = 4
+    y_objs_label = y_rows_start + 3 * (row_h + row_gap) + 8
+    y_objs_start = y_objs_label + 20
+    y_buttons = y_objs_start + list_rows * 20 + 8
+    H = y_buttons + 26 + 12
+    panel = pygame.Surface((W, H), pygame.SRCALPHA)
+    panel.fill((24, 27, 33, 230))
+    pygame.draw.rect(panel, (60, 66, 78), panel.get_rect(), 1, border_radius=6)
+    panel.blit(font_title.render("ANCHOR S  " + str(bnd),
+                                 True, (225, 230, 240)), (12, y_title))
+    panel.blit(font_small.render("pos %d, %d" % (int(sel.x), int(sel.y)),
+                                 True, (170, 176, 188)), (12, y_info))
+    rows_screen = {
+      "name":      pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 0, W - 24, row_h),
+      "weight":    pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 1, W - 24, row_h),
+      "max_limit": pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 2, W - 24, row_h),
+    }
+    def _to_local_s(r):
+      return pygame.Rect(r.x - left, r.y - top, r.w, r.h)
+    self._draw_anchor_row(panel, _to_local_s(rows_screen["name"]),
+                          "name", getattr(sel, "name", "") or "<empty>", "name")
+    self._draw_anchor_row(panel, _to_local_s(rows_screen["weight"]),
+                          "weight", str(int(getattr(sel, "weight", 1))), "weight")
+    self._draw_anchor_row(panel, _to_local_s(rows_screen["max_limit"]),
+                          "max_limit", str(int(getattr(sel, "max_limit", 1))), "max_limit")
+    panel.blit(font_small.render("objects: %d" % len(inside),
+                                 True, (170, 176, 188)), (12, y_objs_label))
+    yy = y_objs_start
+    if not inside:
+      panel.blit(font_small.render("<empty>", True, (140, 146, 158)), (16, yy))
+      yy += 20
+    else:
+      for o in shown:
+        oid = getattr(o, "id", "") or "<no id>"
+        dx = int(o.x - sel.x)
+        dy = int(o.y - sel.y)
+        panel.blit(font_small.render(oid, True, (220, 225, 235)), (16, yy))
+        panel.blit(font_small.render("(%+d, %+d)" % (dx, dy),
+                                     True, (140, 146, 158)), (W - 110, yy))
+        yy += 20
+      if extra > 0:
+        panel.blit(font_small.render("... +%d more" % extra,
+                                     True, (140, 146, 158)), (16, yy))
+        yy += 20
+    self.screen.blit(panel, (left, top))
+    bw, bh = 120, 26
+    bx = left + 12
+    by = top + y_buttons
+    btn_rect = pygame.Rect(bx, by, bw, bh)
+    mx, my = pygame.mouse.get_pos()
+    hov = btn_rect.collidepoint((mx, my))
+    bg = (80, 88, 102) if hov else (60, 66, 78)
+    from .const import GOLD
+    pygame.draw.rect(self.screen, bg, btn_rect, border_radius=4)
+    pygame.draw.rect(self.screen, GOLD if hov else (105, 112, 126),
+                     btn_rect, 1, border_radius=4)
+    ts = font.render("Bake zone", True, (225, 230, 240))
+    self.screen.blit(ts, ts.get_rect(center=btn_rect.center))
+    self._anchor_panel_pos = {"rows": rows_screen,
+                              "buttons": [(btn_rect, "bake")]}
+
+  def _draw_anchor_row(self, panel, local_rect, label, value, focus_key):
+    font = self.font
+    lr = pygame.Rect(int(local_rect.x), int(local_rect.y),
+                     int(local_rect.w), int(local_rect.h))
+    focused = (focus_key is not None and getattr(self, "anchor_focus", None) == focus_key)
+    bg = (32, 46, 60) if focused else (42, 46, 56)
+    pygame.draw.rect(panel, bg, lr, border_radius=3)
+    edge = (255, 215, 0) if focused else (70, 76, 88)
+    pygame.draw.rect(panel, edge, lr, 1, border_radius=3)
+    panel.blit(font.render(label, True, (170, 176, 188)),
+               (lr.x + 8, lr.y + (lr.h - font.get_height()) // 2))
+    txt = str(value)
+    if focused:
+      txt = getattr(self, "anchor_buffer", "")
+    ts = font.render(txt, True, (225, 230, 240))
+    panel.blit(ts, (lr.right - ts.get_width() - 10,
+                    lr.y + (lr.h - ts.get_height()) // 2))
+    if focused and getattr(self, "anchor_cursor_blink", 0.0) < 0.5:
+      cx = lr.right - 8
+      pygame.draw.line(panel, (225, 230, 240),
+                       (cx, lr.y + 5), (cx, lr.bottom - 5), 1)
+
+  def _draw_plan_ghost(self):
+    # <STRANGE>#1174: silhouette shown whenever a plan exists;
+    # uses live preview during a drag, otherwise the stored plan dx/dy.
+    if self.tool != "planner":
+      return
+    dx = None
+    dy = None
+    dragging = False
+    prev = getattr(self, "_plan_preview", None)
+    if prev is not None:
+      dx = prev.get("dx", 0.0)
+      dy = prev.get("dy", 0.0)
+      dragging = True
+    else:
+      p = getattr(self, "plan", None)
+      if p is None:
+        return
+      dx = p.get("dx", 0.0)
+      dy = p.get("dy", 0.0)
+    from .objects import (EditorPeg, EditorSpawner, EditorArtifact,
+                          EditorButton, EditorPlatform, EditorBackground,
+                          EditorItem, EditorTrigger)
+    col = (120, 220, 255)
+    ghost = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+    # <STRANGE>#1210: fade ghost during preview as the object approaches
+    fade = 255
+    if (not dragging) and getattr(self, "plan_preview_active", False):
+      _dur = float((self.plan or {}).get("dur", 0.5))
+      _phase = getattr(self, "plan_preview_phase", "forward")
+      _t = getattr(self, "plan_preview_t", 0.0)
+      if _phase == "forward":
+        _k = min(1.0, _t / max(0.001, _dur))
+      elif _phase == "hold":
+        _k = 1.0
+      else:
+        _k = 0.0
+      fade = int(255 * max(0.0, 1.0 - _k))
+    targets = self.selection if dragging else (self.plan or {}).get("objects", [])
+    orig = {} if dragging else (self.plan or {}).get("orig_positions", {})
+    for obj in targets:
+      if dragging:
+        base_x, base_y = obj.x, obj.y
+      else:
+        base_x, base_y = orig.get(id(obj), (obj.x, obj.y))
+      if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
+        sx, sy = self.to_screen(base_x + dx, base_y + dy)
+        r = max(2, int(obj.r * self.zoom))
+        pygame.draw.circle(ghost, (*col, 200), (int(sx), int(sy)), r)
+        pygame.draw.circle(ghost, (*col, 255), (int(sx), int(sy)), r, 3)
+      elif isinstance(obj, (EditorPlatform, EditorBackground)) and getattr(obj, "polygon", False):
+        pts = [self.to_screen(base_x + (x - obj.x) + dx, base_y + (y - obj.y) + dy) for (x, y) in obj.world_points()]
+        ipts = [(int(x), int(y)) for x, y in pts]
+        if len(ipts) >= 3:
+          pygame.draw.polygon(ghost, (*col, 200), ipts)
+          pygame.draw.polygon(ghost, (*col, 255), ipts, 3)
+      else:
+        try:
+          l, r, b, t = obj.world_rect()
+        except Exception:
+          continue
+        x0, y0 = self.to_screen(base_x + (l - obj.x) + dx, base_y + (t - obj.y) + dy)
+        x1, y1 = self.to_screen(base_x + (r - obj.x) + dx, base_y + (b - obj.y) + dy)
+        rr = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                         int(abs(x1 - x0)), int(abs(y1 - y0)))
+        ov = pygame.Surface((max(1, rr.w), max(1, rr.h)), pygame.SRCALPHA)
+        ov.fill((*col, 200))
+        ghost.blit(ov, rr.topleft)
+        pygame.draw.rect(ghost, (*col, 255), rr, 3)
+    # <STRANGE>#1175: during drag, draw a thin line from origin to target.
+    if dragging:
+      for obj in self.selection:
+        try:
+          ox, oy = self.to_screen(obj.x, obj.y)
+          tx, ty = self.to_screen(obj.x + dx, obj.y + dy)
+          pygame.draw.line(self.screen, (*col, 120),
+                           (int(ox), int(oy)), (int(tx), int(ty)), 1)
+        except Exception:
+          pass
+    if fade < 255:
+      ghost.fill((255, 255, 255, fade), special_flags=pygame.BLEND_RGBA_MULT)
+    self.screen.blit(ghost, (0, 0))
+
+  def _draw_plan_panel(self):
+    # <STRANGE>#1180: left panel; ALL hit rects stored in SCREEN coords
+    if not getattr(self, "mind_mode", False):
+      return
+    if self.tool != "planner":
+      return
+    p = getattr(self, "plan", None)
+    if p is None:
+      self._plan_panel_pos = None
+      return
+    font = self.font
+    font_small = pygame.font.SysFont(None, 18)
+    font_title = pygame.font.SysFont(None, 22, bold=True)
+    W = 300
+    top = self.panel.height() + 8
+    left = 10
+    objs = p.get("objects", [])
+    # <STRANGE>#1311: cap visible rows so plan panel never overflows
+    MAX_ROWS = 8
+    shown = objs[:MAX_ROWS]
+    extra = max(0, len(objs) - MAX_ROWS)
+    list_rows = len(shown) + (1 if extra > 0 else 0)
+    # vertical layout (local to panel):
+    y_title = 10
+    y_objs_label = 42
+    y_objs_start = 62
+    y_rows_start = y_objs_start + list_rows * 22 + 8
+    row_h = 24
+    row_gap = 4
+    y_buttons = y_rows_start + 4 * (row_h + row_gap) + 8
+    H = y_buttons + 26 + 12
+    panel = pygame.Surface((W, H), pygame.SRCALPHA)
+    panel.fill((24, 27, 33, 230))
+    pygame.draw.rect(panel, (60, 66, 78), panel.get_rect(), 1, border_radius=6)
+    panel.blit(font_title.render("PLAN", True, (225, 230, 240)), (12, y_title))
+    panel.blit(font_small.render("objects:", True, (170, 176, 188)), (12, y_objs_label))
+    yy = y_objs_start
+    for o in shown:
+      oid = getattr(o, "id", "") or "<no id>"
+      panel.blit(font_small.render(oid, True, (220, 225, 235)), (16, yy))
+      panel.blit(font_small.render("(%d, %d)" % (int(o.x), int(o.y)),
+                                   True, (140, 146, 158)),
+                 (W - 110, yy))
+      yy += 22
+    if extra > 0:
+      panel.blit(font_small.render("... +%d more" % extra,
+                                   True, (140, 146, 158)), (16, yy))
+      yy += 22
+    # rows: local Y -> screen Y by adding `top`
+    rows_screen = {
+      "dx":  pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 0, W - 24, row_h),
+      "dy":  pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 1, W - 24, row_h),
+      "dur": pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 2, W - 24, row_h),
+      "ease":pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 3, W - 24, row_h),
+    }
+    dx = p.get("dx", 0.0); dy = p.get("dy", 0.0)
+    dur = p.get("dur", 0.5); ease = p.get("ease", "out")
+    def _to_local(r):
+      return pygame.Rect(r.x - left, r.y - top, r.w, r.h)
+    self._draw_plan_row_local(panel, _to_local(rows_screen["dx"]),  "dx",  "%+d" % int(dx), "dx")
+    self._draw_plan_row_local(panel, _to_local(rows_screen["dy"]),  "dy",  "%+d" % int(dy), "dy")
+    self._draw_plan_row_local(panel, _to_local(rows_screen["dur"]), "dur", "%.2f" % dur,     "dur")
+    self._draw_plan_row_local(panel, _to_local(rows_screen["ease"]),"ease", ease + "  >",    None)
+    self.screen.blit(panel, (left, top))
+    # buttons: absolute screen rects
+    bw, bh, gap = 88, 26, 8
+    bx = left + 12
+    by = top + y_buttons
+    buttons = []
+    labels = [("Preview", "preview"), ("Copy text", "copy"), ("Clear", "clear")]
+    mx, my = pygame.mouse.get_pos()
+    from .const import GOLD
+    for label, key in labels:
+      r = pygame.Rect(bx, by, bw, bh)
+      buttons.append((r, key))
+      hov = r.collidepoint((mx, my))
+      active = (key == "preview" and getattr(self, "plan_preview_active", False))
+      bg = (58, 128, 92) if active else ((80, 88, 102) if hov else (60, 66, 78))
+      pygame.draw.rect(self.screen, bg, r, border_radius=4)
+      pygame.draw.rect(self.screen, GOLD if active else (105, 112, 126), r, 1, border_radius=4)
+      ts = font.render(label, True, (225, 230, 240))
+      self.screen.blit(ts, ts.get_rect(center=r.center))
+      bx += bw + gap
+    self._plan_panel_pos = {"rows": rows_screen, "buttons": buttons}
+
+  def _draw_markup_panel(self):
+    # <STRANGE>#1308: left panel for markup tool
+    if not getattr(self, "mind_mode", False):
+      self._markup_panel_pos = None
+      return
+    if self.tool != "markup":
+      self._markup_panel_pos = None
+      return
+    font = self.font
+    font_small = pygame.font.SysFont(None, 18)
+    font_title = pygame.font.SysFont(None, 22, bold=True)
+    W = 300
+    top = self.panel.height() + 8
+    left = 10
+    objs = list(self.selection)
+    # <STRANGE>#1310: cap visible object rows so panel never overflows
+    MAX_ROWS = 6
+    shown = objs[:MAX_ROWS]
+    extra = max(0, len(objs) - MAX_ROWS)
+    list_rows = max(1, len(shown) + (1 if extra > 0 else 0))
+    y_title = 10
+    y_objs_label = 42
+    y_objs_start = 62
+    y_rows_start = y_objs_start + list_rows * 22 + 8
+    row_h = 24
+    row_gap = 4
+    y_buttons = y_rows_start + 4 * (row_h + row_gap) + 8
+    H = y_buttons + 26 + 12
+    panel = pygame.Surface((W, H), pygame.SRCALPHA)
+    panel.fill((24, 27, 33, 230))
+    pygame.draw.rect(panel, (60, 66, 78), panel.get_rect(), 1, border_radius=6)
+    panel.blit(font_title.render("MARKUP", True, (225, 230, 240)), (12, y_title))
+    panel.blit(font_small.render("objects: %d" % len(objs),
+                                 True, (170, 176, 188)), (12, y_objs_label))
+    yy = y_objs_start
+    if not objs:
+      panel.blit(font_small.render("<no selection>", True, (140, 146, 158)), (16, yy))
+      yy += 22
+    else:
+      for o in shown:
+        oid = getattr(o, "id", "") or "<no id>"
+        panel.blit(font_small.render(oid, True, (220, 225, 235)), (16, yy))
+        yy += 22
+      if extra > 0:
+        panel.blit(font_small.render("... +%d more" % extra,
+                                     True, (140, 146, 158)), (16, yy))
+        yy += 22
+    rows_screen = {
+      "prefix":  pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 0, W - 24, row_h),
+      "postfix": pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 1, W - 24, row_h),
+      "min":     pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 2, W - 24, row_h),
+      "sep":     pygame.Rect(left + 12, top + y_rows_start + (row_h + row_gap) * 3, W - 24, row_h),
+    }
+    def _to_local(r):
+      return pygame.Rect(r.x - left, r.y - top, r.w, r.h)
+    self._draw_markup_row(panel, _to_local(rows_screen["prefix"]),
+                          "prefix",  self.markup.get("prefix", ""), "prefix")
+    self._draw_markup_row(panel, _to_local(rows_screen["postfix"]),
+                          "postfix", self.markup.get("postfix", ""), "postfix")
+    self._draw_markup_row(panel, _to_local(rows_screen["min"]),
+                          "min",     str(self.markup.get("min", 0)), "min")
+    self._draw_markup_row(panel, _to_local(rows_screen["sep"]),
+                          "sep",     self.markup.get("sep", "_"), "sep")
+    self.screen.blit(panel, (left, top))
+    bw, bh, gap = 88, 26, 8
+    bx = left + 12
+    by = top + y_buttons
+    buttons = []
+    from .const import GOLD
+    mx, my = pygame.mouse.get_pos()
+    for label, key in [("Apply", "apply"), ("Clear", "clear")]:
+      r = pygame.Rect(bx, by, bw, bh)
+      buttons.append((r, key))
+      hov = r.collidepoint((mx, my))
+      bg = (80, 88, 102) if hov else (60, 66, 78)
+      pygame.draw.rect(self.screen, bg, r, border_radius=4)
+      pygame.draw.rect(self.screen, (105, 112, 126), r, 1, border_radius=4)
+      ts = font.render(label, True, (225, 230, 240))
+      self.screen.blit(ts, ts.get_rect(center=r.center))
+      bx += bw + gap
+    self._markup_panel_pos = {"rows": rows_screen, "buttons": buttons}
+
+  def _draw_markup_row(self, panel, local_rect, label, value, focus_key):
+    # <STRANGE>#1309: one editable markup row (panel-local coords)
+    font = self.font
+    lr = pygame.Rect(int(local_rect.x), int(local_rect.y),
+                     int(local_rect.w), int(local_rect.h))
+    focused = (focus_key is not None and getattr(self, "markup_focus", None) == focus_key)
+    bg = (32, 46, 60) if focused else (42, 46, 56)
+    pygame.draw.rect(panel, bg, lr, border_radius=3)
+    edge = (255, 215, 0) if focused else (70, 76, 88)
+    pygame.draw.rect(panel, edge, lr, 1, border_radius=3)
+    panel.blit(font.render(label, True, (170, 176, 188)),
+               (lr.x + 8, lr.y + (lr.h - font.get_height()) // 2))
+    txt = str(value)
+    if focused:
+      txt = getattr(self, "markup_buffer", "")
+    ts = font.render(txt, True, (225, 230, 240))
+    panel.blit(ts, (lr.right - ts.get_width() - 10,
+                    lr.y + (lr.h - ts.get_height()) // 2))
+    if focused and getattr(self, "markup_cursor_blink", 0.0) < 0.5:
+      cx = lr.right - 8
+      pygame.draw.line(panel, (225, 230, 240),
+                       (cx, lr.y + 5), (cx, lr.bottom - 5), 1)
+
+  def _draw_plan_row_local(self, panel, local_rect, label, value, focus_key):
+    # <STRANGE>#1181: like _draw_plan_row but coordinates are panel-local
+    font = self.font
+    lr = pygame.Rect(int(local_rect.x), int(local_rect.y),
+                     int(local_rect.w), int(local_rect.h))
+    focused = (focus_key is not None and getattr(self, "plan_focus", None) == focus_key)
+    bg = (32, 46, 60) if focused else (42, 46, 56)
+    pygame.draw.rect(panel, bg, lr, border_radius=3)
+    edge = (255, 215, 0) if focused else (70, 76, 88)
+    pygame.draw.rect(panel, edge, lr, 1, border_radius=3)
+    panel.blit(font.render(label, True, (170, 176, 188)),
+               (lr.x + 8, lr.y + (lr.h - font.get_height()) // 2))
+    txt = value
+    if focused:
+      buf = getattr(self, "plan_buffer", "")
+      txt = buf if buf else ""
+    ts = font.render(txt, True, (225, 230, 240))
+    panel.blit(ts, (lr.right - ts.get_width() - 10,
+                    lr.y + (lr.h - ts.get_height()) // 2))
+    if focused and getattr(self, "plan_cursor_blink", 0.0) < 0.5:
+      cx = lr.right - 8
+      pygame.draw.line(panel, (225, 230, 240),
+                       (cx, lr.y + 5), (cx, lr.bottom - 5), 1)
+
+  def _draw_plan_row(self, panel, rect_abs, label, value, focus_key):
+    # <STRANGE>#1177: one editable row; rect_abs is in screen coords,
+    # convert to panel-local.
+    if rect_abs is None:
+      return
+    font = self.font
+    info = self._plan_panel_pos
+    px, py = info[0], info[1]
+    lr = pygame.Rect(rect_abs.x - px, rect_abs.y - py,
+                     rect_abs.w, rect_abs.h)
+    focused = (getattr(self, "plan_focus", None) == focus_key)
+    bg = (32, 46, 60) if focused else (42, 46, 56)
+    pygame.draw.rect(panel, bg, lr, border_radius=3)
+    edge = (255, 215, 0) if focused else (70, 76, 88)
+    pygame.draw.rect(panel, edge, lr, 1, border_radius=3)
+    panel.blit(font.render(label, True, (170, 176, 188)),
+               (lr.x + 8, lr.y + (lr.h - font.get_height()) // 2))
+    txt = value
+    if focused:
+      buf = getattr(self, "plan_buffer", "")
+      txt = buf if buf else ""
+    ts = font.render(txt, True, (225, 230, 240))
+    panel.blit(ts, (lr.right - ts.get_width() - 10,
+                    lr.y + (lr.h - ts.get_height()) // 2))
+    if focused and getattr(self, "plan_cursor_blink", 0.0) < 0.5:
+      cx = lr.right - 8
+      pygame.draw.line(panel, (225, 230, 240),
+                       (cx, lr.y + 5), (cx, lr.bottom - 5), 1)
+
+
   def _draw_world_markers(self):
     # <STRANGE>#1033: transient markers (info dots) in world space.
     for m in self.world_markers:
@@ -300,14 +822,19 @@ class RenderMixin:
       return
     phase = pygame.time.get_ticks() / 1000.0
     _clip_line.PAINTER = _make_painter(self.screen)
-    from .objects import EditorPeg, EditorSpawner, EditorArtifact, EditorButton
+    from .objects import (EditorPeg, EditorSpawner, EditorArtifact, EditorButton,
+                          EditorAnchor)
     sw, sh = self.screen.get_size()
     for obj in self.objects:
       if id(obj) not in targets:
         continue
       if not self._visible(obj, sw, sh):
         continue
-      if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
+      if isinstance(obj, EditorAnchor):
+        sx, sy = self.to_screen(obj.x, obj.y)
+        r = max(2, int((obj.size / 2) * self.zoom))
+        rect = pygame.Rect(int(sx - r), int(sy - r), r * 2, r * 2)
+      elif isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
         sx, sy = self.to_screen(obj.x, obj.y)
         r = max(2, int(obj.r * self.zoom))
         rect = pygame.Rect(int(sx - r), int(sy - r), r * 2, r * 2)
@@ -580,16 +1107,23 @@ class RenderMixin:
     h = self.screen.get_height()
     pygame.draw.rect(self.screen, UI_BG,
                      (0, h - BOT_H, self.screen.get_width(), BOT_H))
-    self.draw_tab(self.tab_ghost_rect(), "ghost", self.tool == "ghost")
-    self.draw_tab(self.tab_eraser_rect(), "eraser", self.tool == "eraser")
-    self.draw_tab(self.tab_peg_rect(), "peg", self.tool == "peg")
-    self.draw_tab(self.tab_plat_rect(), "platform", self.tool == "platform")
-    self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
-    self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
-    self.draw_tab(self.tab_spawner_rect(), "spawner", self.tool == "spawner")
-    self.draw_tab(self.tab_artifact_rect(), "artifact", self.tool == "artifact")
-    self.draw_tab(self.tab_trigger_rect(), "trigger", self.tool == "trigger")
-    self.draw_tab(self.tab_button_rect(), "button", self.tool == "button")
+    # <STRANGE>#1146: mind mode replaces the entire bottom tool set.
+    if getattr(self, "mind_mode", False):
+      self.draw_tab(self.tab_planner_rect(), "planner", self.tool == "planner")
+      self.draw_tab(self.tab_markup_rect(), "markup", self.tool == "markup")
+      self.draw_tab(self.tab_anchor_rect(), "anchor", self.tool == "anchor")
+      self.draw_tab(self.tab_back_rect(), "back", False)
+    else:
+      self.draw_tab(self.tab_ghost_rect(), "ghost", self.tool == "ghost")
+      self.draw_tab(self.tab_eraser_rect(), "eraser", self.tool == "eraser")
+      self.draw_tab(self.tab_peg_rect(), "peg", self.tool == "peg")
+      self.draw_tab(self.tab_plat_rect(), "platform", self.tool == "platform")
+      self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
+      self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
+      self.draw_tab(self.tab_spawner_rect(), "spawner", self.tool == "spawner")
+      self.draw_tab(self.tab_artifact_rect(), "artifact", self.tool == "artifact")
+      self.draw_tab(self.tab_trigger_rect(), "trigger", self.tool == "trigger")
+      self.draw_tab(self.tab_button_rect(), "button", self.tool == "button")
 
     z = f"{int(self.zoom * 100)}%"
     surf = render_text(self.font, z, GOLD)
@@ -631,9 +1165,25 @@ class RenderMixin:
       f = pygame.font.SysFont(None, 20, bold=True)
       ts = f.render("S", True, (255, 255, 255))
       self.screen.blit(ts, ts.get_rect(center=rr.center))
+    elif name == "markup":
+      f = pygame.font.SysFont(None, 28, bold=True)
+      ts = f.render("M", True, (255, 215, 0))
+      self.screen.blit(ts, ts.get_rect(center=(cx, cy)))
+    elif name == "planner":
+      f = pygame.font.SysFont(None, 28, bold=True)
+      ts = f.render("P", True, (255, 215, 0))
+      self.screen.blit(ts, ts.get_rect(center=(cx, cy)))
+    elif name == "back":
+      f = pygame.font.SysFont(None, 28, bold=True)
+      ts = f.render("<", True, (220, 220, 220))
+      self.screen.blit(ts, ts.get_rect(center=(cx, cy)))
     elif name == "button":
       pygame.draw.circle(self.screen, BUTTON_FILL, (cx, cy), BUTTON_R + 3)
       pygame.draw.circle(self.screen, BUTTON_EDGE, (cx, cy), BUTTON_R + 3, 2)
+    elif name == "anchor":
+      f = pygame.font.SysFont(None, 28, bold=True)
+      ts = f.render("A", True, (255, 215, 0))
+      self.screen.blit(ts, ts.get_rect(center=(cx, cy)))
     elif name == "trigger":
       rr = pygame.Rect(0, 0, 72, 44)
       rr.center = r.center
@@ -729,5 +1279,21 @@ class RenderMixin:
   def tab_button_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(1090, h - BOT_H + 6, 110, BOT_H - 12)
+
+  def tab_anchor_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(250, h - BOT_H + 6, 110, BOT_H - 12)
+
+  def tab_planner_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(10, h - BOT_H + 6, 110, BOT_H - 12)
+
+  def tab_back_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(370, h - BOT_H + 6, 110, BOT_H - 12)
+
+  def tab_markup_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(130, h - BOT_H + 6, 110, BOT_H - 12)
 
  

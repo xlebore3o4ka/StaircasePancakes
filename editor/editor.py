@@ -12,7 +12,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact, EditorTrigger, EditorButton,
+  EditorArtifact, EditorTrigger, EditorButton, EditorAnchor,
 )
 from . import tar_io
 from .editor_core import CoreMixin, _game_version_read
@@ -65,15 +65,24 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     if bag is not None:
       out["bag"] = bag
     if str(path).lower().endswith(".tar"):
-      tar_io.save_level(path, out, extra_files=getattr(self, "embedded_files", None))
+      extra = dict(getattr(self, "embedded_files", None) or {})
+      try:
+        anchors = [o.to_json() for o in self.objects
+                   if isinstance(o, EditorAnchor)]
+        meta = {"version": 1, "anchors": anchors}
+        extra["editor.json"] = json.dumps(meta, indent=2)
+      except Exception:
+        pass
+      tar_io.save_level(path, out, extra_files=extra)
     else:
       with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(out, f, indent=2)
-      if getattr(self, "embedded_files", None):
+      has_anchors = any(isinstance(o, EditorAnchor) for o in self.objects)
+      if getattr(self, "embedded_files", None) or has_anchors:
         try:
           from .messages import WARN
           self.messages.toast_only(WARN,
-              "Embedded scripts only saved in .tar (not in .json)", 4.0)
+              "Anchors/scripts are only stored in .tar (not in .json)", 4.0)
         except Exception:
           pass
     try:
@@ -101,12 +110,20 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     if not path:
       return
     try:
+      _editor_meta = None
       if str(path).lower().endswith(".tar"):
         data = tar_io.load_level(path)
         try:
-          self.embedded_files = tar_io.load_files(path)
+          _files = tar_io.load_files(path)
         except Exception:
-          self.embedded_files = {}
+          _files = {}
+        try:
+          _meta_bytes = _files.pop("editor.json", None)
+          if _meta_bytes:
+            _editor_meta = json.loads(_meta_bytes.decode("utf-8"))
+        except Exception:
+          _editor_meta = None
+        self.embedded_files = _files
       else:
         with open(path, "r", encoding="utf-8") as f:
           data = json.load(f)
@@ -154,6 +171,10 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       obj.id = str(pd.get("id", ""))
       if "layer" in pd:
         obj.layer = int(pd["layer"])
+      # <STRANGE>#1112: restore polygon/points for platforms
+      if pd.get("polygon"):
+        obj.polygon = True
+        obj.points = [[int(p[0]), int(p[1])] for p in pd.get("points", [])]
       self.objects.append(obj)
     for bd in data.get("backgrounds", []):
       obj = EditorBackground(bd["x"], bd["y"],
@@ -205,6 +226,22 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       else:
         b = EditorArtifact(bag_data[0], bag_data[1])
       self.objects.append(b)
+    # <STRANGE>#1411: anchors come from editor.json (tar only)
+    if _editor_meta and isinstance(_editor_meta, dict):
+      for ad in _editor_meta.get("anchors", []):
+        try:
+          a = EditorAnchor(int(ad["x"]), int(ad["y"]),
+                           ad.get("variant", "A"))
+          a.binding = str(ad.get("binding", ""))
+          a.name = str(ad.get("name", ""))
+          a.weight = int(ad.get("weight", 1))
+          a.max_limit = int(ad.get("max_limit", 1))
+          a.locked = bool(ad.get("locked", False))
+          if "layer" in ad:
+            a.layer = int(ad["layer"])
+          self.objects.append(a)
+        except Exception:
+          pass
     self._clear_selection()
     self._mark_scene_dirty()
     self._push_undo_now(before)

@@ -8,7 +8,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact, EditorTrigger, EditorButton,
+  EditorArtifact, EditorTrigger, EditorButton, EditorAnchor,
 )
 from . import settings
 
@@ -77,11 +77,29 @@ class DragMixin:
   def _obj_bounds(self, obj):
     if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
       return (obj.x - obj.r, obj.x + obj.r, obj.y - obj.r, obj.y + obj.r)
+    # <STRANGE>#1412: anchor is a fixed-size square
+    if isinstance(obj, EditorAnchor):
+      h = obj.size / 2
+      return (obj.x - h, obj.x + h, obj.y - h, obj.y + h)
     l, r, b, t = obj.world_rect()
     return (l, r, b, t)
 
   def _gather_x_refs(self, exclude=(), near=None):
     refs = []
+    # <STRANGE>#1420: anchor zone edges as snap refs (segments, near-gated)
+    try:
+      pairs, _free, _assigned, _zone_s = self._anchor_pairs()
+    except Exception:
+      pairs = []
+    for bnd, a, b in pairs:
+      l = min(a.x, b.x); r = max(a.x, b.x)
+      bt = min(a.y, b.y); tt = max(a.y, b.y)
+      if near is not None:
+        nl, nr, nb, nt = near
+        if r < nl or l > nr or tt < nb or bt > nt:
+          continue
+      refs.append(l)
+      refs.append(r)
     for obj in self.objects:
       if obj in exclude:
         continue
@@ -101,7 +119,21 @@ class DragMixin:
     return refs
 
   def _gather_y_refs(self, exclude=(), near=None):
-    refs = [0.0]  # ?????? ??? ???????????? ????????????????
+    refs = [0.0]  # floor
+    # <STRANGE>#1421: anchor zone edges as snap refs (segments, near-gated)
+    try:
+      pairs, _free, _assigned, _zone_s = self._anchor_pairs()
+    except Exception:
+      pairs = []
+    for bnd, a, b in pairs:
+      l = min(a.x, b.x); r = max(a.x, b.x)
+      bt = min(a.y, b.y); tt = max(a.y, b.y)
+      if near is not None:
+        nl, nr, nb, nt = near
+        if r < nl or l > nr or tt < nb or bt > nt:
+          continue
+      refs.append(bt)
+      refs.append(tt)
     for obj in self.objects:
       if obj in exclude:
         continue
@@ -224,6 +256,22 @@ class DragMixin:
     sh = self.screen.get_height()
 
     if y >= sh - BOT_H:
+      # <STRANGE>#1147: mind mode bottom bar has its own tabs.
+      if getattr(self, "mind_mode", False):
+        if self.tab_planner_rect().collidepoint(pos):
+          self.set_tool("planner")
+        elif self.tab_markup_rect().collidepoint(pos):
+          self.set_tool("markup")
+        elif self.tab_anchor_rect().collidepoint(pos):
+          self.set_tool("anchor")
+        elif self.tab_back_rect().collidepoint(pos):
+          self.mind_mode = False
+          self.set_tool("peg")
+          try:
+            self.panel.think_btn.active = False
+          except Exception:
+            pass
+        return
       if self.tab_ghost_rect().collidepoint(pos):
         self.set_tool("ghost")
       elif self.tab_eraser_rect().collidepoint(pos):
@@ -246,6 +294,22 @@ class DragMixin:
         self.set_tool("button")
       return
 
+    # <STRANGE>#1192: clicking anywhere in the world clears plan field focus
+    if getattr(self, "plan_focus", None) is not None:
+      try:
+        self._plan_field_commit()
+      except Exception:
+        pass
+    if getattr(self, "markup_focus", None) is not None:
+      try:
+        self._markup_field_commit()
+      except Exception:
+        pass
+    if getattr(self, "anchor_focus", None) is not None:
+      try:
+        self._anchor_field_commit()
+      except Exception:
+        pass
     wx, wy = self.from_screen(x, y)
     mods = pygame.key.get_mods()
     ctrl = bool(mods & pygame.KMOD_CTRL)
@@ -304,6 +368,81 @@ class DragMixin:
           return
       return
 
+    # <STRANGE>#1306: markup tool is selection-only (no drag).
+    if self.tool == "markup":
+      hit = None
+      for obj in reversed(self.objects):
+        if getattr(obj, "locked", False):
+          continue
+        if obj.hit(wx, wy):
+          hit = obj
+          break
+      if hit is not None:
+        if ctrl:
+          self._toggle_selection(hit)
+          return
+        if shift:
+          if hit not in self.selection:
+            self._add_to_selection([hit])
+          return
+        if hit not in self.selection:
+          self._set_selection([hit])
+        return
+      self._begin_select_rect(wx, wy)
+      return
+
+    # <STRANGE>#1151: planner tool uses normal selection, but drag starts
+    # a plan (ghost) instead of moving objects.
+    if self.tool == "planner":
+      hit = None
+      for obj in reversed(self.objects):
+        if getattr(obj, "locked", False):
+          continue
+        if obj.hit(wx, wy):
+          hit = obj
+          break
+      if hit is not None:
+        if ctrl:
+          self._toggle_selection(hit)
+          return
+        if shift:
+          if hit not in self.selection:
+            self._add_to_selection([hit])
+          return
+        if hit not in self.selection:
+          self._set_selection([hit])
+        self._begin_plan_drag(wx, wy)
+        return
+      # empty area: plain rubber-band selection
+      self._begin_select_rect(wx, wy)
+      return
+
+    # <STRANGE>#1151: planner tool uses normal selection, but drag starts
+    # a plan (ghost) instead of moving objects.
+    if self.tool == "planner":
+      hit = None
+      for obj in reversed(self.objects):
+        if getattr(obj, "locked", False):
+          continue
+        if obj.hit(wx, wy):
+          hit = obj
+          break
+      if hit is not None:
+        if ctrl:
+          self._toggle_selection(hit)
+          return
+        if shift:
+          if hit not in self.selection:
+            self._add_to_selection([hit])
+          return
+        if hit not in self.selection:
+          self._set_selection([hit])
+        self._begin_plan_drag(wx, wy)
+        return
+      # empty area: plain rubber-band selection
+      self._begin_select_rect(wx, wy)
+      return
+
     if isinstance(self.selected, (EditorPlatform, EditorBackground, EditorTrigger)) \
        and not self.selected.locked:
       edge = self.selected.edge_hit(wx, wy, zone)
@@ -336,6 +475,33 @@ class DragMixin:
       self.ghost_target = [wx, wy]
       return
 
+    if self.tool == "anchor":
+      hit = None
+      for obj in reversed(self.objects):
+        if getattr(obj, "locked", False):
+          continue
+        if isinstance(obj, EditorAnchor) and obj.hit(wx, wy):
+          hit = obj
+          break
+      if hit is not None:
+        if ctrl:
+          self._toggle_selection(hit)
+          return
+        if hit not in self.selection:
+          self._set_selection([hit])
+        self._begin_move(wx, wy, hit)
+        return
+      if shift:
+        self._begin_select_rect(wx, wy)
+        return
+      new_a = EditorAnchor(wx, wy, self.current_anchor_variant)
+      # <STRANGE>#1460: S uniqueness is per-zone, enforced via messages;
+      # do NOT delete other S globally here.
+      self.objects.append(new_a)
+      self._set_selection([new_a])
+      self._begin_move(wx, wy, new_a)
+      self._mark_scene_dirty()
+      return
     if self.tool == "button":
       obj = EditorButton(wx, wy)
       self.objects.append(obj)
@@ -478,6 +644,16 @@ class DragMixin:
           bg.points[idx][1] = int(wy - bg.y - off_y)
       self._mark_scene_dirty()
       return
+    if mode == "plan_drag":
+      if getattr(self, "_plan_start", None) is not None:
+        sx, sy = self._plan_start
+        self._plan_preview = {"dx": wx - sx, "dy": wy - sy}
+      return
+    if mode == "plan_drag":
+      if getattr(self, "_plan_start", None) is not None:
+        sx, sy = self._plan_start
+        self._plan_preview = {"dx": wx - sx, "dy": wy - sy}
+      return
     if mode == "move":
       self._apply_move(wx, wy, snap)
     elif mode == "ghost":
@@ -588,6 +764,10 @@ class DragMixin:
         continue
       obj.x = ox + snap_dx
       obj.y = oy + snap_dy
+    # <STRANGE>#1450: recompute messages (zones, overlaps) live while moving
+    self._mark_scene_dirty()
+    # <STRANGE>#1450: recompute messages (zones, overlaps) live while moving
+    self._mark_scene_dirty()
 
 
   # ---------- create ----------
@@ -759,8 +939,34 @@ class DragMixin:
       self.snap_guides_x.append(guide_x)
     if guide_y is not None:
       self.snap_guides_y.append(guide_y)
+    # <STRANGE>#1451: recompute messages live while resizing
+    self._mark_scene_dirty()
+    # <STRANGE>#1451: recompute messages live while resizing
+    self._mark_scene_dirty()
 
   # ---------- drag initiators ----------
+  def _begin_plan_drag(self, wx, wy):
+    # <STRANGE>#1152: start dragging a plan target; objects do NOT move
+    self._plan_drag_data = []
+    for obj in self.selection:
+      if getattr(obj, "locked", False):
+        continue
+      self._plan_drag_data.append((obj, obj.x, obj.y))
+    self._plan_start = (wx, wy)
+    self._plan_preview = {"dx": 0.0, "dy": 0.0}
+    self.drag = ("plan_drag", None)
+
+  def _begin_plan_drag(self, wx, wy):
+    # <STRANGE>#1152: start dragging a plan target; objects do NOT move
+    self._plan_drag_data = []
+    for obj in self.selection:
+      if getattr(obj, "locked", False):
+        continue
+      self._plan_drag_data.append((obj, obj.x, obj.y))
+    self._plan_start = (wx, wy)
+    self._plan_preview = {"dx": 0.0, "dy": 0.0}
+    self.drag = ("plan_drag", None)
+
   def _begin_move(self, wx, wy, anchor):
     self._move_data = []
     for obj in self.selection:
@@ -913,6 +1119,11 @@ class DragMixin:
 
   # ---------- visibility ----------
   def _visible(self, obj, sw, sh):
+    if isinstance(obj, EditorAnchor):
+      sx, sy = self.to_screen(obj.x, obj.y)
+      r = (obj.size / 2) * self.zoom + 6
+      return (sx + r >= 0 and sx - r <= sw and
+              sy + r >= 0 and sy - r <= sh)
     if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):
       sx, sy = self.to_screen(obj.x, obj.y)
       r = obj.r * self.zoom + 6

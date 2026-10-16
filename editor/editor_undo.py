@@ -7,7 +7,7 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact, EditorTrigger, EditorButton,
+  EditorArtifact, EditorTrigger, EditorButton, EditorAnchor,
 )
 
 
@@ -55,13 +55,21 @@ class UndoMixin:
               "id": getattr(o, "id", ""),
               "script": getattr(o, "script", ""),
               "locked": o.locked, "layer": o.layer}
+    if isinstance(o, EditorAnchor):
+      return {"t": "anchor", "x": o.x, "y": o.y,
+              "variant": o.variant,
+              "binding": getattr(o, "binding", ""),
+              "name": getattr(o, "name", ""),
+              "weight": int(getattr(o, "weight", 1)),
+              "max_limit": int(getattr(o, "max_limit", 1)),
+              "locked": o.locked, "layer": o.layer}
     return None
 
   def _make_from_state(self, s):
     t = s["t"]
     if t == "peg":
       o = EditorPeg(s["x"], s["y"])
-    if t == "button":
+    elif t == "button":
       o = EditorButton(s["x"], s["y"])
     elif t == "plat":
       o = EditorPlatform(s["x"], s["y"], s["w"], s["h"])
@@ -83,6 +91,12 @@ class UndoMixin:
       o = EditorTrigger(s["x"], s["y"], s.get("w"), s.get("h"))
       o.id = s.get("id", "")
       o.script = s.get("script", "")
+    elif t == "anchor":
+      o = EditorAnchor(s["x"], s["y"], s.get("variant", "A"))
+      o.binding = s.get("binding", "")
+      o.name = s.get("name", "")
+      o.weight = int(s.get("weight", 1))
+      o.max_limit = int(s.get("max_limit", 1))
     elif t == "bag":
       o = EditorArtifact(s["x"], s["y"])
     else:
@@ -95,10 +109,25 @@ class UndoMixin:
 
   # ---------- snapshots ----------
   def _snapshot(self):
-    return [self._obj_to_state(o) for o in self.objects]
+    # <STRANGE>#1131: filter None entries; they poison the undo stack
+    out = []
+    for o in self.objects:
+      if o is None:
+        continue
+      st = self._obj_to_state(o)
+      if st is not None:
+        out.append(st)
+    return out
 
   def _restore(self, snap):
-    self.objects = [self._make_from_state(s) for s in snap]
+    objs = []
+    for s in snap:
+      if s is None:
+        continue
+      o = self._make_from_state(s)
+      if o is not None:
+        objs.append(o)
+    self.objects = objs
     self._clear_selection()
     self._mark_scene_dirty()
 
