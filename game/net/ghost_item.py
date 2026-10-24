@@ -12,9 +12,10 @@ def _proto(net_type):
   if net_type in _proto_cache:
     return _proto_cache[net_type]
   # <STRANGE>#966 lazy import to avoid circular dep with item module at load time
-  from ..entities.item import CubeItem, SodaItem, RebarItem, PortablePegItem, BagItem
+  from ..entities.item import CubeItem, SodaItem, RebarItem, PortablePegItem, BagItem, LanternItem
   cls = {"cube": CubeItem, "soda": SodaItem, "rebar": RebarItem,
-         "peg": PortablePegItem, "bag": BagItem}.get(net_type)
+         "peg": PortablePegItem, "bag": BagItem,
+         "lantern": LanternItem}.get(net_type)
   if cls is None:
     print(f"ghost_item: unknown net_type {net_type!r}")
     _proto_cache[net_type] = None

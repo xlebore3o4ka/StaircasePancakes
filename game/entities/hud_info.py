@@ -36,12 +36,13 @@ class HudInfo:
     self._cache = surf
     return surf
 
-  def draw(self, screen, height_px):
+  def draw(self, hud, height_px):
     meters = max(0.0, height_px * HUD_METERS_PER_PX)
     lines = [self._fmt_time(), f"{int(meters)} m"]
     x = HUD_INFO_MARGIN
     y = HUD_INFO_MARGIN
+    line_h = int(HUD_INFO_FONT * 1.2)
     for line in lines:
-      surf = self._render(line)
-      screen.blit(surf, (x, y))
-      y += surf.get_height() + HUD_INFO_LINE_GAP
+      hud.text(line, x, y, HUD_INFO_FONT, (255, 255, 255),
+               HUD_INFO_ALPHA, anchor="topleft")
+      y += line_h + HUD_INFO_LINE_GAP

@@ -3,7 +3,7 @@ import pymunk
 from shared.const import ARM_R, ITEM_OFFSET
 from shared.smooth import smooth
 from ..entities.player import STAMINA_MAX, draw_player_body
-from ..entities.item import CubeItem, SodaItem, RebarItem, PortablePegItem, BagItem
+from ..entities.item import CubeItem, SodaItem, RebarItem, PortablePegItem, BagItem, LanternItem
 
 
 # <STRANGE>#935 minimal field holders so draw_player_body can read body.position/arms[i].position uniformly
@@ -23,6 +23,7 @@ _NET_CLASSES = {
   "rebar": RebarItem,
   "peg": PortablePegItem,
   "bag": BagItem,
+  "lantern": LanternItem,
 }
 
 # <STRANGE>#936 prototypes for draw_at: instantiated once, body destroyed, kept only for rendering

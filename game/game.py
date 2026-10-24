@@ -86,6 +86,10 @@ class Game:
           "x": player.body.position.x, "y": player.body.position.y,
         })
       net_accum = 0.0
+      # <STRANGE>#1520 rolling FPS over 0.5s windows
+      fps_accum = 0.0
+      fps_frames = 0
+      fps_value = 0.0
 
       floor_fill = FloorFill()
       hud_info = HudInfo()
@@ -102,6 +106,7 @@ class Game:
         dt = min(clock.tick() / 1000.0, 1 / 30)
         if dt <= 0:
           dt = 1 / 60
+        fps_value = clock.get_fps()
         # <STRANGE>#377 sub-step long frames: 1/30 broken into two 1/60 steps reduces penetration and phantom bounces
         substeps = 2 if dt > 1/45 else 1
         for e in pygame.event.get():
@@ -111,6 +116,7 @@ class Game:
             running = False
           player.handle_event(e)
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
+        level.update_lanterns(player, cam, dt)
         level.update_buttons(dt, player)
         level.update_triggers(dt, (player.body.position.x, player.body.position.y), player.events)
         player.events.clear()
@@ -221,14 +227,27 @@ class Game:
           rp.draw(w.screen, cam)
         if self.debugview:
           level.draw_debug(w.screen, cam, player.body.position)
-        player.draw_hud(w.screen, cam)
+        # <STRANGE>#1330 lighting: scene * light, then HUD composited on top
+        if level.lighting_config is not None:
+          _occ = level.occluders()
+          w.lighting.setup(level.lighting_config, level.lights, cam, _occ)
+        else:
+          w.lighting.gain = 1.0
+          w.lighting.begin((255, 255, 255))
+        # <STRANGE>#1331 HUD in a separate renderer so it stays unlit
+        w.hud.begin()
+        player.draw_hud(w.hud, cam)
         hud_info.update(dt)
         # <STRANGE>#620 height is distance from spawn, not absolute y
-        hud_info.draw(w.screen, player.body.position.y - spawn_y)
-        level.draw_overlays(w.screen, cam)
+        hud_info.draw(w.hud, player.body.position.y - spawn_y)
+        level.draw_overlays(w.hud, cam)
+        # <STRANGE>#1521 FPS in bottom-left corner
+        _sh = w.hud.get_size()[1]
+        w.hud.text(f"FPS {fps_value:.0f}", 12, _sh - 36, 24,
+                   (200, 200, 200), 180, anchor="topleft")
         if self.debuginfo:
           debug_info.update(dt, player)
-          debug_info.draw(w.screen)
+          debug_info.draw(w.hud)
         w.flip()
 
       level.unload()

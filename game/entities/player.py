@@ -852,7 +852,18 @@ class Player:
       k = smooth(0.25, dt)
       # <STRANGE>#493 rebar angle follows arm direction plus per-hand offset; arm_dir already points at cursor
       # <STRANGE>#510 rebar tip points at the cursor: angle from hand position to mouse, +pi/2 because local +Y is the far end
-      if item.hand_angle is not None:
+      if getattr(item, "hold_behind", False):
+        bx = self.body.position.x
+        by = self.body.position.y
+        ddx = mx - bx
+        ddy = wy - by
+        d2 = ddx * ddx + ddy * ddy
+        if d2 < 1.0:
+          target_a = item.body.angle
+        else:
+          inv = 1.0 / (d2 ** 0.5)
+          target_a = math.atan2(ddy * inv, ddx * inv)
+      elif item.hand_angle is not None:
         hx = arm.position.x + ITEM_OFFSET * side
         hy = arm.position.y
         ddx = mx - hx
@@ -869,12 +880,71 @@ class Player:
         item.body.angle = a + da * k
       else:
         item.body.angle = target_a
-      hox, hoy = item.hold_offset
-      c, sn = math.cos(item.body.angle), math.sin(item.body.angle)
-      rx = hox * c - hoy * sn
-      ry = hox * sn + hoy * c
-      tx = arm.position.x + ITEM_OFFSET * side - rx
-      ty = arm.position.y - ry
+      if getattr(item, "hold_behind", False):
+        bx = self.body.position.x
+        by = self.body.position.y
+        ddx = mx - bx
+        ddy = wy - by
+        d2 = ddx * ddx + ddy * ddy
+        if d2 < 1.0:
+          nx, ny = 0.0, 1.0
+        else:
+          inv = 1.0 / (d2 ** 0.5)
+          nx, ny = ddx * inv, ddy * inv
+        tx = bx - nx * item.behind_dist
+        ty = by - ny * item.behind_dist
+        # <STRANGE>#1720 baseline raise above body center; user wants lantern held higher
+        ty += getattr(item, "hold_y_offset", 0.0)
+        # <STRANGE>#1723 resolve overlap along min-penetration axis: sideways for pillars, up for floors
+        if self.level is not None:
+          ihw = item.w / 2 + 1.0
+          ihh = item.h / 2 + 1.0
+          for _ in range(8):
+            best_pen = float("inf")
+            best_push = None
+            for _plat in self.level.platforms:
+              _px = _plat.body.position.x
+              _py = _plat.body.position.y
+              _phw = getattr(_plat, "w", 0) / 2
+              _phh = getattr(_plat, "h", 0) / 2
+              if abs(tx - _px) < _phw + ihw and abs(ty - _py) < _phh + ihh:
+                pen_left = (tx + ihw) - (_px - _phw)
+                pen_right = (_px + _phw) - (tx - ihw)
+                pen_up = (_py + _phh) - (ty - ihh)
+                pen_down = (ty + ihh) - (_py - _phh)
+                if 0 < pen_left < best_pen:
+                  best_pen = pen_left
+                  best_push = ("x", _px - _phw - ihw - 0.5)
+                if 0 < pen_right < best_pen:
+                  best_pen = pen_right
+                  best_push = ("x", _px + _phw + ihw + 0.5)
+                if 0 < pen_up < best_pen:
+                  best_pen = pen_up
+                  best_push = ("y", _py + _phh + ihh + 0.5)
+                if 0 < pen_down < best_pen:
+                  candidate_ty = _py - _phh - ihh - 0.5
+                  if candidate_ty >= ihh + 1:
+                    best_pen = pen_down
+                    best_push = ("y", candidate_ty)
+            if best_push is None:
+              break
+            axis, val = best_push
+            if axis == "x":
+              tx = val
+            else:
+              ty = val
+      else:
+        hox, hoy = item.hold_offset
+        c, sn = math.cos(item.body.angle), math.sin(item.body.angle)
+        rx = hox * c - hoy * sn
+        ry = hox * sn + hoy * c
+        tx = arm.position.x + ITEM_OFFSET * side - rx
+        ty = arm.position.y - ry
+      # <STRANGE>#1601 pull item towards player center (lantern held close)
+      pull = getattr(item, "body_pull", 0.0)
+      if pull > 0.0:
+          tx += (self.body.position.x - tx) * pull
+          ty += (self.body.position.y - ty) * pull
       # <STRANGE>#506 rebar is allowed to visually sink below the floor while held; clamp only round items so they don't fall through
       if item.hand_angle is None:
         r = item.radius()
@@ -1000,54 +1070,38 @@ class Player:
     sx, sy = cam.to_screen(wx, wy)
     screen.blit(surf, surf.get_rect(center=(int(sx), int(sy))))
 
-  def _draw_hud_button(self, screen, sc, hx, hy, slot_r, btn, idx):
-    # <STRANGE>#1103 button icon in the HUD slot, dimmed by state; fixed size, no scaling
+  def _draw_hud_button(self, hud, sc, hx, hy, slot_r, btn, idx):
+    # <STRANGE>#1103 button icon in the HUD slot, dimmed by state; via HudRenderer
     br = max(1, int(slot_r * HUD_BUTTON_R_MULT))
     fill = btn.tint(BUTTON_FILL)
     edge = btn.tint(BUTTON_EDGE)
     inner_base = tuple(min(255, int(c / 0.8)) for c in BUTTON_FILL)
     inner = btn.tint(inner_base)
-    surf = pygame.Surface((br * 2, br * 2), pygame.SRCALPHA)
-    pygame.draw.circle(surf, (*fill, HUD_BUTTON_ALPHA), (br, br), br)
+    hud.circle(hx, hy, br, fill, HUD_BUTTON_ALPHA)
     inner_r = max(1, int(br / 2.2))
-    pygame.draw.circle(surf, (*inner, 180), (br, br), inner_r, CIRCLE_LINE_W)
-    pygame.draw.circle(surf, (*edge, 200), (br, br), br, CIRCLE_LINE_W)
-    screen.blit(surf, (int(hx) - br, int(hy) - br))
+    hud.ring(hx, hy, inner_r, CIRCLE_LINE_W, inner, 180)
+    hud.ring(hx, hy, br, CIRCLE_LINE_W, edge, 200)
     # <STRANGE>#1117 small Q/E label centered, same size as held-item label
-    lbl = self._hud_labels[idx]
-    sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
-    sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))
-    small = pygame.transform.smoothscale(lbl, (sw2, sh2))
-    small.set_alpha(HUD_LABEL_ALPHA_EMPTY)
-    screen.blit(small, small.get_rect(center=(int(hx), int(hy))))
+    text = "Q" if idx == 0 else "E"
+    small_size = max(1, int(64 * HUD_LABEL_SCALE_HELD))
+    hud.text(text, hx, hy, small_size, (255, 255, 255),
+             HUD_LABEL_ALPHA_EMPTY, anchor="center")
 
-  def _ensure_hud_labels(self):
-    # <STRANGE>#392 lazy cache; Q/E rendered once with white, alpha applied per blit via set_alpha
-    if self._hud_labels is not None:
-      return
-    font = pygame.font.SysFont(None, 64)
-    self._hud_labels = [font.render("Q", True, (255, 255, 255)), font.render("E", True, (255, 255, 255))]
-
-  def draw_hud(self, screen, cam):
-    # <STRANGE>#351 HUD is screen-space; identity cam trick reuses item.draw_at without touching world logic
+  def draw_hud(self, hud, cam):
+    # <STRANGE>#351 HUD via HudRenderer; no full-screen pygame surface, all batched
     sc = cam.scale
-    sw, sh = screen.get_size()
+    sw, sh = hud.get_size()
     cx, cy = sw / 2, sh / 2
-    # <STRANGE>#352 offset = 4 player diameters / 2 = 4*BODY_R; distance between circle centers is 8*BODY_R
     offset = 4 * BODY_R * sc
     r = int(BODY_R * sc)
-    self._ensure_hud_labels()
-    # <STRANGE>#850 pocket rings: drawn only when the slot has an item; icon rendered at half alpha
+    # <STRANGE>#850 pocket rings
     outer_r = max(1, int(r * 0.75))
     outer_gap = offset + r + int(50 * sc)
     for i, side in enumerate((-1, 1)):
       if self.pocket[i] is None:
         continue
       ox = cx + side * outer_gap
-      surf = pygame.Surface((outer_r * 2, outer_r * 2), pygame.SRCALPHA)
-      pygame.draw.circle(surf, (223, 223, 223, HUD_BASE_ALPHA_EMPTY), (outer_r, outer_r), outer_r)
-      screen.blit(surf, (int(ox) - outer_r, int(cy) - outer_r))
-      # <STRANGE>#862 HUD icon mirrors the stash fx: grows into the ring while the hand copy shrinks away
+      hud.circle(ox, cy, outer_r, (223, 223, 223), HUD_BASE_ALPHA_EMPTY)
       hud_scale = 1.0
       for fx in self.pocket_anim[i]:
         if fx["item"] is self.pocket[i] and not fx["grow"]:
@@ -1056,63 +1110,57 @@ class Player:
       if hud_scale <= 0.01:
         continue
       hox, hoy = self.pocket[i].hud_offset
-      self.pocket[i].draw_at(screen, _HUDScreenCam(sc), (ox + hox * sc, cy + hoy * sc), 0.0, 128, hud_scale, y_up=False)
+      hud.item_at(self.pocket[i], ox + hox * sc, cy + hoy * sc,
+                  alpha=128, scale=hud_scale, y_up=False, cam_scale=sc)
 
     for i in range(2):
       hx = cx + (-offset if i == 0 else offset)
       hy = cy
       s_t = max(0.0, min(1.0, self.stamina[i] / STAMINA_MAX))
-      # <STRANGE>#673 HUD slot shakes as one unit when stamina is low; same ramp as world arm
+      # <STRANGE>#673 HUD slot shakes as one unit when stamina is low
       if s_t < SHAKE_STAMINA_MIN / STAMINA_MAX:
         hud_shake = SHAKE_MAX * (1.0 - s_t * STAMINA_MAX / SHAKE_STAMINA_MIN) * sc
         hx += random.uniform(-hud_shake, hud_shake)
         hy += random.uniform(-hud_shake, hud_shake)
-      # <STRANGE>#1183 HUD arms follow the same hp-scaled cap as world arms
       hp_t = max(0.0, min(1.0, self.hp / HP_MAX))
       arm_color = (223, int(223 * s_t * hp_t), int(223 * s_t * hp_t))
       it = self.held[i]
       base_a = HUD_BASE_ALPHA if it is not None else HUD_BASE_ALPHA_EMPTY
       alpha = int(base_a + HUD_FLASH_ALPHA * self.hud_flash[i])
-      surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-      # <STRANGE>#357 fill-only HUD circle, low alpha; alpha rises briefly on use then decays
-      pygame.draw.circle(surf, (*arm_color, alpha), (r, r), r)
-      # <STRANGE>#555 f-mode indicator: semi-transparent white ring around each hud circle
+      hud.circle(hx, hy, r, arm_color, alpha)
+      # <STRANGE>#555 f-mode indicator
       if self.items_only:
         ring_w = max(1, int(LINE_W * sc))
-        pygame.draw.circle(surf, (255, 255, 255, HUD_ITEMSMODE_RING_ALPHA), (r, r), r - ring_w // 2, CIRCLE_LINE_W)
-      screen.blit(surf, (int(hx) - r, int(hy) - r))
-      # <STRANGE>#1103 if the hand is grabbed on a button, replace the Q/E label with a button icon
+        hud.ring(hx, hy, r - ring_w // 2, CIRCLE_LINE_W,
+                 (255, 255, 255), HUD_ITEMSMODE_RING_ALPHA)
+      # <STRANGE>#1103 button vs label vs item
       grab_btn = None
       g = self.grabbed[i]
       if g is not None and getattr(g[0], "is_button", False):
         grab_btn = g[0]
-      lbl = self._hud_labels[i]
+      label_text = "Q" if i == 0 else "E"
       if grab_btn is not None:
-        self._draw_hud_button(screen, sc, hx, hy, r, grab_btn, i)
+        self._draw_hud_button(hud, sc, hx, hy, r, grab_btn, i)
       elif it is None:
-        # <STRANGE>#402 label always visible: big center when empty, small on the bottom edge when holding
-        lbl.set_alpha(HUD_LABEL_ALPHA_EMPTY)
-        screen.blit(lbl, lbl.get_rect(center=(int(hx), int(hy))))
+        # <STRANGE>#402 label always visible: big center when empty
+        hud.text(label_text, hx, hy, 64, (255, 255, 255),
+                 HUD_LABEL_ALPHA_EMPTY, anchor="center")
       else:
-        # <STRANGE>#353 identity cam: to_screen returns coords unchanged so item renders in HUD space; scale 1.0
         hox, hoy = it.hud_offset
-        it.draw_at(screen, _HUDScreenCam(sc), (hx + hox * sc, hy + hoy * sc), 0.0, 160, 1.0, y_up=False)
-        # <STRANGE>#403 small label at bottom of the circle outline, alpha slightly higher than the empty variant
-        sw2 = max(1, int(lbl.get_width() * HUD_LABEL_SCALE_HELD))
-        sh2 = max(1, int(lbl.get_height() * HUD_LABEL_SCALE_HELD))
-        small = pygame.transform.smoothscale(lbl, (sw2, sh2))
-        small.set_alpha(HUD_LABEL_ALPHA_HELD)
-        # <STRANGE>#405 small text sits slightly inside the circle outline near the bottom
-        ly = int(hy + r - sh2 * 0.35)
-        screen.blit(small, small.get_rect(center=(int(hx), ly)))
-    # <STRANGE>#1200 red overlay grows as hp drops below LOW_HP_THRESH
+        hud.item_at(it, hx + hox * sc, hy + hoy * sc,
+                    alpha=160, scale=1.0, y_up=False, cam_scale=sc)
+        # <STRANGE>#403 small label at bottom of the circle
+        small_size = max(1, int(64 * HUD_LABEL_SCALE_HELD))
+        ly = int(hy + r - small_size * 0.35)
+        hud.text(label_text, hx, ly, small_size, (255, 255, 255),
+                 HUD_LABEL_ALPHA_HELD, anchor="center")
+    # <STRANGE>#1200 red overlay as full-screen rect
     if self.hp < LOW_HP_THRESH:
       k = (LOW_HP_THRESH - self.hp) / LOW_HP_THRESH
       a = int(LOW_HP_ALPHA_MIN + (LOW_HP_ALPHA_MAX - LOW_HP_ALPHA_MIN) * k)
       if a > 0:
-        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-        overlay.fill((*LOW_HP_COLOR, a))
-        screen.blit(overlay, (0, 0))
+        hud.rect(0, 0, sw, sh, LOW_HP_COLOR, a)
+
 
 class _HUDScreenCam:
   # <STRANGE>#354 minimal stand-in for Camera; item.draw_at only needs .scale and .to_screen
@@ -1130,6 +1178,16 @@ def draw_player_body(screen, cam, src, is_local):
   # <STRANGE>#1188 body max is 255, arms max is 223: player reads slightly lighter than hands
   hp_t = max(0.0, min(1.0, getattr(src, "hp", HP_MAX) / HP_MAX))
   body_color = (255, int(255 * hp_t), int(255 * hp_t))
+  # <STRANGE>#1631 hold_behind items drawn before body so they appear behind
+  if is_local:
+    for _i in range(2):
+      _hb = src.held[_i]
+      if _hb is None or not getattr(_hb, "hold_behind", False):
+        continue
+      _whiten = 0.0
+      if src.use_charged[_i] and not getattr(_hb, "skip_use_pulse", False):
+        _whiten = 0.6 * (0.5 - 0.5 * math.cos(math.tau * src.use_charge_t[_i] / USE_PULSE_PERIOD))
+      _hb.draw_at(screen, cam, _hb.body.position, _hb.body.angle, 255, 1.0, _whiten)
   pygame.draw.circle(screen, body_color, (int(bx), int(by)), int(BODY_R * sc))
   for i, arm in enumerate(src.arms):
     ax, ay = cam.to_screen(*arm.position)
@@ -1147,7 +1205,7 @@ def draw_player_body(screen, cam, src, is_local):
       ay += random.uniform(-amp, amp)
     held = src.held[i] if is_local else None
     # <STRANGE>#856 during pocket animation the item is drawn by the fx loop, not by held
-    if is_local and held is not None and not src.pocket_anim[i]:
+    if is_local and held is not None and not src.pocket_anim[i] and not getattr(held, "hold_behind", False):
       whiten = 0.0
       if src.use_charged[i] and not getattr(held, "skip_use_pulse", False):
         whiten = 0.6 * (0.5 - 0.5 * math.cos(math.tau * src.use_charge_t[i] / USE_PULSE_PERIOD))
@@ -1169,7 +1227,15 @@ def draw_player_body(screen, cam, src, is_local):
     # <STRANGE>#1183 arm max colour follows hp: with low hp, arms can't be fully white
     hp_t = max(0.0, min(1.0, getattr(src, "hp", HP_MAX) / HP_MAX))
     arm_color = (223, int(223 * s_t * hp_t), int(223 * s_t * hp_t))
-    if is_local and held is not None:
+    if is_local and held is not None and getattr(held, "hold_behind", False):
+      # <STRANGE>#1722 ghost hand holding the lantern; follows lantern's raised position
+      _r = int(src.arm_r[i] * ARM_HOLD_SCALE * sc)
+      _size = _r * 2
+      _surf = pygame.Surface((_size, _size), pygame.SRCALPHA)
+      pygame.draw.circle(_surf, (*arm_color, ARM_HOLD_ALPHA), (_r, _r), _r)
+      _hx, _hy = cam.to_screen(held.body.position.x, held.body.position.y)
+      screen.blit(_surf, (int(_hx) - _r, int(_hy) - _r))
+    elif is_local and held is not None:
       r = int(src.arm_r[i] * ARM_HOLD_SCALE * sc)
       size = r * 2
       surf = pygame.Surface((size, size), pygame.SRCALPHA)

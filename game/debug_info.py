@@ -31,9 +31,9 @@ class DebugInfo:
       s.set_alpha(180)
       self._surfs.append(s)
 
-  def draw(self, screen):
-    x = screen.get_width() - 12
+  def draw(self, hud):
+    x = hud.get_size()[0] - 12
     y = 12
-    for s in self._surfs:
-      screen.blit(s, (x - s.get_width(), y))
-      y += s.get_height() + 2
+    for line in self._lines:
+      hud.text(line, x, y, 24, (255, 255, 255), 180, anchor="topright")
+      y += 26

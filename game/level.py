@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import random
 import tarfile
@@ -12,6 +13,7 @@ from .entities.background import Background, BG_FILL
 from .entities.item import make_item
 from shared.const import LINE_W, MAX_KINEMATIC_V
 from .entities.trigger import Trigger
+from .entities.light import SunLight, LampLight, SpotLight
 from .entities.button import Button
 from .debug_view import DebugArrows
 
@@ -160,6 +162,47 @@ class Level:
       if self.sound is not None:
         sp_item.sound = self.sound
       self.items.append(sp_item)
+    # <STRANGE>#1407 lighting config and light sources
+    self.lighting_config = None
+    ld_data = data.get("lighting")
+    if ld_data is not None:
+      self.lighting_config = {
+        "ambient": tuple(ld_data.get("ambient", (60, 60, 70))),
+        "gain": float(ld_data.get("gain", 1.6)),
+      }
+    self.lights = []
+    for ld in data.get("lights", []):
+      t = ld.get("type", "lamp")
+      pos = (ld.get("x", 0.0), ld.get("y", 0.0))
+      col = tuple(ld.get("color", (255, 240, 200)))
+      inten = float(ld.get("intensity", 1.0))
+      if t == "sun":
+        lt = SunLight(color=col, intensity=inten,
+                      direction=tuple(ld.get("direction", (0.5, 1.0))))
+      elif t == "spot":
+        lt = SpotLight(pos,
+                       angle=float(ld.get("angle", 0.0)),
+                       length=float(ld.get("length", 500)),
+                       cone=float(ld.get("cone", math.radians(60))),
+                       color=col, intensity=inten)
+      else:
+        lt = LampLight(pos,
+                       radius=float(ld.get("radius", 300)),
+                       color=col, intensity=inten)
+      if "id" in ld:
+        lt.id = ld["id"]
+      self.lights.append(lt)
+      if self.lighting_config is None and t == "sun":
+        self.lighting_config = {"ambient": (40, 40, 50), "gain": 1.6}
+    # <STRANGE>#1742 weak glow attached to player position; created only with lighting enabled
+    if self.lighting_config is not None:
+      self.player_light = LampLight((0, 0), radius=140,
+                                    color=(140, 160, 210), intensity=0.32)
+      self.player_light.id = "_player_glow"
+      self.lights.append(self.player_light)
+    else:
+      self.player_light = None
+
     # <STRANGE>#1069 hand-only grab targets
     self.buttons = []
     for bd in data.get("buttons", []):
@@ -187,6 +230,27 @@ class Level:
         bag.sound = self.sound
       self.items.append(bag)
 
+    # <STRANGE>#1555 unique lantern; hidden spotlight attached to it, off until held
+    lantern_data = data.get("lantern")
+    if lantern_data:
+      from .entities.light import SpotLight
+      lantern = make_item(space, {"x": lantern_data["x"], "y": lantern_data["y"], "type": "lantern"})
+      if lantern_data.get("id"):
+        lantern.id = lantern_data["id"]
+      if self.sound is not None:
+        lantern.sound = self.sound
+      self.items.append(lantern)
+      spot = SpotLight(
+        (lantern_data["x"], lantern_data["y"]),
+        angle=-math.pi / 2, length=700, cone=math.radians(40),
+        color=(255, 220, 140), intensity=0.0)
+      spot.id = (lantern_data.get("id") or "lantern") + "_beam"
+      self.lights.append(spot)
+      lantern.light = spot
+
+    # <STRANGE>#1556 each frame: held lantern points beam at cursor, others stay off
+    # (method defined below, registered via closure-less attribute for game.py call)
+
     # <STRANGE>#1034 on_load runs only after every object exists, so scripts can query the whole level
     # <STRANGE>#1036 id -> object index; duplicate ids keep the first, warn on the rest
     self.by_id = {}
@@ -198,6 +262,9 @@ class Level:
         print(f"level: duplicate id {oid!r}, ignoring later definition")
         continue
       self.by_id[oid] = o
+    for lt in self.lights:
+      if lt.id and lt.id not in self.by_id:
+        self.by_id[lt.id] = lt
     for t in self.triggers:
       t.load(self.base_dir, self, self.script_seed)
 
@@ -253,6 +320,38 @@ class Level:
       # <STRANGE>#654 per-item bias clamp after physics; cam passed for sfx visibility check
       it.post_step(cam)
 
+
+  def occluders(self):
+    # <STRANGE>#1670 shadow casters grouped per-platform: each item is {bbox, edges}
+    # where edges = (ax, ay, bx, by, nx, ny, nc_dot) with outward normal and centroid dot
+    segs = []
+    for p in self.platforms:
+      cx, cy = p.body.position.x, p.body.position.y
+      if p.points is None:
+        hw, hh = p.w / 2, p.h / 2
+        corners = [(cx - hw, cy - hh), (cx + hw, cy - hh),
+                   (cx + hw, cy + hh), (cx - hw, cy + hh)]
+      else:
+        corners = [(cx + px, cy + py) for px, py in p.points]
+      n = len(corners)
+      gx = sum(c[0] for c in corners) / n
+      gy = sum(c[1] for c in corners) / n
+      min_x = min(c[0] for c in corners)
+      min_y = min(c[1] for c in corners)
+      max_x = max(c[0] for c in corners)
+      max_y = max(c[1] for c in corners)
+      edges = []
+      for i in range(n):
+        ax, ay = corners[i]
+        bx, by = corners[(i + 1) % n]
+        nx = by - ay
+        ny = -(bx - ax)
+        tcx = gx - ax
+        tcy = gy - ay
+        nc_dot = nx * tcx + ny * tcy
+        edges.append((ax, ay, bx, by, nx, ny, nc_dot))
+      segs.append({"bbox": (min_x, min_y, max_x, max_y), "edges": edges})
+    return segs
 
   def debug_objects(self):
     # <STRANGE>#1017 every id-bearing object in the level; order doesn't matter for arrow drawing
@@ -367,6 +466,51 @@ class Level:
     # <STRANGE>#1195 forwarded to camera; no-op if the level has no camera yet
     if self.cam is not None:
       self.cam.shake(dur, amp, freq)
+
+  def update_lanterns(self, player, cam, dt):
+    # <STRANGE>#1743 weak glow follows player, snapped to avoid per-frame rebuilds
+    if self.player_light is not None:
+      step = 2.0 / max(1e-6, cam.scale)
+      px = player.body.position.x
+      py = player.body.position.y
+      self.player_light.pos = (
+        round(px / step) * step,
+        round(py / step) * step,
+      )
+    held_lantern = None
+    hand_pos = None
+    for i in range(2):
+      it = player.held[i]
+      if it is not None and getattr(it, "net_type", None) == "lantern":
+        held_lantern = it
+        hand_pos = (it.body.position.x, it.body.position.y)
+        break
+    mx_s, my_s = pygame.mouse.get_pos()
+    mx, wy = cam.from_screen(mx_s, my_s)
+    for it in self.items:
+      if getattr(it, "net_type", None) != "lantern":
+        continue
+      lt = getattr(it, "light", None)
+      if lt is None:
+        continue
+      # <STRANGE>#1744 toggle off: dark; held-on: follow hand aim cursor; free-on: freeze at item
+      if not getattr(it, "is_on", False):
+        lt.intensity = 0.0
+        continue
+      if it is held_lantern and hand_pos is not None:
+        lt.pos = hand_pos
+        dx = mx - hand_pos[0]
+        dy = wy - hand_pos[1]
+        if dx * dx + dy * dy > 1.0:
+          lt.angle = math.atan2(dy, dx)
+        lt.intensity = 0.95
+      elif it.held_by is None:
+        lt.pos = (it.body.position.x, it.body.position.y)
+        lt.angle = it.body.angle
+        lt.intensity = 0.95
+      else:
+        # pocketed or held by someone else: hidden
+        lt.intensity = 0.0
 
   def update_buttons(self, dt, player=None):
     # <STRANGE>#1103 tick pop animations
@@ -501,30 +645,27 @@ class Level:
         line = int(sh.get("line", 0))
         pygame.draw.polygon(surf, rgba, pts, line)
 
-  def draw_overlays(self, screen, cam):
+  def draw_overlays(self, hud, cam):
     # <STRANGE>#1319 draw flashes -> world texts -> toasts; order is deliberate
+    sw, sh = hud.get_size()
     for f in self.flashes:
       k = f["t"] / f["dur"]
       a = int(f["alpha"] * (1.0 - k))
       if a <= 0:
         continue
-      surf = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-      surf.fill((*f["color"], a))
-      screen.blit(surf, (0, 0))
+      hud.rect(0, 0, sw, sh, f["color"], a)
     for tx in self.texts:
       k = tx["t"] / tx["dur"]
       alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 0.3))
       if alpha <= 0:
         continue
-      font = pygame.font.SysFont("consolas", max(8, int(tx["size"] * cam.scale)))
-      surf = font.render(tx["msg"], True, tx["color"])
-      surf.set_alpha(alpha)
+      size = max(8, int(tx["size"] * cam.scale))
       sx, sy = cam.to_screen(tx["x"], tx["y"])
       sy -= int(k * 30 * cam.scale)
-      screen.blit(surf, surf.get_rect(center=(int(sx), int(sy))))
+      hud.text(tx["msg"], sx, sy, size, tx["color"], alpha, anchor="center")
     if self.toasts:
-      cx = screen.get_width() // 2
-      y = screen.get_height() - 120
+      cx = sw // 2
+      y = sh - 120
       for tst in reversed(self.toasts):
         k = tst["t"] / tst["dur"]
         alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 0.3))
@@ -543,9 +684,9 @@ class Level:
           except Exception as e:
             print(f"ctx.toast draw failed: {e}")
         else:
-          for sh in tst["shapes"]:
-            self._draw_toast_shape(slot, sh, lcx, lcy, alpha)
-        screen.blit(slot, (cx - w // 2, y - h // 2))
+          for sh_ in tst["shapes"]:
+            self._draw_toast_shape(slot, sh_, lcx, lcy, alpha)
+        hud.surface(slot, cx - w // 2, y - h // 2, alpha=255, anchor="topleft")
         y -= h
 
   def unload(self):

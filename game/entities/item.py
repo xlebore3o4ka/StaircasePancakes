@@ -481,6 +481,100 @@ class BagItem(Item):
 
     _blit_bands(screen, cam, bands)
 
+class LanternItem(Item):
+  net_type = "lantern"
+  pickup_sound = "pickup_bag"
+  # <STRANGE>#1620 unique per map; hand-held flashlight. Held behind body, aimed at cursor.
+  hold_behind = True
+  behind_dist = 48.0
+  hold_y_offset = 28.0
+  skip_use_pulse = False
+  # <STRANGE>#1740 Q/E toggles the beam on/off; stays on when thrown
+  instant_use = True
+  BODY_COL  = (80, 80, 85)
+  BODY_DARK = (55, 55, 60)
+  REFL_COL  = (120, 120, 128)
+  GLASS_COL = (255, 235, 140)
+  GRIP_COL  = (35, 35, 40)
+  BTN_COL   = (200, 60, 60)
+  OUTLINE   = (15, 15, 20)
+
+  def __init__(self, space, pos):
+    super().__init__(space, pos, 26, 14)
+    # <STRANGE>#1621 SpotLight attached by Level; None in editor / prototypes
+    self.light = None
+    self.is_on = False
+
+  def on_use(self, player, hand):
+    # <STRANGE>#1741 toggle beam on/off; survives drops and re-pickups
+    self.is_on = not self.is_on
+    if self.sound is not None:
+      self.sound.play("button_down" if self.is_on else "button_up")
+    return True
+
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0, y_up=True):
+    sc = cam.scale * scale
+    c, sn = math.cos(angle), math.sin(angle)
+
+    def P(lx, ly):
+      lx *= scale
+      ly *= scale
+      return (pos[0] + lx * c - ly * sn, pos[1] + lx * sn + ly * c)
+
+    def C(col):
+      t = _tint(col, whiten)
+      if alpha < 255:
+        return (t[0], t[1], t[2], alpha)
+      return (t[0], t[1], t[2])
+
+    bands = []
+    # <STRANGE>#1622 barrel body: x in [-8, 6], y in [-4, 4]
+    body_pts = [P(-8, -4), P(6, -4), P(6, 4), P(-8, 4)]
+    bands.append((body_pts, C(self.BODY_COL), 0))
+    for ly in (-2.0, 2.0):
+      sl = [P(-8, ly), P(6, ly), P(6, ly + 0.6), P(-8, ly + 0.6)]
+      bands.append((sl, C(self.BODY_DARK), 0))
+    # reflector (trapezoid) widening toward front
+    refl = [P(6, -4), P(6, 4), P(12, 6), P(12, -6)]
+    bands.append((refl, C(self.REFL_COL), 0))
+    # glass cap (thin front plate)
+    glass = [P(12, -6), P(13, -6), P(13, 6), P(12, 6)]
+    bands.append((glass, C(self.GLASS_COL), 0))
+    # grip loop on top of body, bulging up
+    cx_h, cy_h = -1.0, 4.0
+    r_out, r_in = 3.5, 2.0
+    outer = []
+    inner = []
+    for j in range(9):
+      a = j * math.pi / 8
+      outer.append((cx_h + r_out * math.cos(a), cy_h + r_out * math.sin(a)))
+      inner.append((cx_h + r_in  * math.cos(a), cy_h + r_in  * math.sin(a)))
+    handle = outer + list(reversed(inner))
+    bands.append(([P(lx, ly) for lx, ly in handle], C(self.GRIP_COL), 0))
+    # button on top of body
+    btn = []
+    for j in range(8):
+      a = j * math.tau / 8
+      btn.append(P(-4 + 1.2 * math.cos(a), 4 + 1.2 * math.sin(a)))
+    bands.append((btn, C(self.BTN_COL), 0))
+    # outline
+    lw = max(1, int(LINE_W * sc))
+    bands.append((body_pts, C(self.OUTLINE), lw))
+    bands.append((refl, C(self.OUTLINE), lw))
+    _blit_bands(screen, cam, bands)
+    # glow at glass centre
+    gx, gy = P(13.5, 0)
+    sx, sy = cam.to_screen(gx, gy)
+    r_glow = max(2, int(4 * sc))
+    glow_rgb = _tint(self.GLASS_COL, whiten)[:3]
+    if alpha < 255:
+      surf = pygame.Surface((r_glow * 2, r_glow * 2), pygame.SRCALPHA)
+      pygame.draw.circle(surf, (*glow_rgb, alpha), (r_glow, r_glow), r_glow)
+      screen.blit(surf, (int(sx - r_glow), int(sy - r_glow)))
+    else:
+      pygame.draw.circle(screen, glow_rgb, (int(sx), int(sy)), r_glow)
+
+
 def make_item(space, spec):
   t = spec.get("type", "cube")
   pos = (spec["x"], spec["y"])
@@ -492,6 +586,8 @@ def make_item(space, spec):
     return PortablePegItem(space, pos)
   if t == "bag":
     return BagItem(space, pos)
+  if t == "lantern":
+    return LanternItem(space, pos)
   if t == "cube":
     return CubeItem(space, pos, contents=spec.get("contents"))
   return CubeItem(space, pos)
