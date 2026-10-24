@@ -17,6 +17,11 @@ class EventsMixin:
       self.running = False
       return
 
+    # 0. color picker modal
+    if getattr(self, "_color_edit_owner", None) is not None:
+      self._handle_color_picker_event(e)
+      return
+
     # 1. context menu
     if self.context_menu is not None:
       menu = self.context_menu
@@ -29,7 +34,7 @@ class EventsMixin:
           if idx >= 0:
             opt = menu.options[idx]
             if opt is not None:
-              _, value = opt
+              value = opt[1]
               menu.on_select(value)
               if self.context_menu is menu:
                 self.context_menu = None
@@ -167,6 +172,75 @@ class EventsMixin:
         self._erase_prev = (wx, wy)
       elif self.drag is not None:
         self.on_mouse_move(self.from_screen(*e.pos))
+
+  def _handle_color_picker_event(self, e):
+    if e.type == pygame.KEYDOWN:
+      if e.key == pygame.K_ESCAPE:
+        self._color_edit_cancel()
+      return
+    if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+      geom = self._color_picker_geom or {}
+      ok_r = geom.get("ok_rect")
+      cancel_r = geom.get("cancel_rect")
+      wheel_r = geom.get("wheel_rect")
+      val_r = geom.get("val_rect")
+      panel_r = geom.get("panel_rect")
+      if ok_r is not None and ok_r.collidepoint(e.pos):
+        self._color_edit_commit()
+        return
+      if cancel_r is not None and cancel_r.collidepoint(e.pos):
+        self._color_edit_cancel()
+        return
+      if wheel_r is not None and wheel_r.collidepoint(e.pos):
+        self._color_drag = "wheel"
+        self._color_wheel_update(e.pos)
+        return
+      if val_r is not None and val_r.collidepoint(e.pos):
+        self._color_drag = "val"
+        self._color_val_update(e.pos)
+        return
+      if panel_r is not None and panel_r.collidepoint(e.pos):
+        return
+      self._color_edit_commit()
+      return
+    if e.type == pygame.MOUSEBUTTONUP and e.button == 1:
+      self._color_drag = None
+      return
+    if e.type == pygame.MOUSEMOTION and self._color_drag:
+      if self._color_drag == "wheel":
+        self._color_wheel_update(e.pos)
+      elif self._color_drag == "val":
+        self._color_val_update(e.pos)
+      return
+
+  def _color_wheel_update(self, pos):
+    geom = self._color_picker_geom or {}
+    wr = geom.get("wheel_rect")
+    if wr is None:
+      return
+    import math as _m
+    cx = wr.centerx
+    cy = wr.centery
+    dx = pos[0] - cx
+    dy = pos[1] - cy
+    dist = _m.hypot(dx, dy)
+    r = wr.w / 2.0
+    if r <= 0:
+      return
+    hue = (_m.atan2(dy, dx) / (2 * _m.pi)) % 1.0
+    sat = min(1.0, dist / r)
+    self._color_edit_h = hue
+    self._color_edit_s = sat
+    self._color_edit_apply()
+
+  def _color_val_update(self, pos):
+    geom = self._color_picker_geom or {}
+    vr = geom.get("val_rect")
+    if vr is None:
+      return
+    t = (pos[0] - vr.x) / max(1, vr.w)
+    self._color_edit_v = max(0.0, min(1.0, t))
+    self._color_edit_apply()
 
   def _handle_plan_click(self, pos):
     # <STRANGE>#1167: hit test on plan panel buttons
@@ -654,6 +728,12 @@ class EventsMixin:
     if self.tool == "anchor":
       self._open_pick_anchor_menu(pos)
       return True
+    if self.tool == "platform":
+      self._open_pick_color_template_menu(pos, "platform")
+      return True
+    if self.tool == "background":
+      self._open_pick_color_template_menu(pos, "background")
+      return True
     return False
 
   def _try_polygon_edit_menu(self, pos):
@@ -771,6 +851,9 @@ class EventsMixin:
     # <STRANGE>#1080: Open inspector entry for every object
     if not is_group:
       options.append(("Open inspector", ("open_inspector", None)))
+    # <STRANGE>#1502: color template submenu for platform/background
+    if not is_group and isinstance(obj, (EditorPlatform, EditorBackground)):
+      options.append(("Color template...", ("color_template_menu", None)))
     # <STRANGE>#1407: anchors can export their pair info
     if not is_group and isinstance(obj, EditorAnchor):
       options.append(("Change variant...", ("change_anchor_variant", None)))
@@ -825,6 +908,9 @@ class EventsMixin:
         return
       if act == "change_anchor_variant":
         self._open_change_anchor_variant_menu(obj, pos)
+        return
+      if act == "color_template_menu":
+        self._open_color_template_menu(obj, pos)
         return
       if act == "layer":
         for t in targets:
@@ -931,6 +1017,157 @@ class EventsMixin:
     options = [(v, v) for v in ANCHOR_VARIANTS]
     cur = getattr(self, "current_anchor_variant", "A")
     title = "Place anchor  \u00b7  current: %s" % cur
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+
+  def _open_color_template_menu(self, obj, pos):
+    from .objects import EditorPlatform, EditorBackground
+    from .const import PLAT_FILL, PLAT_EDGE, BG_DEFAULT_COLOR
+    if isinstance(obj, EditorPlatform):
+      kind = "platform"
+    elif isinstance(obj, EditorBackground):
+      kind = "background"
+    else:
+      return
+    if kind == "platform":
+      base_c = tuple(PLAT_FILL)
+    else:
+      base_c = tuple(BG_DEFAULT_COLOR)
+    options = [("Default", ("base", None), base_c)]
+    templates = self.color_templates.get(kind, [])
+    if templates:
+      options.append(None)
+      for i, tmpl in enumerate(templates):
+        if kind == "platform":
+          c = tuple(tmpl.get("fill", PLAT_FILL))
+        else:
+          c = tuple(tmpl.get("color", BG_DEFAULT_COLOR))
+        options.append((tmpl.get("name", "template %d" % i),
+                        ("tmpl", i), c))
+    else:
+      options.append(None)
+      options.append(("(no templates)", None))
+    if templates:
+      options.append(None)
+      options.append(("Delete template...", ("delete_mode", None)))
+    before = self._snapshot()
+    def on_select(value):
+      if value is None:
+        return
+      tag, idx = value
+      if tag == "delete_mode":
+        self._open_delete_color_template_menu(kind, pos)
+        return
+      if tag == "base":
+        if kind == "platform":
+          obj.fill = tuple(PLAT_FILL)
+          obj.edge = tuple(PLAT_EDGE)
+        else:
+          obj.fill = tuple(BG_DEFAULT_COLOR)
+      elif tag == "tmpl":
+        try:
+          tmpl = self.color_templates[kind][idx]
+        except Exception:
+          return
+        if kind == "platform":
+          obj.fill = tuple(tmpl.get("fill", PLAT_FILL))
+          obj.edge = tuple(tmpl.get("edge", PLAT_EDGE))
+        else:
+          obj.fill = tuple(tmpl.get("color", BG_DEFAULT_COLOR))
+      self._push_undo_now(before)
+      self._mark_scene_dirty()
+    title = "Color  \u00b7  " + kind
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+
+  def _open_pick_color_template_menu(self, pos, kind):
+    from .const import PLAT_FILL, PLAT_EDGE, BG_DEFAULT_COLOR
+    if kind == "platform":
+      base_c = tuple(PLAT_FILL)
+    else:
+      base_c = tuple(BG_DEFAULT_COLOR)
+    options = [("Default", ("base", None), base_c)]
+    templates = self.color_templates.get(kind, [])
+    if templates:
+      options.append(None)
+      for i, tmpl in enumerate(templates):
+        if kind == "platform":
+          c = tuple(tmpl.get("fill", PLAT_FILL))
+        else:
+          c = tuple(tmpl.get("color", BG_DEFAULT_COLOR))
+        options.append((tmpl.get("name", "template %d" % i),
+                        ("tmpl", i), c))
+    else:
+      options.append(None)
+      options.append(("(no templates)", None))
+    if templates:
+      options.append(None)
+      options.append(("Delete template...", ("delete_mode", None)))
+    def on_select(value):
+      if value is None:
+        return
+      tag, idx = value
+      if tag == "delete_mode":
+        self._open_delete_color_template_menu(kind, pos)
+        return
+      if kind == "platform":
+        if tag == "base":
+          self.current_platform_fill = tuple(PLAT_FILL)
+          self.current_platform_edge = tuple(PLAT_EDGE)
+        elif tag == "tmpl":
+          try:
+            tmpl = self.color_templates[kind][idx]
+          except Exception:
+            return
+          self.current_platform_fill = tuple(tmpl.get("fill", PLAT_FILL))
+          self.current_platform_edge = tuple(tmpl.get("edge", PLAT_EDGE))
+      else:
+        if tag == "base":
+          self.current_background_fill = tuple(BG_DEFAULT_COLOR)
+        elif tag == "tmpl":
+          try:
+            tmpl = self.color_templates[kind][idx]
+          except Exception:
+            return
+          self.current_background_fill = tuple(tmpl.get("color", BG_DEFAULT_COLOR))
+    if kind == "platform":
+      cur_fill = tuple(getattr(self, "current_platform_fill", PLAT_FILL))
+    else:
+      cur_fill = tuple(getattr(self, "current_background_fill", BG_DEFAULT_COLOR))
+    title = "Place %s  \u00b7  current rgb(%d,%d,%d)" % (kind, *cur_fill[:3])
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+
+  def _open_delete_color_template_menu(self, kind, pos):
+    from .const import PLAT_FILL, BG_DEFAULT_COLOR
+    templates = self.color_templates.get(kind, [])
+    if not templates:
+      return
+    options = []
+    for i, tmpl in enumerate(templates):
+      if kind == "platform":
+        c = tuple(tmpl.get("fill", PLAT_FILL))
+      else:
+        c = tuple(tmpl.get("color", BG_DEFAULT_COLOR))
+      options.append((tmpl.get("name", "template %d" % i),
+                      ("del", i), c))
+    def on_select(value):
+      if value is None:
+        return
+      tag, idx = value
+      if tag != "del":
+        return
+      try:
+        removed = self.color_templates[kind].pop(idx)
+      except Exception:
+        return
+      try:
+        from .messages import INFO
+        self.messages.toast_only(
+            INFO, "Deleted template: " + str(removed.get("name", "?")), 2.5)
+      except Exception:
+        pass
+    title = "Delete template  \u00b7  " + kind
     self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
                                     on_select, title=title)
 

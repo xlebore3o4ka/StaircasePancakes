@@ -517,8 +517,17 @@ class DragMixin:
     elif self.tool in ("platform", "background"):
       if self.tool == "background":
         obj = EditorBackground(wx, wy, 1, 1)
+        try:
+          obj.fill = tuple(self.current_background_fill)
+        except Exception:
+          pass
       else:
         obj = EditorPlatform(wx, wy, 1, 1)
+        try:
+          obj.fill = tuple(self.current_platform_fill)
+          obj.edge = tuple(self.current_platform_edge)
+        except Exception:
+          pass
       self.objects.append(obj)
       self._set_selection([obj])
       self.drag = ("create", (wx, wy))

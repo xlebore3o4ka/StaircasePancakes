@@ -70,6 +70,15 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
         anchors = [o.to_json() for o in self.objects
                    if isinstance(o, EditorAnchor)]
         meta = {"version": 1, "anchors": anchors}
+        try:
+          pt = list(getattr(self, "color_templates", {}).get("platform", []))
+          bt = list(getattr(self, "color_templates", {}).get("background", []))
+          if pt:
+            meta["platform_color_templates"] = pt
+          if bt:
+            meta["background_color_templates"] = bt
+        except Exception:
+          pass
         extra["editor.json"] = json.dumps(meta, indent=2)
       except Exception:
         pass
@@ -242,6 +251,17 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
           self.objects.append(a)
         except Exception:
           pass
+    # <STRANGE>#1503: restore color templates from editor.json
+    if _editor_meta and isinstance(_editor_meta, dict):
+      try:
+        pt = _editor_meta.get("platform_color_templates")
+        if isinstance(pt, list):
+          self.color_templates["platform"] = list(pt)
+        bt = _editor_meta.get("background_color_templates")
+        if isinstance(bt, list):
+          self.color_templates["background"] = list(bt)
+      except Exception:
+        pass
     self._clear_selection()
     self._mark_scene_dirty()
     self._push_undo_now(before)

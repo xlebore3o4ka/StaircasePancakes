@@ -54,6 +54,15 @@ def _is_anchor(owner):
     return False
 
 
+def _is_color_target(owner):
+  # <STRANGE>#1501: platforms and backgrounds have a color swatch
+  try:
+    from .objects import EditorPlatform, EditorBackground
+    return isinstance(owner, (EditorPlatform, EditorBackground))
+  except Exception:
+    return False
+
+
 def _has_id(owner):
   # <STRANGE>#1004/#1423: spawner and anchor have no id
   try:
@@ -157,6 +166,9 @@ class InspectorPanel:
       if _has_id(view):
         positions["id_y"] = y
         y += INSPECTOR_ROW_H + 6
+      if _is_color_target(view):
+        positions["color_y"] = y
+        y += INSPECTOR_ROW_H + 6
       if _is_anchor(view):
         positions["variant_y"] = y
         y += INSPECTOR_ROW_H + 6
@@ -209,6 +221,13 @@ class InspectorPanel:
         id_row = pygame.Rect(fr.x + pad, pos["id_y"],
                              fr.w - pad * 2, INSPECTOR_ROW_H)
         items.append((id_row, "id", None))
+      if _is_color_target(view):
+        crow = pygame.Rect(fr.x + pad, pos["color_y"],
+                           fr.w - pad * 2, INSPECTOR_ROW_H)
+        swatch = pygame.Rect(crow.right - 200, crow.y + 3, 40, crow.h - 6)
+        tmpl = pygame.Rect(crow.right - 100, crow.y + 2, 94, crow.h - 4)
+        items.append((swatch, "color_swatch", None))
+        items.append((tmpl, "color_template", None))
       if _is_anchor(view):
         var_row = pygame.Rect(fr.x + pad, pos["variant_y"],
                               fr.w - pad * 2, INSPECTOR_ROW_H)
@@ -333,6 +352,14 @@ class InspectorPanel:
       return
     if kind == "layer_inc":
       self._bump_layer(+1)
+      return
+    if kind in ("color_swatch", "color_pick"):
+      if _is_color_target(self.owner):
+        self.editor._color_edit_begin(self.owner, "fill")
+      return
+    if kind == "color_template":
+      if _is_color_target(self.owner):
+        self.editor._add_color_template_from_object(self.owner)
       return
     if kind == "anchor_variant":
       if _is_anchor(self.owner):
@@ -636,6 +663,27 @@ class InspectorPanel:
       if _has_id(view):
         self._draw_text_row(s, pos["id_y"] - oy, "id",
                             getattr(view, "id", ""), "id")
+      if _is_color_target(view):
+        y_c = pos["color_y"] - oy
+        crow = pygame.Rect(pad, y_c, INSPECTOR_W - pad * 2, INSPECTOR_ROW_H)
+        self._row_bg(s, crow, False)
+        lbl_c = self.font.render("color", True, INSPECTOR_LABEL)
+        s.blit(lbl_c, (crow.x + 10,
+                       crow.y + (crow.h - lbl_c.get_height()) // 2))
+        swatch_r = pygame.Rect(crow.right - 200, crow.y + 3, 40, crow.h - 6)
+        try:
+          c_sw = tuple(view.fill)[:3]
+          pygame.draw.rect(s, c_sw, swatch_r)
+        except Exception:
+          pygame.draw.rect(s, (100, 100, 100), swatch_r)
+        pygame.draw.rect(s, INSPECTOR_BTN_BORDER, swatch_r, 1)
+        tmpl_r = pygame.Rect(crow.right - 100, crow.y + 2, 94, crow.h - 4)
+        hov = self._is_hover("color_template", None)
+        bg_t = INSPECTOR_BTN_HOVER if hov else INSPECTOR_BTN_BG
+        pygame.draw.rect(s, bg_t, tmpl_r, border_radius=3)
+        pygame.draw.rect(s, INSPECTOR_BTN_BORDER, tmpl_r, 1, border_radius=3)
+        tt = self.font.render("Save tmpl", True, INSPECTOR_BTN_TEXT)
+        s.blit(tt, tt.get_rect(center=tmpl_r.center))
       if _is_anchor(view):
         yr = pos["variant_y"] - oy
         row = pygame.Rect(pad, yr, INSPECTOR_W - pad * 2, INSPECTOR_ROW_H)

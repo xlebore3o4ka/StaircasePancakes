@@ -1,5 +1,6 @@
 """Ядро редактора: __init__, main loop, координаты, кэш сцены, inspector stack."""
 import math
+import colorsys
 import pygame
 
 from .const import (
@@ -167,6 +168,23 @@ class CoreMixin:
     self.anchor_focus = None
     self.anchor_buffer = ""
     self.anchor_cursor_blink = 0.0
+    # <STRANGE>#1500: color templates + color picker state
+    self.color_templates = {"platform": [], "background": []}
+    # <STRANGE>#1504: current color/edge applied to new objects
+    from .const import PLAT_FILL as _PF, PLAT_EDGE as _PE, BG_DEFAULT_COLOR as _BG
+    self.current_platform_fill = tuple(_PF)
+    self.current_platform_edge = tuple(_PE)
+    self.current_background_fill = tuple(_BG)
+    self._color_edit_owner = None
+    self._color_edit_field = None
+    self._color_edit_orig_color = (128, 128, 128)
+    self._color_edit_before = None
+    self._color_edit_h = 0.0
+    self._color_edit_s = 1.0
+    self._color_edit_v = 1.0
+    self._color_drag = None
+    self._color_picker_geom = {}
+    self._color_wheel_surface = None
     # <STRANGE>#1150: current plan produced by Planner tool
     self.plan = None
     # ephemeral preview during a plan drag
@@ -819,6 +837,99 @@ class CoreMixin:
     for sid, bnd in assigned.items():
       zone_s.setdefault(bnd, []).append(sid)
     return pairs, free_s, assigned, zone_s
+
+  # ---------- color picker + templates ----------
+  def _color_edit_begin(self, owner, field):
+    if owner is None:
+      return
+    try:
+      c = tuple(getattr(owner, field, (128, 128, 128)))[:3]
+    except Exception:
+      c = (128, 128, 128)
+    r, g, b = c[0] / 255.0, c[1] / 255.0, c[2] / 255.0
+    h, sat, v = colorsys.rgb_to_hsv(r, g, b)
+    self._color_edit_owner = owner
+    self._color_edit_field = field
+    self._color_edit_orig_color = c
+    self._color_edit_h = h
+    self._color_edit_s = sat
+    self._color_edit_v = v
+    self._color_edit_before = self._snapshot()
+    self._color_drag = None
+
+  def _color_edit_apply(self):
+    if self._color_edit_owner is None:
+      return
+    r, g, b = colorsys.hsv_to_rgb(self._color_edit_h, self._color_edit_s, self._color_edit_v)
+    c = (int(r * 255), int(g * 255), int(b * 255))
+    try:
+      setattr(self._color_edit_owner, self._color_edit_field, c)
+    except Exception:
+      pass
+    self._mark_scene_dirty()
+
+  def _color_edit_commit(self):
+    if self._color_edit_owner is None:
+      return
+    before = self._color_edit_before
+    self._color_edit_owner = None
+    self._color_edit_field = None
+    self._color_edit_before = None
+    self._color_drag = None
+    self._color_picker_geom = {}
+    if before is not None:
+      try:
+        if self._snapshot() != before:
+          self._push_undo_now(before)
+      except Exception:
+        pass
+    self._mark_scene_dirty()
+
+  def _color_edit_cancel(self):
+    if self._color_edit_owner is None:
+      return
+    try:
+      setattr(self._color_edit_owner, self._color_edit_field,
+              self._color_edit_orig_color)
+    except Exception:
+      pass
+    self._color_edit_owner = None
+    self._color_edit_field = None
+    self._color_edit_before = None
+    self._color_drag = None
+    self._color_picker_geom = {}
+    self._mark_scene_dirty()
+
+  def _add_color_template_from_object(self, obj):
+    from .objects import EditorPlatform, EditorBackground
+    name = None
+    try:
+      import tkinter as _tk
+      from tkinter import simpledialog as _sd
+      root = _tk.Tk()
+      root.withdraw()
+      name = _sd.askstring("Template name", "Enter template name:", parent=root)
+      root.destroy()
+      self._flush_pygame_events()
+    except Exception:
+      name = None
+    if not name:
+      return
+    if isinstance(obj, EditorPlatform):
+      tmpl = {"name": str(name),
+              "fill": list(tuple(obj.fill)),
+              "edge": list(tuple(obj.edge))}
+      self.color_templates.setdefault("platform", []).append(tmpl)
+    elif isinstance(obj, EditorBackground):
+      tmpl = {"name": str(name), "color": list(tuple(obj.fill))}
+      self.color_templates.setdefault("background", []).append(tmpl)
+    else:
+      return
+    try:
+      from .messages import INFO
+      self.messages.toast_only(INFO, "Saved template: " + str(name), 2.5)
+    except Exception:
+      pass
 
   def _recompute_messages(self):
     # <STRANGE>#1003: scan for duplicate non-empty ids among all objects

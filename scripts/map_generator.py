@@ -114,7 +114,7 @@ def _place(ctx, inst, ax, ay, label):
         if h is None:
             ctx.log(f"[{label}] нет объекта {obj['id']}")
             continue
-        ctx.move_to(h, x=ax + obj["dx"], y=ay + obj["dy"], dur=5, ease="linear")
+        ctx.move_to(h, x=ax + obj["dx"], y=ay + obj["dy"], dur=0, ease="linear")
 
 
 def _hide(ctx, inst, label=""):
@@ -127,7 +127,6 @@ def _hide(ctx, inst, label=""):
 
 
 def on_load(ctx):
-    ctx.move_to(ctx.by_id("123"), x=-297, y=230, dur=3.00, ease="inout")
     remaining = {i: list(z["instances"]) for i, z in enumerate(ZONES)}
 
     for spawn_i, sp in enumerate(FREE_SPAWNS):

@@ -262,6 +262,8 @@ class ContextMenu:
   HEADER_H = 24
   SEP_H = 8
   PAD_X = 12
+  SWATCH_W = 14
+  SWATCH_GAP = 10
 
   def __init__(self, screen_size, options, pos, on_select, title=None):
     # options: list of (label, value) tuples; None entries are separators
@@ -271,14 +273,18 @@ class ContextMenu:
     self.font = pygame.font.SysFont(None, 22)
     self.font_small = pygame.font.SysFont(None, 18)
 
+    self.has_color = any(opt is not None and len(opt) >= 3
+                         for opt in self.options)
+    color_w = (self.SWATCH_W + self.SWATCH_GAP) if self.has_color else 0
     max_w = 80
     for opt in self.options:
       if opt is None:
         continue
-      label, _ = opt
+      label = opt[0]
       w = self.font.size(label)[0]
       if w > max_w:
         max_w = w
+    max_w += color_w
     if title:
       tw = self.font_small.size(title)[0]
       if tw + self.PAD_X * 2 > max_w:
@@ -339,7 +345,7 @@ class ContextMenu:
                          (self.rect.right - 6, my), 1)
         y += self.SEP_H
         continue
-      label, _ = opt
+      label = opt[0]
       r = pygame.Rect(self.rect.x, y, self.rect.width, self.ITEM_H)
       if i == self.hover:
         pygame.draw.rect(screen, MENU_HOVER, r)
@@ -347,4 +353,14 @@ class ContextMenu:
       surf = render_text(self.font, label, color)
       screen.blit(surf, (r.x + self.PAD_X,
                          r.y + (r.height - surf.get_height()) // 2))
+      if len(opt) >= 3 and opt[2] is not None:
+        try:
+          c = tuple(opt[2])[:3]
+          sw = pygame.Rect(r.right - self.PAD_X - self.SWATCH_W,
+                           r.y + (r.height - self.SWATCH_W) // 2,
+                           self.SWATCH_W, self.SWATCH_W)
+          pygame.draw.rect(screen, c, sw)
+          pygame.draw.rect(screen, (20, 20, 20), sw, 1)
+        except Exception:
+          pass
       y += self.ITEM_H

@@ -144,6 +144,7 @@ class RenderMixin:
     if self.context_menu is not None:
       self.context_menu.draw(self.screen)
     self._draw_messages()
+    self._draw_color_picker()
 
   def _draw_ghosted(self, obj):
     # <STRANGE>#526: ???????????????????????????? ???????????? ?????? ???????????????? ?????? ???????????? ????????????
@@ -433,6 +434,93 @@ class RenderMixin:
       cx = lr.right - 8
       pygame.draw.line(panel, (225, 230, 240),
                        (cx, lr.y + 5), (cx, lr.bottom - 5), 1)
+
+  def _make_color_wheel(self, radius):
+    import math as _m
+    import colorsys as _cs
+    d = radius * 2
+    surf = pygame.Surface((d, d), pygame.SRCALPHA)
+    for y in range(d):
+      for x in range(d):
+        dx = x - radius + 0.5
+        dy = y - radius + 0.5
+        dist = _m.hypot(dx, dy)
+        if dist > radius:
+          continue
+        hue = (_m.atan2(dy, dx) / (2 * _m.pi)) % 1.0
+        sat = min(1.0, dist / radius)
+        r, g, b = _cs.hsv_to_rgb(hue, sat, 1.0)
+        surf.set_at((x, y), (int(r * 255), int(g * 255), int(b * 255), 255))
+    return surf
+
+  def _draw_color_picker(self):
+    if getattr(self, "_color_edit_owner", None) is None:
+      return
+    import math as _m
+    import colorsys as _cs
+    sw, sh = self.screen.get_size()
+    dim = pygame.Surface((sw, sh), pygame.SRCALPHA)
+    dim.fill((0, 0, 0, 130))
+    self.screen.blit(dim, (0, 0))
+    pw, ph = 400, 340
+    px = (sw - pw) // 2
+    py = (sh - ph) // 2
+    panel = pygame.Rect(px, py, pw, ph)
+    pygame.draw.rect(self.screen, (30, 34, 42), panel, border_radius=8)
+    pygame.draw.rect(self.screen, (90, 96, 110), panel, 1, border_radius=8)
+    font = self.font
+    title = font.render("Edit color", True, (225, 230, 240))
+    self.screen.blit(title, (px + 16, py + 12))
+    wheel_radius = 100
+    wheel_cx = px + 24 + wheel_radius
+    wheel_cy = py + 56 + wheel_radius
+    wheel_rect = pygame.Rect(wheel_cx - wheel_radius, wheel_cy - wheel_radius,
+                             wheel_radius * 2, wheel_radius * 2)
+    if self._color_wheel_surface is None or \
+       self._color_wheel_surface.get_width() != wheel_radius * 2:
+      self._color_wheel_surface = self._make_color_wheel(wheel_radius)
+    self.screen.blit(self._color_wheel_surface, wheel_rect.topleft)
+    wx = wheel_cx + _m.cos(self._color_edit_h * 2 * _m.pi) * self._color_edit_s * wheel_radius
+    wy = wheel_cy + _m.sin(self._color_edit_h * 2 * _m.pi) * self._color_edit_s * wheel_radius
+    pygame.draw.circle(self.screen, (0, 0, 0), (int(wx), int(wy)), 8, 2)
+    pygame.draw.circle(self.screen, (255, 255, 255), (int(wx), int(wy)), 6, 2)
+    info_x = wheel_rect.right + 24
+    info_w = pw - (info_x - px) - 16
+    r, g, b = _cs.hsv_to_rgb(self._color_edit_h, self._color_edit_s, self._color_edit_v)
+    r, g, b = int(r * 255), int(g * 255), int(b * 255)
+    prev_rect = pygame.Rect(info_x, py + 56, info_w, 60)
+    pygame.draw.rect(self.screen, (r, g, b), prev_rect, border_radius=4)
+    pygame.draw.rect(self.screen, (90, 96, 110), prev_rect, 1, border_radius=4)
+    rgb_lbl = font.render("RGB: %d, %d, %d" % (r, g, b), True, (200, 206, 218))
+    self.screen.blit(rgb_lbl, (info_x, py + 124))
+    val_lbl = font.render("Value", True, (170, 176, 188))
+    self.screen.blit(val_lbl, (info_x, py + 152))
+    val_rect = pygame.Rect(info_x, py + 174, info_w, 24)
+    pygame.draw.rect(self.screen, (20, 22, 28), val_rect, border_radius=4)
+    fill_w = int(val_rect.w * self._color_edit_v)
+    if fill_w > 0:
+      pygame.draw.rect(self.screen, (r, g, b),
+                       pygame.Rect(val_rect.x, val_rect.y, fill_w, val_rect.h),
+                       border_radius=4)
+    pygame.draw.rect(self.screen, (90, 96, 110), val_rect, 1, border_radius=4)
+    vp = font.render("%d%%" % int(self._color_edit_v * 100), True, (200, 206, 218))
+    self.screen.blit(vp, (info_x, py + 202))
+    btn_y = py + ph - 46
+    cancel_rect = pygame.Rect(px + pw - 100, btn_y, 80, 30)
+    ok_rect = pygame.Rect(px + pw - 190, btn_y, 80, 30)
+    for r_, label, primary in ((ok_rect, "OK", True), (cancel_rect, "Cancel", False)):
+      bg = (58, 128, 92) if primary else (60, 66, 78)
+      pygame.draw.rect(self.screen, bg, r_, border_radius=4)
+      pygame.draw.rect(self.screen, (105, 112, 126), r_, 1, border_radius=4)
+      ts = font.render(label, True, (225, 230, 240))
+      self.screen.blit(ts, ts.get_rect(center=r_.center))
+    self._color_picker_geom = {
+      "wheel_rect": wheel_rect,
+      "val_rect": val_rect,
+      "ok_rect": ok_rect,
+      "cancel_rect": cancel_rect,
+      "panel_rect": panel,
+    }
 
   def _draw_plan_ghost(self):
     # <STRANGE>#1174: silhouette shown whenever a plan exists;
