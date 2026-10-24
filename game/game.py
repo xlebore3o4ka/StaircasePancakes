@@ -115,6 +115,7 @@ class Game:
         level.update_triggers(dt, (player.body.position.x, player.body.position.y), player.events)
         player.events.clear()
         level.update_movers(dt)
+        level.update_overlays(dt)
         for rp in remotes.values():
           rp.update(dt)
         # <STRANGE>#963 drop remotes that stopped sending; covers server death and ghost of a disconnected peer
@@ -224,6 +225,7 @@ class Game:
         hud_info.update(dt)
         # <STRANGE>#620 height is distance from spawn, not absolute y
         hud_info.draw(w.screen, player.body.position.y - spawn_y)
+        level.draw_overlays(w.screen, cam)
         if self.debuginfo:
           debug_info.update(dt, player)
           debug_info.draw(w.screen)

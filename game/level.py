@@ -4,6 +4,7 @@ import random
 import tarfile
 import tempfile
 import pymunk
+import pygame
 from shared.version import read as _read_version, parse as _parse_version
 from .entities.peg import Peg
 from .entities.platform import Platform, PLAT_W, PLAT_H, PLAT_FILL, PLAT_EDGE
@@ -39,6 +40,10 @@ class Level:
     self._arrows = DebugArrows()
     # <STRANGE>#1041 active smooth-move animations; each entry drives one object over time
     self.movers = []
+    # <STRANGE>#1314 screen overlays; owned by level, ticked each frame by game.py
+    self.texts = []
+    self.toasts = []
+    self.flashes = []
     # <STRANGE>#1195 set by game.py; scripts use it for ctx.shake
     self.cam = None
     # <STRANGE>#1195 set by game.py; scripts use it for ctx.shake
@@ -402,6 +407,146 @@ class Level:
       for t in self.triggers:
         for ev in player_events:
           t.fire_button(ev)
+
+  def add_text(self, msg, x, y, dur=2.0, size=32, color=(255, 255, 255)):
+    # <STRANGE>#1315 world-space floating text overlay
+    entry = {"msg": str(msg), "x": float(x), "y": float(y), "t": 0.0,
+             "dur": max(0.01, float(dur)), "size": int(size),
+             "color": tuple(color[:3])}
+    self.texts.append(entry)
+    return entry
+
+  def add_toast(self, content, dur=2.0, color=(235, 225, 210), w=1200, h=40):
+    # <STRANGE>#1316 bottom-center transient message; text, shape list, or draw callback
+    dur = max(0.01, float(dur))
+    if callable(content):
+      kind = "draw"
+      draw_fn = content
+      shapes = None
+    else:
+      kind = "shapes"
+      draw_fn = None
+      if isinstance(content, str):
+        shapes = [{"kind": "text", "msg": content, "size": 28, "color": tuple(color[:3])}]
+      elif isinstance(content, (list, tuple)):
+        shapes = list(content)
+      else:
+        shapes = [{"kind": "text", "msg": str(content), "size": 28, "color": tuple(color[:3])}]
+    entry = {
+      "t": 0.0,
+      "dur": dur,
+      "w": int(w),
+      "h": int(h),
+      "color": tuple(color[:3]),
+      "kind": kind,
+      "slot": None,
+    }
+    if kind == "draw":
+      entry["draw"] = draw_fn
+    else:
+      entry["shapes"] = shapes
+    self.toasts.append(entry)
+    return entry
+
+  def flash(self, dur, color=(255, 255, 255), alpha=120):
+    # <STRANGE>#1317 full-screen flash overlay
+    entry = {"t": 0.0, "dur": max(0.01, float(dur)),
+             "color": tuple(color[:3]), "alpha": int(alpha)}
+    self.flashes.append(entry)
+    return entry
+
+  def update_overlays(self, dt):
+    # <STRANGE>#1318 tick overlay lifetimes; drop expired
+    for lst in (self.texts, self.toasts, self.flashes):
+      for e in lst:
+        e["t"] += dt
+      lst[:] = [e for e in lst if e["t"] < e["dur"]]
+
+  def _draw_toast_shape(self, surf, sh, cx, cy, alpha):
+    # <STRANGE>#1320 draw one primitive shape into a toast slot
+    if not isinstance(sh, dict):
+      return
+    kind = sh.get("kind") or ("text" if "msg" in sh else "rect")
+    col = tuple(sh.get("color", (235, 225, 210))[:3])
+    a = int(sh.get("alpha", 255)) * alpha // 255
+    if a <= 0:
+      return
+    rgba = (*col, a)
+    px = cx + int(sh.get("x", 0))
+    py = cy + int(sh.get("y", 0))
+    if kind == "text":
+      size = int(sh.get("size", 28))
+      font = pygame.font.SysFont("consolas", size)
+      tmp = font.render(str(sh.get("msg", "")), True, col)
+      tmp.set_alpha(a)
+      surf.blit(tmp, tmp.get_rect(center=(px, py)))
+    elif kind == "rect":
+      w = int(sh.get("w", 40))
+      h = int(sh.get("h", 10))
+      line = int(sh.get("line", 0))
+      rect = pygame.Rect(px - w // 2, py - h // 2, w, h)
+      pygame.draw.rect(surf, rgba, rect, line)
+    elif kind == "circle":
+      r = int(sh.get("r", 10))
+      line = int(sh.get("line", 0))
+      pygame.draw.circle(surf, rgba, (px, py), r, line)
+    elif kind == "line":
+      x1 = cx + int(sh.get("x1", 40))
+      y1 = cy + int(sh.get("y1", 0))
+      width = int(sh.get("width", 2))
+      pygame.draw.line(surf, rgba, (px, py), (x1, y1), width)
+    elif kind == "polygon":
+      pts = [(cx + int(px2), cy + int(py2)) for px2, py2 in sh.get("points", [])]
+      if len(pts) >= 3:
+        line = int(sh.get("line", 0))
+        pygame.draw.polygon(surf, rgba, pts, line)
+
+  def draw_overlays(self, screen, cam):
+    # <STRANGE>#1319 draw flashes -> world texts -> toasts; order is deliberate
+    for f in self.flashes:
+      k = f["t"] / f["dur"]
+      a = int(f["alpha"] * (1.0 - k))
+      if a <= 0:
+        continue
+      surf = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+      surf.fill((*f["color"], a))
+      screen.blit(surf, (0, 0))
+    for tx in self.texts:
+      k = tx["t"] / tx["dur"]
+      alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 0.3))
+      if alpha <= 0:
+        continue
+      font = pygame.font.SysFont("consolas", max(8, int(tx["size"] * cam.scale)))
+      surf = font.render(tx["msg"], True, tx["color"])
+      surf.set_alpha(alpha)
+      sx, sy = cam.to_screen(tx["x"], tx["y"])
+      sy -= int(k * 30 * cam.scale)
+      screen.blit(surf, surf.get_rect(center=(int(sx), int(sy))))
+    if self.toasts:
+      cx = screen.get_width() // 2
+      y = screen.get_height() - 120
+      for tst in reversed(self.toasts):
+        k = tst["t"] / tst["dur"]
+        alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 0.3))
+        if alpha <= 0:
+          continue
+        w, h = tst["w"], tst["h"]
+        slot = tst.get("slot")
+        if slot is None or slot.get_size() != (w, h):
+          slot = pygame.Surface((w, h), pygame.SRCALPHA)
+          tst["slot"] = slot
+        slot.fill((0, 0, 0, 0))
+        lcx, lcy = w // 2, h // 2
+        if tst["kind"] == "draw":
+          try:
+            tst["draw"](slot, lcx, lcy, tst["t"], tst["dur"], alpha)
+          except Exception as e:
+            print(f"ctx.toast draw failed: {e}")
+        else:
+          for sh in tst["shapes"]:
+            self._draw_toast_shape(slot, sh, lcx, lcy, alpha)
+        screen.blit(slot, (cx - w // 2, y - h // 2))
+        y -= h
 
   def unload(self):
     # <STRANGE>#1028 on_unload for every script, called once when the level goes away

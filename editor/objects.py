@@ -127,6 +127,8 @@ class EditorPeg:
     # <STRANGE>#701: ?????????????? ???????? ???????? ??? 5
     self.layer = 5
     self.id = ""
+    self.id = ""
+    self.id = ""
 
   def hit(self, wx, wy):
     return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= self.r ** 2
@@ -179,6 +181,8 @@ class EditorPlatform:
     self.edge = PLAT_EDGE
     self.locked = False
     self.layer = None
+    self.id = ""
+    self.id = ""
     self.id = ""
     # platform polygon mode
     self.polygon = False
@@ -340,6 +344,8 @@ class EditorBackground:
     self.fill = BG_DEFAULT_COLOR
     self.locked = False
     self.layer = None
+    self.id = ""
+    self.id = ""
     self.id = ""
     # <STRANGE>#500: polygon-?????????? ????????. ?????????? ??? ???????????????????????? ???????????? (x,y).
     self.polygon = False
@@ -662,6 +668,8 @@ class EditorArtifact:
     self.r = ARTIFACT_R
     self.locked = False
     self.layer = None
+    self.id = ""
+    self.id = ""
     self.id = ""
 
   def hit(self, wx, wy):
