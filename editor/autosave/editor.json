@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "background_color_templates": [
+    {
+      "name": "lamp",
+      "color": [
+        194,
+        201,
+        255
+      ]
+    }
+  ]
+}

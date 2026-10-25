@@ -168,8 +168,43 @@ class CoreMixin:
     self.anchor_focus = None
     self.anchor_buffer = ""
     self.anchor_cursor_blink = 0.0
+    # <STRANGE>#1800: autosave state (period 30s, only if dirty)
+    self._autosave_timer = 0.0
+    self._autosave_period = 30.0
+    self._autosave_last_path = None
+    # <STRANGE>#1700: label state
+    self._label_modal_open = False
+    self._label_modal_cursor = 0.0
+    self._label_modal_target = None
+    self._label_modal_geom = {}
+    self._label_modal_buffer = ""
+    self._label_modal_focus = None
+    self._label_modal_scroll = 0
+    self._label_chip_modal_kind = None
+    self._label_chip_modal_params = {}
+    self._label_chip_modal_geom = {}
+    # <STRANGE>#1900: sun (passive sky light) state
+    self.sun_enabled = False
+    self.sun_color = (180, 200, 240)
+    self.sun_intensity = 0.45
+    self.sun_direction = (0.6, 1.0)
+    self.sun_shadow_length = 2000.0
+    self.sun_gradient_length = 60.0
+    # <STRANGE>#1520: lighting state
+    self.current_light_type = "lamp"
+    self.lighting = None
+    self.lighting_ambient = (0, 0, 0)
+    self.lighting_gain = 1.0
+    self.light_preview = False
+    self._level_settings_open = False
+    self._level_settings_drag = None
+    self._level_settings_geom = {}
+    self._ls_focus = None
+    self._ls_buffer = ""
+    self._radial_cache = {}
+    self._scratch_surface = None
     # <STRANGE>#1500: color templates + color picker state
-    self.color_templates = {"platform": [], "background": []}
+    self.color_templates = {"platform": [], "background": [], "light": []}
     # <STRANGE>#1504: current color/edge applied to new objects
     from .const import PLAT_FILL as _PF, PLAT_EDGE as _PE, BG_DEFAULT_COLOR as _BG
     self.current_platform_fill = tuple(_PF)
@@ -193,6 +228,10 @@ class CoreMixin:
     self.grid_step_angle = 15
     # <STRANGE>#508: ?????????????????????????? ?????????????????????????? ?????? (?????? None)
     self.polygon_edit = None
+    try:
+      self._check_autosave_on_start()
+    except Exception:
+      pass
 
   # ---------- rotate arcs ----------
   def _rotate_arc_centers(self, bg):
@@ -843,7 +882,12 @@ class CoreMixin:
     if owner is None:
       return
     try:
-      c = tuple(getattr(owner, field, (128, 128, 128)))[:3]
+      if owner == "ambient":
+        c = tuple(self.lighting_ambient)[:3]
+      elif owner == "sun":
+        c = tuple(self.sun_color)[:3]
+      else:
+        c = tuple(getattr(owner, field, (128, 128, 128)))[:3]
     except Exception:
       c = (128, 128, 128)
     r, g, b = c[0] / 255.0, c[1] / 255.0, c[2] / 255.0
@@ -862,10 +906,17 @@ class CoreMixin:
       return
     r, g, b = colorsys.hsv_to_rgb(self._color_edit_h, self._color_edit_s, self._color_edit_v)
     c = (int(r * 255), int(g * 255), int(b * 255))
-    try:
-      setattr(self._color_edit_owner, self._color_edit_field, c)
-    except Exception:
-      pass
+    if self._color_edit_owner == "ambient":
+      self.lighting_ambient = c
+      if self.lighting is not None:
+        self.lighting["ambient"] = list(c)
+    elif self._color_edit_owner == "sun":
+      self.sun_color = c
+    else:
+      try:
+        setattr(self._color_edit_owner, self._color_edit_field, c)
+      except Exception:
+        pass
     self._mark_scene_dirty()
 
   def _color_edit_commit(self):
@@ -888,11 +939,18 @@ class CoreMixin:
   def _color_edit_cancel(self):
     if self._color_edit_owner is None:
       return
-    try:
-      setattr(self._color_edit_owner, self._color_edit_field,
-              self._color_edit_orig_color)
-    except Exception:
-      pass
+    if self._color_edit_owner == "ambient":
+      self.lighting_ambient = self._color_edit_orig_color
+      if self.lighting is not None:
+        self.lighting["ambient"] = list(self._color_edit_orig_color)
+    elif self._color_edit_owner == "sun":
+      self.sun_color = self._color_edit_orig_color
+    else:
+      try:
+        setattr(self._color_edit_owner, self._color_edit_field,
+                self._color_edit_orig_color)
+      except Exception:
+        pass
     self._color_edit_owner = None
     self._color_edit_field = None
     self._color_edit_before = None
@@ -901,7 +959,7 @@ class CoreMixin:
     self._mark_scene_dirty()
 
   def _add_color_template_from_object(self, obj):
-    from .objects import EditorPlatform, EditorBackground
+    from .objects import EditorPlatform, EditorBackground, EditorLight
     name = None
     try:
       import tkinter as _tk
@@ -923,11 +981,381 @@ class CoreMixin:
     elif isinstance(obj, EditorBackground):
       tmpl = {"name": str(name), "color": list(tuple(obj.fill))}
       self.color_templates.setdefault("background", []).append(tmpl)
+    elif isinstance(obj, EditorLight):
+      tmpl = {"name": str(name), "color": list(tuple(obj.color))}
+      self.color_templates.setdefault("light", []).append(tmpl)
     else:
       return
     try:
       from .messages import INFO
       self.messages.toast_only(INFO, "Saved template: " + str(name), 2.5)
+    except Exception:
+      pass
+
+  # ---------- sun (passive sky light) ----------
+  def _set_sun_enabled(self, enabled):
+    self.sun_enabled = bool(enabled)
+    if self.sun_enabled and self.lighting is None:
+      self._ensure_lighting()
+    self._mark_scene_dirty()
+
+  def _set_sun_channel(self, i, value):
+    v = max(0, min(255, int(value)))
+    c = list(self.sun_color)
+    c[i] = v
+    self.sun_color = tuple(c)
+    self._mark_scene_dirty()
+
+  def _set_sun_intensity(self, value):
+    self.sun_intensity = max(0.0, min(2.0, float(value)))
+    self._mark_scene_dirty()
+
+  def _set_sun_shadow_length(self, value):
+    self.sun_shadow_length = max(100.0, min(5000.0, float(value)))
+    self._mark_scene_dirty()
+
+  def _set_sun_gradient_length(self, value):
+    self.sun_gradient_length = max(1.0, min(500.0, float(value)))
+    self._mark_scene_dirty()
+
+  def _set_sun_direction(self, which, value):
+    v = max(-1.0, min(1.0, float(value)))
+    d = list(self.sun_direction)
+    d[0 if which == "x" else 1] = v
+    self.sun_direction = (d[0], d[1])
+    self._mark_scene_dirty()
+
+  def _lights_for_output(self):
+    from .objects import EditorLight
+    lights = [o.to_json() for o in self.objects if isinstance(o, EditorLight)]
+    if getattr(self, "sun_enabled", False):
+      lights.append({
+        "type": "sun", "id": "sun",
+        "color": list(self.sun_color),
+        "intensity": float(self.sun_intensity),
+        "direction": list(self.sun_direction),
+        "shadow_length": float(self.sun_shadow_length),
+        "gradient_length": float(self.sun_gradient_length),
+      })
+    return lights
+
+  # ---------- level settings ----------
+  def _open_level_settings(self):
+    self._level_settings_open = True
+
+  def _close_level_settings(self):
+    self._level_settings_open = False
+    self._level_settings_drag = None
+    self._level_settings_geom = {}
+    self._mark_scene_dirty()
+
+  def _ensure_lighting(self):
+    if self.lighting is None:
+      self.lighting = {"ambient": [int(self.lighting_ambient[0]),
+                                     int(self.lighting_ambient[1]),
+                                     int(self.lighting_ambient[2])],
+                        "gain": float(self.lighting_gain)}
+
+  def _set_lighting_ambient_channel(self, i, value):
+    v = max(0, min(255, int(value)))
+    a = list(self.lighting_ambient)
+    a[i] = v
+    self.lighting_ambient = tuple(a)
+    if self.lighting is not None:
+      self.lighting["ambient"] = list(self.lighting_ambient)
+    self._mark_scene_dirty()
+
+  def _set_lighting_gain(self, value):
+    g = max(0.1, min(3.0, float(value)))
+    self.lighting_gain = g
+    if self.lighting is not None:
+      self.lighting["gain"] = g
+    self._mark_scene_dirty()
+
+  def _commit_ls_focus(self):
+    # <STRANGE>#2200: commit typed keyboard value for level settings
+    f = getattr(self, "_ls_focus", None)
+    if f is None:
+      return
+    try:
+      val = float(self._ls_buffer)
+    except Exception:
+      self._ls_focus = None
+      return
+    if f == "r": self._set_lighting_ambient_channel(0, int(val))
+    elif f == "g": self._set_lighting_ambient_channel(1, int(val))
+    elif f == "b": self._set_lighting_ambient_channel(2, int(val))
+    elif f == "gain": self._set_lighting_gain(val)
+    elif f == "sun_r": self._set_sun_channel(0, int(val))
+    elif f == "sun_g": self._set_sun_channel(1, int(val))
+    elif f == "sun_b": self._set_sun_channel(2, int(val))
+    elif f == "sun_int": self._set_sun_intensity(val)
+    elif f == "sun_dx": self._set_sun_direction("x", val)
+    elif f == "sun_dy": self._set_sun_direction("y", val)
+    elif f == "sun_slen": self._set_sun_shadow_length(val)
+    elif f == "sun_glen": self._set_sun_gradient_length(val)
+    self._ls_focus = None
+    self._ls_buffer = ""
+
+  def _reset_level_setting(self, key):
+    # <STRANGE>#2201: reset specific setting to default
+    from .const import LIGHT_DEFAULT_AMBIENT, LIGHT_DEFAULT_GAIN, SUN_DEFAULT_COLOR, SUN_DEFAULT_INTENSITY, SUN_DEFAULT_DIRECTION, SUN_DEFAULT_SHADOW_LENGTH, SUN_DEFAULT_GRADIENT_LENGTH
+    if key == 'ambient':
+      self._set_lighting_ambient_channel(0, LIGHT_DEFAULT_AMBIENT[0])
+      self._set_lighting_ambient_channel(1, LIGHT_DEFAULT_AMBIENT[1])
+      self._set_lighting_ambient_channel(2, LIGHT_DEFAULT_AMBIENT[2])
+    elif key == 'gain': self._set_lighting_gain(LIGHT_DEFAULT_GAIN)
+    elif key == 'sun':
+      self._set_sun_channel(0, SUN_DEFAULT_COLOR[0])
+      self._set_sun_channel(1, SUN_DEFAULT_COLOR[1])
+      self._set_sun_channel(2, SUN_DEFAULT_COLOR[2])
+    elif key == 'sun_int': self._set_sun_intensity(SUN_DEFAULT_INTENSITY)
+    elif key == 'sun_dx': self._set_sun_direction('x', SUN_DEFAULT_DIRECTION[0])
+    elif key == 'sun_dy': self._set_sun_direction('y', SUN_DEFAULT_DIRECTION[1])
+    elif key == 'sun_slen': self._set_sun_shadow_length(SUN_DEFAULT_SHADOW_LENGTH)
+    elif key == 'sun_glen': self._set_sun_gradient_length(SUN_DEFAULT_GRADIENT_LENGTH)
+    if getattr(self, "_ls_focus", None) == key:
+      self._ls_focus = None
+
+  def _reset_all_level_settings(self):
+    # <STRANGE>#2202: reset all level settings
+    for k in ('ambient', 'gain', 'sun', 'sun_int', 'sun_dx', 'sun_dy', 'sun_slen', 'sun_glen'):
+      self._reset_level_setting(k)
+    self._ls_focus = None
+
+  # ---------- autosave / emergency save ----------
+  def _collect_level_data(self):
+    # shared between autosave, emergency save and manual save
+    import json as _json
+    from .objects import (EditorPeg, EditorPlatform, EditorBackground, EditorItem,
+                          EditorSpawner, EditorArtifact, EditorTrigger, EditorButton,
+                          EditorAnchor, EditorLight, EditorLabel)
+    pegs = [o.to_json() for o in self.objects if isinstance(o, EditorPeg)]
+    buttons = [o.to_json() for o in self.objects if isinstance(o, EditorButton)]
+    platforms = [o.to_json() for o in self.objects if isinstance(o, EditorPlatform)]
+    backgrounds = [o.to_json() for o in self.objects if isinstance(o, EditorBackground)]
+    items = [o.to_json() for o in self.objects if isinstance(o, EditorItem)]
+    spawners = [o.to_json() for o in self.objects if isinstance(o, EditorSpawner)]
+    triggers = [o.to_json() for o in self.objects if isinstance(o, EditorTrigger)]
+    lights = [o.to_json() for o in self.objects if isinstance(o, EditorLight)]
+    labels = [o.to_json() for o in self.objects if isinstance(o, EditorLabel)]
+    bag = None
+    lantern = None
+    for o in self.objects:
+      if isinstance(o, EditorArtifact):
+        if getattr(o, "artifact_type", "bag") == "lantern":
+          lantern = o.to_json()
+        else:
+          bag = o.to_json()
+    out = {"version": str(_game_version_read())}
+    if getattr(self, "lighting", None) is not None or lights:
+      cfg = getattr(self, "lighting", None) or {
+        "ambient": list(getattr(self, "lighting_ambient", (0, 0, 0))),
+        "gain": float(getattr(self, "lighting_gain", 1.0)),
+      }
+      out["lighting"] = dict(cfg)
+      out["lights"] = lights
+    out.update({
+      "pegs": pegs, "platforms": platforms, "backgrounds": backgrounds,
+      "items": items, "itemSpawners": spawners,
+      "triggers": triggers, "buttons": buttons,
+    })
+    if bag is not None:
+      out["bag"] = bag
+    if lantern is not None:
+      out["lantern"] = lantern
+    meta = {"version": 1}
+    anchors = [o.to_json() for o in self.objects if isinstance(o, EditorAnchor)]
+    if anchors:
+      meta["anchors"] = anchors
+    if labels:
+      meta["labels"] = labels
+    try:
+      pt = list(getattr(self, "color_templates", {}).get("platform", []))
+      bt = list(getattr(self, "color_templates", {}).get("background", []))
+      lt = list(getattr(self, "color_templates", {}).get("light", []))
+      if pt: meta["platform_color_templates"] = pt
+      if bt: meta["background_color_templates"] = bt
+      if lt: meta["light_color_templates"] = lt
+    except Exception:
+      pass
+    return out, meta
+
+  def _autosave(self):
+    import json as _json
+    import os as _os
+    base = _os.path.join(_os.path.dirname(__file__), "autosave")
+    try:
+      _os.makedirs(base, exist_ok=True)
+    except Exception:
+      return
+    data, meta = self._collect_level_data()
+    lv = _os.path.join(base, "level.json")
+    mt = _os.path.join(base, "editor.json")
+    with open(lv, "w", encoding="utf-8", newline="\n") as f:
+      f.write(_json.dumps(data, indent=2))
+    with open(mt, "w", encoding="utf-8", newline="\n") as f:
+      f.write(_json.dumps(meta, indent=2))
+    self._autosave_last_path = base
+
+  def _emergency_save(self):
+    import json as _json
+    import os as _os
+    base = _os.path.join(_os.path.dirname(__file__), "emergency")
+    try:
+      _os.makedirs(base, exist_ok=True)
+    except Exception:
+      return
+    data, meta = self._collect_level_data()
+    lv = _os.path.join(base, "level.json")
+    mt = _os.path.join(base, "editor.json")
+    with open(lv, "w", encoding="utf-8", newline="\n") as f:
+      f.write(_json.dumps(data, indent=2))
+    with open(mt, "w", encoding="utf-8", newline="\n") as f:
+      f.write(_json.dumps(meta, indent=2))
+    try:
+      from .messages import INFO
+      self.messages.toast_only(INFO, "Emergency save: " + base, 4.0)
+    except Exception:
+      pass
+
+  def _check_autosave_on_start(self):
+    import os as _os
+    base = _os.path.join(_os.path.dirname(__file__), "autosave")
+    lv = _os.path.join(base, "level.json")
+    if _os.path.isfile(lv):
+      try:
+        from .messages import INFO
+        self.messages.toast_only(
+            INFO, "Autosave found: editor/autosave/level.json", 6.0)
+      except Exception:
+        pass
+
+  # ---------- label modal ----------
+  def _open_label_modal(self, label):
+    if label is None:
+      return
+    self._label_modal_open = True
+    self._label_modal_target = label
+    self._label_modal_focus = None
+    self._label_modal_buffer = ""
+    self._label_modal_scroll = 0
+    self._label_modal_cursor = 0.0
+
+  def _close_label_modal(self, apply_changes=True):
+    self._label_modal_open = False
+    self._label_modal_target = None
+    self._label_modal_geom = {}
+    self._label_modal_buffer = ""
+    self._label_modal_focus = None
+
+  def _label_modal_commit_field(self):
+    tgt = getattr(self, "_label_modal_target", None)
+    f = getattr(self, "_label_modal_focus", None)
+    if tgt is None or f is None:
+      return
+    buf = getattr(self, "_label_modal_buffer", "")
+    before = self._snapshot()
+    if f == "text":
+      tgt.text = buf or "label"
+    elif f == "target":
+      tgt.target_trigger_id = buf
+    self._push_undo_now(before)
+    self._label_modal_focus = None
+    self._label_modal_buffer = ""
+    self._mark_scene_dirty()
+
+  def _label_chip_new(self, kind):
+    if kind == "toast":
+      return {"kind": "toast", "params": {"msg": "hello", "dur": 2.0}}
+    if kind == "sound":
+      return {"kind": "sound", "params": {"name": "button_down", "volume": 1.0}}
+    if kind == "text":
+      return {"kind": "text", "params": {"msg": "!", "x": 0, "y": 200, "dur": 1.5, "size": 32}}
+    if kind == "flash":
+      return {"kind": "flash", "params": {"dur": 0.3, "color": [255, 255, 255], "alpha": 120}}
+    if kind == "shake":
+      return {"kind": "shake", "params": {"dur": 0.3, "amp": 8, "freq": 0.0}}
+    if kind == "log":
+      return {"kind": "log", "params": {"msg": "log"}}
+    if kind == "move_to":
+      return {"kind": "move_to", "params": {"oid": "", "dur": 0.5, "ease": "out"}}
+    return {"kind": kind, "params": {}}
+
+  def _generate_label_script(self, label=None):
+    if label is None:
+      label = getattr(self, "_label_modal_target", None)
+    if label is None:
+      return
+    tid = str(getattr(label, "target_trigger_id", "")).strip()
+    if not tid:
+      try:
+        from .messages import WARN
+        self.messages.toast_only(WARN, "Label has no target trigger id", 3.0)
+      except Exception:
+        pass
+      return
+    trig = None
+    from .objects import EditorTrigger
+    for o in self.objects:
+      if isinstance(o, EditorTrigger) and str(getattr(o, "id", "")) == tid:
+        trig = o
+        break
+    if trig is None:
+      try:
+        from .messages import ERROR
+        self.messages.toast_only(ERROR, "Trigger '%s' not found" % tid, 3.0)
+      except Exception:
+        pass
+      return
+    lines = ["# generated from label '%s'" % str(label.text), ""]
+    on_enter = [c for c in label.chips if c.get("kind") in
+                ("toast", "sound", "text", "flash", "shake", "log", "move_to")]
+    if on_enter:
+      lines.append("def on_enter(ctx):")
+      for c in on_enter:
+        k = c.get("kind", "")
+        p = c.get("params", {})
+        if k == "toast":
+          msg = str(p.get("msg", ""))
+          dur = float(p.get("dur", 2.0))
+          lines.append("    ctx.toast(%r, dur=%.2f)" % (msg, dur))
+        elif k == "sound":
+          name = str(p.get("name", "button_down"))
+          vol = float(p.get("volume", 1.0))
+          lines.append("    ctx.sound(%r, volume=%.2f)" % (name, vol))
+        elif k == "text":
+          msg = str(p.get("msg", ""))
+          x = float(p.get("x", 0)); y = float(p.get("y", 200))
+          dur = float(p.get("dur", 1.5)); size = int(p.get("size", 32))
+          lines.append("    ctx.text(%r, %.1f, %.1f, dur=%.2f, size=%d)" % (msg, x, y, dur, size))
+        elif k == "flash":
+          dur = float(p.get("dur", 0.3))
+          col = p.get("color", [255, 255, 255])
+          alpha = int(p.get("alpha", 120))
+          lines.append("    ctx.flash(%.2f, color=(%d, %d, %d), alpha=%d)" % (dur, col[0], col[1], col[2], alpha))
+        elif k == "shake":
+          dur = float(p.get("dur", 0.3)); amp = float(p.get("amp", 8)); freq = float(p.get("freq", 0.0))
+          lines.append("    ctx.shake(%.2f, %.1f, freq=%.2f)" % (dur, amp, freq))
+        elif k == "log":
+          msg = str(p.get("msg", "log"))
+          lines.append("    ctx.log(%r)" % msg)
+        elif k == "move_to":
+          oid = str(p.get("oid", ""))
+          dur = float(p.get("dur", 0.5)); ease = str(p.get("ease", "out"))
+          if not oid:
+            lines.append("    # move_to skipped: no oid")
+          else:
+            lines.append("    ctx.move_to(%r, dur=%.2f, ease=%r)" % (oid, dur, ease))
+      lines.append("")
+    text = "\n".join(lines)
+    script_name = "scripts/label_%s.py" % tid
+    self.embedded_files[script_name] = text.encode("utf-8")
+    trig.script = script_name
+    self._mark_scene_dirty()
+    try:
+      from .messages import INFO
+      self.messages.toast_only(INFO, "Generated: %s -> trigger '%s'" % (script_name, tid), 3.0)
     except Exception:
       pass
 
@@ -1091,7 +1519,21 @@ class CoreMixin:
       self._tick_world_markers(dt)
       self._tick_plan_preview(dt)
       self.plan_cursor_blink = (self.plan_cursor_blink + dt) % 1.0
+      # <STRANGE>#1801: autosave tick (only if scene dirty)
+      if self._scene_dirty:
+        self._autosave_timer += dt
+        if self._autosave_timer >= self._autosave_period:
+          self._autosave_timer = 0.0
+          try:
+            self._autosave()
+          except Exception as _ex:
+            try:
+              from .messages import WARN
+              self.messages.toast_only(WARN, "Autosave failed: " + str(_ex)[:60], 3.0)
+            except Exception:
+              pass
       self.markup_cursor_blink = (self.markup_cursor_blink + dt) % 1.0
+      self._label_modal_cursor = (getattr(self, "_label_modal_cursor", 0.0) + dt) % 1.0
       self.anchor_cursor_blink = (self.anchor_cursor_blink + dt) % 1.0
       for p in self.inspector_stack:
         p.update(dt)

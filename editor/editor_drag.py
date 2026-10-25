@@ -3,12 +3,13 @@ import math
 import pygame
 
 from .const import (
-  BOT_H, MIN_SIZE, SNAP_DIST, SNAP_RANGE, PLAYER_R,
+  BOT_H, MIN_SIZE, MIN_SIZE_PLATFORM, MIN_SIZE_BACKGROUND,
+  SNAP_DIST, SNAP_RANGE, PLAYER_R,
   CLICK_THRESHOLD, RESIZE_ZONE,
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact, EditorTrigger, EditorButton, EditorAnchor,
+  EditorArtifact, EditorTrigger, EditorButton, EditorAnchor, EditorLight,
 )
 from . import settings
 
@@ -81,6 +82,10 @@ class DragMixin:
     if isinstance(obj, EditorAnchor):
       h = obj.size / 2
       return (obj.x - h, obj.x + h, obj.y - h, obj.y + h)
+    if isinstance(obj, EditorLight):
+      from .const import LIGHT_GIZMO_R
+      r = LIGHT_GIZMO_R
+      return (obj.x - r, obj.x + r, obj.y - r, obj.y + r)
     l, r, b, t = obj.world_rect()
     return (l, r, b, t)
 
@@ -292,6 +297,10 @@ class DragMixin:
         self.set_tool("trigger")
       elif self.tab_button_rect().collidepoint(pos):
         self.set_tool("button")
+      elif self.tab_light_rect().collidepoint(pos):
+        self.set_tool("light")
+      elif self.tab_light_rect().collidepoint(pos):
+        self.set_tool("light")
       return
 
     # <STRANGE>#1192: clicking anywhere in the world clears plan field focus
@@ -475,6 +484,34 @@ class DragMixin:
       self.ghost_target = [wx, wy]
       return
 
+    if self.tool == "light":
+      hit = None
+      for obj in reversed(self.objects):
+        if getattr(obj, "locked", False):
+          continue
+        if isinstance(obj, EditorLight) and obj.hit(wx, wy):
+          hit = obj
+          break
+      if hit is not None:
+        if ctrl:
+          self._toggle_selection(hit)
+          return
+        if hit not in self.selection:
+          self._set_selection([hit])
+        self._begin_move(wx, wy, hit)
+        return
+      if shift:
+        self._begin_select_rect(wx, wy)
+        return
+      kind = getattr(self, "current_light_type", "lamp")
+      obj = EditorLight(wx, wy, kind)
+      self.objects.append(obj)
+      if self.lighting is None:
+        self.lighting = {"ambient": [0, 0, 0], "gain": 1.0}
+      self._set_selection([obj])
+      self._begin_move(wx, wy, obj)
+      self._mark_scene_dirty()
+      return
     if self.tool == "anchor":
       hit = None
       for obj in reversed(self.objects):
@@ -843,17 +880,29 @@ class DragMixin:
     return out
 
   # ---------- resize ----------
+  def _min_size_for(self, obj):
+    # <STRANGE>#1600: per-type minimum size for resize/create
+    from .objects import EditorPlatform, EditorBackground
+    if isinstance(obj, EditorPlatform):
+      return MIN_SIZE_PLATFORM
+    if isinstance(obj, EditorBackground):
+      return MIN_SIZE_BACKGROUND
+    return MIN_SIZE
+
   def _apply_resize(self, wx, wy, edge, snap):
     if not self._resize_data:
       return
+    primary_obj = None
     primary_orig = None
     for obj, r in self._resize_data:
       if obj is self.selected:
+        primary_obj = obj
         primary_orig = r
         break
     if primary_orig is None:
-      primary_orig = self._resize_data[0][1]
+      primary_obj, primary_orig = self._resize_data[0]
     pl, pr, pb, pt = primary_orig
+    pmin = self._min_size_for(primary_obj)
 
     guide_x = None
     guide_y = None
@@ -920,27 +969,31 @@ class DragMixin:
             guide_y = best_y
 
     if edge == "right":
-      delta = max(wx, pl + MIN_SIZE) - pr
+      delta = max(wx, pl + pmin) - pr
       for obj, (l, r, b, t) in self._resize_data:
-        nr = max(r + delta, l + MIN_SIZE)
+        omin = self._min_size_for(obj)
+        nr = max(r + delta, l + omin)
         obj.w = nr - l
         obj.x = l + obj.w / 2
     elif edge == "left":
-      delta = min(wx, pr - MIN_SIZE) - pl
+      delta = min(wx, pr - pmin) - pl
       for obj, (l, r, b, t) in self._resize_data:
-        nl = min(l + delta, r - MIN_SIZE)
+        omin = self._min_size_for(obj)
+        nl = min(l + delta, r - omin)
         obj.w = r - nl
         obj.x = nl + obj.w / 2
     elif edge == "top":
-      delta = max(wy, pb + MIN_SIZE) - pt
+      delta = max(wy, pb + pmin) - pt
       for obj, (l, r, b, t) in self._resize_data:
-        nt = max(t + delta, b + MIN_SIZE)
+        omin = self._min_size_for(obj)
+        nt = max(t + delta, b + omin)
         obj.h = nt - b
         obj.y = b + obj.h / 2
     elif edge == "bottom":
-      delta = min(wy, pt - MIN_SIZE) - pb
+      delta = min(wy, pt - pmin) - pb
       for obj, (l, r, b, t) in self._resize_data:
-        nb = min(b + delta, t - MIN_SIZE)
+        omin = self._min_size_for(obj)
+        nb = min(b + delta, t - omin)
         obj.h = t - nb
         obj.y = nb + obj.h / 2
 
@@ -1131,6 +1184,12 @@ class DragMixin:
     if isinstance(obj, EditorAnchor):
       sx, sy = self.to_screen(obj.x, obj.y)
       r = (obj.size / 2) * self.zoom + 6
+      return (sx + r >= 0 and sx - r <= sw and
+              sy + r >= 0 and sy - r <= sh)
+    if isinstance(obj, EditorLight):
+      from .const import LIGHT_GIZMO_R
+      sx, sy = self.to_screen(obj.x, obj.y)
+      r = LIGHT_GIZMO_R * self.zoom + 6
       return (sx + r >= 0 and sx - r <= sw and
               sy + r >= 0 and sy - r <= sh)
     if isinstance(obj, (EditorPeg, EditorSpawner, EditorArtifact, EditorButton)):

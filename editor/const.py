@@ -55,7 +55,9 @@ SNAP_COLOR = (255, 90, 200)
 PLAT_DEFAULT_W = 180
 PLAT_DEFAULT_H = 72
 RESIZE_ZONE = 8
-MIN_SIZE = 20
+MIN_SIZE = 20  # legacy: fallback for non-platform/background objects
+MIN_SIZE_PLATFORM = 5
+MIN_SIZE_BACKGROUND = 1
 PLAYER_R = BODY_R
 GHOST_ALPHA = 110
 JUMP_H = JUMP_V * JUMP_V / (2 * GRAVITY)
@@ -202,7 +204,7 @@ BAG_STRAP = (90, 55, 25)
 
 # ---- artifacts ----
 # each artifact type is unique on level, stored as its own top-level key
-ARTIFACT_TYPES = ["bag"]
+ARTIFACT_TYPES = ["bag", "lantern"]
 DEFAULT_ARTIFACT_TYPE = ARTIFACT_TYPES[0] if ARTIFACT_TYPES else "bag"
 
 ARTIFACT_R = 16
@@ -242,3 +244,35 @@ ANCHOR_S_EDGE = (255, 255, 255)
 ANCHOR_ZONE_EDGE = (255, 220, 100)
 ANCHOR_VARIANTS = ["A", "B", "S"]
 DEFAULT_ANCHOR_VARIANT = "A"
+
+# ---- lighting ----
+LIGHT_TYPES = ["lamp", "spot"]  # sun is passive sky light, configured via Level settings
+DEFAULT_LIGHT_TYPE = "lamp"
+LIGHT_GIZMO_R = 12
+LIGHT_GIZMO_EDGE = (255, 220, 100)
+LIGHT_GIZMO_FILL = (255, 220, 100, 60)
+LIGHT_DEFAULTS = {
+  "lamp": {"radius": 300.0, "color": (255, 200, 120), "intensity": 1.0},
+  "spot": {"angle": 4.712389, "length": 600.0, "cone": 0.8,
+           "color": (255, 240, 200), "intensity": 1.0},
+  "sun":  {"color": (180, 200, 240), "intensity": 0.45,
+           "direction": (0.6, 1.0)},
+}
+LIGHT_DEFAULT_AMBIENT = (0, 0, 0)
+LIGHT_DEFAULT_GAIN = 1.0
+
+# ---- label ----
+LABEL_PAD = 6
+LABEL_FONT_SIZE = 16
+LABEL_BG = (30, 60, 90, 180)
+LABEL_EDGE = (100, 200, 255)
+LABEL_TEXT = (230, 240, 250)
+LABEL_GHOST_ALPHA = 70
+LABEL_CHIP_TYPES = ["toast", "sound", "text", "flash", "shake", "log", "move_to"]
+
+# ---- sun defaults (Level settings) ----
+SUN_DEFAULT_COLOR = (180, 200, 240)
+SUN_DEFAULT_INTENSITY = 0.45
+SUN_DEFAULT_DIRECTION = (0.6, 1.0)
+SUN_DEFAULT_SHADOW_LENGTH = 2000.0
+SUN_DEFAULT_GRADIENT_LENGTH = 60.0

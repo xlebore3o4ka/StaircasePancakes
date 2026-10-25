@@ -80,6 +80,9 @@ class TopPanel:
     # <STRANGE>#574: Save/Load ??? ???????????????????? ???????????? ?????????? ?? ??????????????, ???? ?? ????????????????
     self.save_btn = UIButton(0, 0, 80, PANEL_HEADER_H - 10, "Save", editor.save)
     self.load_btn = UIButton(0, 0, 80, PANEL_HEADER_H - 10, "Load", editor.load)
+    self.level_settings_btn = UIButton(0, 0, 128, PANEL_HEADER_H - 10,
+                                       "Level settings",
+                                       editor._open_level_settings)
     self.version_btn = UIButton(0, 0, 96, PANEL_HEADER_H - 10,
                                 "v: " + str(getattr(editor, "level_version", "0.0.0")),
                                 self._toggle_version_input)
@@ -88,7 +91,8 @@ class TopPanel:
         on_commit=self._commit_version)
     self.version_input.visible = False
     # <STRANGE>#1007: version is read-only, no editable widget
-    self.header_widgets = [self.toggle_btn, self.save_btn, self.load_btn]
+    self.header_widgets = [self.toggle_btn, self.save_btn, self.load_btn,
+                            self.level_settings_btn]
     self.body_widgets[2].extend([self.grid_btn,
                                   self.grid_xy_lbl,
                                   self.grid_step_input,
@@ -171,7 +175,9 @@ class TopPanel:
     self.save_btn.rect.topleft = (cx, cy)
     cx += self.save_btn.rect.w + 4
     self.load_btn.rect.topleft = (cx, cy)
-    cx += self.load_btn.rect.w + 20
+    cx += self.load_btn.rect.w + 4
+    self.level_settings_btn.rect.topleft = (cx, cy)
+    cx += self.level_settings_btn.rect.w + 16
     # Tabs ??? ?????????? Save/Load
     tx = cx
     ty = (PANEL_HEADER_H - PANEL_TAB_H) // 2

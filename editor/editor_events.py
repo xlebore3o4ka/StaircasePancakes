@@ -7,7 +7,8 @@ from .const import (
   ARTIFACT_TYPES,
   DEFAULT_ARTIFACT_TYPE,
 )
-from .objects import EditorItem, EditorSpawner, EditorArtifact, EditorAnchor
+from .objects import (EditorItem, EditorSpawner, EditorArtifact,
+                       EditorAnchor, EditorLight)
 from .widgets import ContextMenu
 
 
@@ -20,6 +21,14 @@ class EventsMixin:
     # 0. color picker modal
     if getattr(self, "_color_edit_owner", None) is not None:
       self._handle_color_picker_event(e)
+      return
+    # 0b. level settings modal
+    if getattr(self, "_level_settings_open", False):
+      self._handle_level_settings_event(e)
+      return
+    # 0c. label modal
+    if getattr(self, "_label_modal_open", False):
+      self._handle_label_modal_event(e)
       return
 
     # 1. context menu
@@ -127,10 +136,11 @@ class EventsMixin:
       if self.drag is not None and self.drag[0] == "zone_unlock":
         self._apply_zone_unlock()
       if self.drag is not None and self.drag[0] == "create" and self.selected is not None:
-        if hasattr(self.selected, "w") and self.selected.w < MIN_SIZE:
-          self.selected.w = MIN_SIZE
-        if hasattr(self.selected, "h") and self.selected.h < MIN_SIZE:
-          self.selected.h = MIN_SIZE
+        _pmin = self._min_size_for(self.selected)
+        if hasattr(self.selected, "w") and self.selected.w < _pmin:
+          self.selected.w = _pmin
+        if hasattr(self.selected, "h") and self.selected.h < _pmin:
+          self.selected.h = _pmin
 
       self.drag = None
       self.erasing = False
@@ -172,6 +182,181 @@ class EventsMixin:
         self._erase_prev = (wx, wy)
       elif self.drag is not None:
         self.on_mouse_move(self.from_screen(*e.pos))
+
+  def _handle_label_modal_event(self, e):
+    # <STRANGE>#2101: label modal event handling; safe when closed.
+    geom = getattr(self, "_label_modal_geom", {}) or {}
+    if e.type == pygame.KEYDOWN:
+      if e.key == pygame.K_ESCAPE:
+        if getattr(self, "_label_modal_focus", None) is not None:
+          self._label_modal_focus = None
+          self._label_modal_buffer = ""
+        else:
+          self._close_label_modal()
+        return
+      if getattr(self, "_label_modal_focus", None) is not None:
+        if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
+          self._label_modal_commit_field()
+          return
+        if e.key == pygame.K_BACKSPACE:
+          self._label_modal_buffer = self._label_modal_buffer[:-1]
+          return
+        if e.unicode and e.unicode.isprintable():
+          if len(self._label_modal_buffer) < 64:
+            self._label_modal_buffer += e.unicode
+          return
+      return
+    if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+      if getattr(self, "_label_modal_focus", None) is not None:
+        self._label_modal_commit_field()
+      tr = geom.get("text_row")
+      tg = geom.get("target_row")
+      cl = geom.get("close")
+      gn = geom.get("generate")
+      if cl is not None and cl.collidepoint(e.pos):
+        self._close_label_modal()
+        return
+      if gn is not None and gn.collidepoint(e.pos):
+        tgt = getattr(self, "_label_modal_target", None)
+        if tgt is not None:
+          self._generate_label_script(tgt)
+        return
+      tgt = getattr(self, "_label_modal_target", None)
+      if tr is not None and tr.collidepoint(e.pos):
+        self._label_modal_focus = "text"
+        self._label_modal_buffer = str(getattr(tgt, "text", "")) if tgt else ""
+        self._label_modal_cursor = 0.0
+        return
+      if tg is not None and tg.collidepoint(e.pos):
+        self._label_modal_focus = "target"
+        self._label_modal_buffer = str(getattr(tgt, "target_trigger_id", "")) if tgt else ""
+        self._label_modal_cursor = 0.0
+        return
+      panel = geom.get("panel")
+      if panel is not None and not panel.collidepoint(e.pos):
+        self._close_label_modal()
+      return
+
+  def _handle_level_settings_event(self, e):
+    geom = getattr(self, "_level_settings_geom", {}) or {}
+    if e.type == pygame.KEYDOWN:
+      if getattr(self, "_ls_focus", None) is not None:
+        if e.key == pygame.K_ESCAPE:
+          self._ls_focus = None
+          self._ls_buffer = ""
+          return
+        if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
+          self._commit_ls_focus()
+          return
+        if e.key == pygame.K_BACKSPACE:
+          self._ls_buffer = self._ls_buffer[:-1]
+          return
+        if e.unicode and (e.unicode.isdigit() or e.unicode in ".+-"):
+          if len(self._ls_buffer) < 10:
+            self._ls_buffer += e.unicode
+          return
+        return
+      if e.key == pygame.K_ESCAPE:
+        self._close_level_settings()
+      return
+    if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+      panel = geom.get("panel")
+      cb = geom.get("cb")
+      toggle = geom.get("toggle")
+      close = geom.get("close")
+      sliders = geom.get("sliders", {})
+      if close is not None and close.collidepoint(e.pos):
+        self._close_level_settings()
+        return
+      if toggle is not None and toggle.collidepoint(e.pos):
+        self.light_preview = not getattr(self, "light_preview", False)
+        self._mark_scene_dirty()
+        return
+      if cb is not None and cb.collidepoint(e.pos):
+        if self.lighting is None:
+          self._ensure_lighting()
+        else:
+          self.lighting = None
+        self._mark_scene_dirty()
+        return
+
+      color_rects = geom.get("color_rects", {})
+      for key, cr in color_rects.items():
+        if cr.collidepoint(e.pos):
+          self._color_edit_begin(key, "color")
+          return
+
+      text_rects = geom.get("text_rects", {})
+      for key, tr in text_rects.items():
+        if tr.collidepoint(e.pos):
+          if getattr(self, "_ls_focus", None) is not None:
+            self._commit_ls_focus()
+          self._ls_focus = key
+          self._ls_buffer = geom.get("values", {}).get(key, "")
+          return
+
+      reset_rects = geom.get("reset_rects", {})
+      for key, rr in reset_rects.items():
+        if rr.collidepoint(e.pos):
+          self._reset_level_setting(key)
+          return
+
+      ra = geom.get("reset_all")
+      if ra is not None and ra.collidepoint(e.pos):
+        self._reset_all_level_settings()
+        return
+      sun_cb = geom.get("sun_cb")
+      if sun_cb is not None and sun_cb.collidepoint(e.pos):
+        self._set_sun_enabled(not getattr(self, "sun_enabled", False))
+        return
+      for key in ("r", "g", "b", "gain",
+                  "sun_r", "sun_g", "sun_b", "sun_int",
+                  "sun_dx", "sun_dy", "sun_slen", "sun_glen"):
+        r = sliders.get(key)
+        if r is not None and r.collidepoint(e.pos):
+          self._level_settings_drag = key
+          self._apply_level_slider(key, r, e.pos)
+          return
+      if panel is not None and panel.collidepoint(e.pos):
+        return
+      self._close_level_settings()
+      return
+    if e.type == pygame.MOUSEBUTTONUP and e.button == 1:
+      self._level_settings_drag = None
+      return
+    if e.type == pygame.MOUSEMOTION and self._level_settings_drag:
+      key = self._level_settings_drag
+      r = (geom.get("sliders") or {}).get(key)
+      if r is not None:
+        self._apply_level_slider(key, r, e.pos)
+      return
+
+  def _apply_level_slider(self, key, rect, pos):
+    frac = max(0.0, min(1.0, (pos[0] - rect.x) / max(1, rect.w)))
+    if key == "r":
+      self._set_lighting_ambient_channel(0, int(frac * 255))
+    elif key == "g":
+      self._set_lighting_ambient_channel(1, int(frac * 255))
+    elif key == "b":
+      self._set_lighting_ambient_channel(2, int(frac * 255))
+    elif key == "gain":
+      self._set_lighting_gain(frac * 3.0)
+    elif key == "sun_r":
+      self._set_sun_channel(0, int(frac * 255))
+    elif key == "sun_g":
+      self._set_sun_channel(1, int(frac * 255))
+    elif key == "sun_b":
+      self._set_sun_channel(2, int(frac * 255))
+    elif key == "sun_int":
+      self._set_sun_intensity(frac * 2.0)
+    elif key == "sun_dx":
+      self._set_sun_direction("x", (frac - 0.5) * 2.0)
+    elif key == "sun_dy":
+      self._set_sun_direction("y", (frac - 0.5) * 2.0)
+    elif key == "sun_slen":
+      self._set_sun_shadow_length(frac * 5000.0)
+    elif key == "sun_glen":
+      self._set_sun_gradient_length(frac * 500.0)
 
   def _handle_color_picker_event(self, e):
     if e.type == pygame.KEYDOWN:
@@ -599,6 +784,15 @@ class EventsMixin:
   def _on_keydown(self, e):
     ctrl = bool(e.mod & pygame.KMOD_CTRL)
     shift = bool(e.mod & pygame.KMOD_SHIFT)
+    alt = bool(e.mod & pygame.KMOD_ALT)
+
+    if ctrl and alt and e.key == pygame.K_s:
+      # <STRANGE>#1802: Ctrl+Alt+S -> emergency save
+      try:
+        self._emergency_save()
+      except Exception:
+        pass
+      return
 
     if ctrl:
       if e.key == pygame.K_z:
@@ -665,6 +859,9 @@ class EventsMixin:
         self._start_plan_preview()
     elif e.key == pygame.K_c and getattr(self, "mind_mode", False) and bool(e.mod & pygame.KMOD_CTRL):
       pass
+    elif e.key == pygame.K_f:
+      # <STRANGE>#1533: F toggles lighting preview
+      self.light_preview = not getattr(self, "light_preview", False)
     elif e.key == pygame.K_t:
       # <STRANGE>#1148: T toggles the thinking mode
       mm = not getattr(self, "mind_mode", False)
@@ -733,6 +930,9 @@ class EventsMixin:
       return True
     if self.tool == "background":
       self._open_pick_color_template_menu(pos, "background")
+      return True
+    if self.tool == "light":
+      self._open_pick_light_menu(pos)
       return True
     return False
 
@@ -851,8 +1051,9 @@ class EventsMixin:
     # <STRANGE>#1080: Open inspector entry for every object
     if not is_group:
       options.append(("Open inspector", ("open_inspector", None)))
-    # <STRANGE>#1502: color template submenu for platform/background
-    if not is_group and isinstance(obj, (EditorPlatform, EditorBackground)):
+    # <STRANGE>#1502: color template submenu for platform/background/light
+    from .objects import EditorLight as _EL
+    if not is_group and isinstance(obj, (EditorPlatform, EditorBackground, _EL)):
       options.append(("Color template...", ("color_template_menu", None)))
     # <STRANGE>#1407: anchors can export their pair info
     if not is_group and isinstance(obj, EditorAnchor):
@@ -1023,14 +1224,19 @@ class EventsMixin:
   def _open_color_template_menu(self, obj, pos):
     from .objects import EditorPlatform, EditorBackground
     from .const import PLAT_FILL, PLAT_EDGE, BG_DEFAULT_COLOR
+    from .objects import EditorLight as _EL2
     if isinstance(obj, EditorPlatform):
       kind = "platform"
     elif isinstance(obj, EditorBackground):
       kind = "background"
+    elif isinstance(obj, _EL2):
+      kind = "light"
     else:
       return
     if kind == "platform":
       base_c = tuple(PLAT_FILL)
+    elif kind == "light":
+      base_c = (255, 200, 120)
     else:
       base_c = tuple(BG_DEFAULT_COLOR)
     options = [("Default", ("base", None), base_c)]
@@ -1040,6 +1246,8 @@ class EventsMixin:
       for i, tmpl in enumerate(templates):
         if kind == "platform":
           c = tuple(tmpl.get("fill", PLAT_FILL))
+        elif kind == "light":
+          c = tuple(tmpl.get("color", (255, 200, 120)))
         else:
           c = tuple(tmpl.get("color", BG_DEFAULT_COLOR))
         options.append((tmpl.get("name", "template %d" % i),
@@ -1062,6 +1270,8 @@ class EventsMixin:
         if kind == "platform":
           obj.fill = tuple(PLAT_FILL)
           obj.edge = tuple(PLAT_EDGE)
+        elif kind == "light":
+          obj.color = (255, 200, 120)
         else:
           obj.fill = tuple(BG_DEFAULT_COLOR)
       elif tag == "tmpl":
@@ -1072,6 +1282,8 @@ class EventsMixin:
         if kind == "platform":
           obj.fill = tuple(tmpl.get("fill", PLAT_FILL))
           obj.edge = tuple(tmpl.get("edge", PLAT_EDGE))
+        elif kind == "light":
+          obj.color = tuple(tmpl.get("color", (255, 200, 120)))
         else:
           obj.fill = tuple(tmpl.get("color", BG_DEFAULT_COLOR))
       self._push_undo_now(before)
@@ -1168,6 +1380,16 @@ class EventsMixin:
       except Exception:
         pass
     title = "Delete template  \u00b7  " + kind
+    self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
+                                    on_select, title=title)
+
+  def _open_pick_light_menu(self, pos):
+    from .const import LIGHT_TYPES
+    def on_select(t):
+      self.current_light_type = t
+    options = [(t, t) for t in LIGHT_TYPES]
+    cur = getattr(self, "current_light_type", "lamp")
+    title = "Place light  \u00b7  current: %s" % cur
     self.context_menu = ContextMenu(self.screen.get_size(), options, pos,
                                     on_select, title=title)
 

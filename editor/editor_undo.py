@@ -8,6 +8,7 @@ from .const import (
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
   EditorArtifact, EditorTrigger, EditorButton, EditorAnchor,
+  EditorLight, EditorLabel,
 )
 
 
@@ -55,6 +56,27 @@ class UndoMixin:
               "id": getattr(o, "id", ""),
               "script": getattr(o, "script", ""),
               "locked": o.locked, "layer": o.layer}
+    if isinstance(o, EditorLight):
+      d = {"t": "light", "x": o.x, "y": o.y, "kind": getattr(o, "kind", "lamp"),
+           "color": tuple(getattr(o, "color", (255, 200, 120))),
+           "intensity": float(getattr(o, "intensity", 1.0)),
+           "id": getattr(o, "id", ""),
+           "locked": o.locked, "layer": o.layer}
+      if getattr(o, "kind", "lamp") == "lamp":
+        d["radius"] = float(getattr(o, "radius", 300.0))
+      else:
+        d["angle"] = float(getattr(o, "angle", 4.712))
+        d["length"] = float(getattr(o, "length", 600.0))
+        d["cone"] = float(getattr(o, "cone", 0.8))
+      return d
+    if isinstance(o, EditorLabel):
+      return {"t": "label", "x": o.x, "y": o.y,
+              "text": str(getattr(o, "text", "")),
+              "target_trigger_id": str(getattr(o, "target_trigger_id", "")),
+              "chips": [{"kind": c.get("kind", ""),
+                          "params": dict(c.get("params", {}))}
+                         for c in getattr(o, "chips", [])],
+              "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorAnchor):
       return {"t": "anchor", "x": o.x, "y": o.y,
               "variant": o.variant,
@@ -91,6 +113,23 @@ class UndoMixin:
       o = EditorTrigger(s["x"], s["y"], s.get("w"), s.get("h"))
       o.id = s.get("id", "")
       o.script = s.get("script", "")
+    elif t == "light":
+      o = EditorLight(s["x"], s["y"], s.get("kind", "lamp"))
+      o.color = tuple(s.get("color", (255, 200, 120)))
+      o.intensity = float(s.get("intensity", 1.0))
+      o.id = s.get("id", "")
+      if s.get("kind", "lamp") == "lamp":
+        o.radius = float(s.get("radius", 300.0))
+      else:
+        o.angle = float(s.get("angle", 4.712))
+        o.length = float(s.get("length", 600.0))
+        o.cone = float(s.get("cone", 0.8))
+    elif t == "label":
+      o = EditorLabel(s["x"], s["y"], s.get("text", ""))
+      o.target_trigger_id = str(s.get("target_trigger_id", ""))
+      o.chips = [{"kind": c.get("kind", ""),
+                  "params": dict(c.get("params", {}))}
+                 for c in s.get("chips", [])]
     elif t == "anchor":
       o = EditorAnchor(s["x"], s["y"], s.get("variant", "A"))
       o.binding = s.get("binding", "")
@@ -187,20 +226,28 @@ class UndoMixin:
   def copy_selected(self):
     if not self.selection:
       return
-    self.clipboard = [self._obj_to_state(o) for o in self.selection]
+    self.clipboard = []
+    for o in self.selection:
+      st = self._obj_to_state(o)
+      if st is not None:
+        self.clipboard.append(st)
 
   def paste(self):
     if not self.clipboard:
       return
     before = self._snapshot()
     new = []
-    for s in self.clipboard:
-      s2 = dict(s)
+    for st in self.clipboard:
+      if st is None:
+        continue
+      s2 = dict(st)
       s2["x"] = s2["x"] + PASTE_OFFSET
       s2["y"] = s2["y"] - PASTE_OFFSET
       o = self._make_from_state(s2)
       if o is not None:
         new.append(o)
+    if not new:
+      return
     self.objects.extend(new)
     self._set_selection(new)
     self._push_undo_now(before)
@@ -213,11 +260,15 @@ class UndoMixin:
     new = []
     for obj in self.selection:
       s = self._obj_to_state(obj)
+      if s is None:
+        continue
       s["x"] += PASTE_OFFSET
       s["y"] -= PASTE_OFFSET
       o = self._make_from_state(s)
       if o is not None:
         new.append(o)
+    if not new:
+      return
     self.objects.extend(new)
     self._set_selection(new)
     self._push_undo_now(before)

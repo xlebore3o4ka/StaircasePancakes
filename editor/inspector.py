@@ -54,11 +54,19 @@ def _is_anchor(owner):
     return False
 
 
+def _is_light(owner):
+  try:
+    from .objects import EditorLight
+    return isinstance(owner, EditorLight)
+  except Exception:
+    return False
+
+
 def _is_color_target(owner):
   # <STRANGE>#1501: platforms and backgrounds have a color swatch
   try:
-    from .objects import EditorPlatform, EditorBackground
-    return isinstance(owner, (EditorPlatform, EditorBackground))
+    from .objects import EditorPlatform, EditorBackground, EditorLight
+    return isinstance(owner, (EditorPlatform, EditorBackground, EditorLight))
   except Exception:
     return False
 
@@ -66,9 +74,11 @@ def _is_color_target(owner):
 def _has_id(owner):
   # <STRANGE>#1004/#1423: spawner and anchor have no id
   try:
-    from .objects import EditorSpawner, EditorAnchor
+    from .objects import EditorSpawner, EditorAnchor, EditorLight
     if isinstance(owner, (EditorSpawner, EditorAnchor)):
       return False
+    if isinstance(owner, EditorLight):
+      return True
   except Exception:
     pass
   return _is_world_obj(owner)
@@ -169,6 +179,23 @@ class InspectorPanel:
       if _is_color_target(view):
         positions["color_y"] = y
         y += INSPECTOR_ROW_H + 6
+      if _is_light(view):
+        positions["intensity_y"] = y
+        y += INSPECTOR_ROW_H + 6
+        try:
+          from .objects import EditorLight
+          if getattr(view, "kind", "lamp") == "lamp":
+            positions["radius_y"] = y
+            y += INSPECTOR_ROW_H + 6
+          else:
+            positions["angle_y"] = y
+            y += INSPECTOR_ROW_H + 6
+            positions["length_y"] = y
+            y += INSPECTOR_ROW_H + 6
+            positions["cone_y"] = y
+            y += INSPECTOR_ROW_H + 6
+        except Exception:
+          pass
       if _is_anchor(view):
         positions["variant_y"] = y
         y += INSPECTOR_ROW_H + 6
@@ -228,6 +255,24 @@ class InspectorPanel:
         tmpl = pygame.Rect(crow.right - 100, crow.y + 2, 94, crow.h - 4)
         items.append((swatch, "color_swatch", None))
         items.append((tmpl, "color_template", None))
+      if _is_light(view):
+        irow = pygame.Rect(fr.x + pad, pos["intensity_y"],
+                           fr.w - pad * 2, INSPECTOR_ROW_H)
+        items.append((irow, "light_intensity", None))
+        if getattr(view, "kind", "lamp") == "lamp":
+          rrow = pygame.Rect(fr.x + pad, pos["radius_y"],
+                             fr.w - pad * 2, INSPECTOR_ROW_H)
+          items.append((rrow, "light_radius", None))
+        else:
+          arow = pygame.Rect(fr.x + pad, pos["angle_y"],
+                             fr.w - pad * 2, INSPECTOR_ROW_H)
+          items.append((arow, "light_angle", None))
+          lrow = pygame.Rect(fr.x + pad, pos["length_y"],
+                             fr.w - pad * 2, INSPECTOR_ROW_H)
+          items.append((lrow, "light_length", None))
+          crow = pygame.Rect(fr.x + pad, pos["cone_y"],
+                             fr.w - pad * 2, INSPECTOR_ROW_H)
+          items.append((crow, "light_cone", None))
       if _is_anchor(view):
         var_row = pygame.Rect(fr.x + pad, pos["variant_y"],
                               fr.w - pad * 2, INSPECTOR_ROW_H)
@@ -355,7 +400,10 @@ class InspectorPanel:
       return
     if kind in ("color_swatch", "color_pick"):
       if _is_color_target(self.owner):
-        self.editor._color_edit_begin(self.owner, "fill")
+        if _is_light(self.owner):
+          self.editor._color_edit_begin(self.owner, "color")
+        else:
+          self.editor._color_edit_begin(self.owner, "fill")
       return
     if kind == "color_template":
       if _is_color_target(self.owner):
@@ -377,6 +425,46 @@ class InspectorPanel:
               if o is self.owner or not (hasattr(o, "variant")
                                          and getattr(o, "variant", "") == "S")]
         self.editor._mark_scene_dirty()
+      return
+    if kind == "light_intensity":
+      if _is_light(self.owner):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("intensity", self.owner)
+        self.text_buffers["intensity"] = "%.2f" % float(getattr(self.owner, "intensity", 1.0))
+        self.cursor_blink = 0.0
+      return
+    if kind == "light_radius":
+      if _is_light(self.owner):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("radius", self.owner)
+        self.text_buffers["radius"] = "%.1f" % float(getattr(self.owner, "radius", 300.0))
+        self.cursor_blink = 0.0
+      return
+    if kind == "light_angle":
+      if _is_light(self.owner):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("angle", self.owner)
+        self.text_buffers["angle"] = "%.3f" % float(getattr(self.owner, "angle", 4.712))
+        self.cursor_blink = 0.0
+      return
+    if kind == "light_length":
+      if _is_light(self.owner):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("length", self.owner)
+        self.text_buffers["length"] = "%.1f" % float(getattr(self.owner, "length", 600.0))
+        self.cursor_blink = 0.0
+      return
+    if kind == "light_cone":
+      if _is_light(self.owner):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("cone", self.owner)
+        self.text_buffers["cone"] = "%.3f" % float(getattr(self.owner, "cone", 0.8))
+        self.cursor_blink = 0.0
       return
     if kind == "id":
       if self.focused_text is not None:
@@ -520,6 +608,31 @@ class InspectorPanel:
         owner.id = txt
       elif which == "script":
         owner.script = txt
+      elif which == "intensity":
+        try:
+          owner.intensity = max(0.0, min(10.0, float(txt)))
+        except Exception:
+          pass
+      elif which == "radius":
+        try:
+          owner.radius = max(1.0, float(txt))
+        except Exception:
+          pass
+      elif which == "angle":
+        try:
+          owner.angle = float(txt)
+        except Exception:
+          pass
+      elif which == "length":
+        try:
+          owner.length = max(1.0, float(txt))
+        except Exception:
+          pass
+      elif which == "cone":
+        try:
+          owner.cone = max(0.01, min(6.28, float(txt)))
+        except Exception:
+          pass
     self.focused_text = None
     try:
       self.editor._mark_scene_dirty()
@@ -542,6 +655,9 @@ class InspectorPanel:
       return True
     if e.unicode and e.unicode.isprintable():
       buf = self.text_buffers.get(which, "")
+      if which in ("intensity", "radius", "angle", "length", "cone"):
+        if not (e.unicode.isdigit() or e.unicode in ".+-"):
+          return True
       if len(buf) < 120:
         self.text_buffers[which] = buf + e.unicode
       return True
@@ -684,6 +800,29 @@ class InspectorPanel:
         pygame.draw.rect(s, INSPECTOR_BTN_BORDER, tmpl_r, 1, border_radius=3)
         tt = self.font.render("Save tmpl", True, INSPECTOR_BTN_TEXT)
         s.blit(tt, tt.get_rect(center=tmpl_r.center))
+      if _is_light(view):
+        y_i = pos["intensity_y"] - oy
+        self._draw_text_row(s, y_i, "intensity",
+                            "%.2f" % float(getattr(view, "intensity", 1.0)),
+                            "light_intensity")
+        if getattr(view, "kind", "lamp") == "lamp":
+          y_r = pos["radius_y"] - oy
+          self._draw_text_row(s, y_r, "radius",
+                              "%.1f" % float(getattr(view, "radius", 300.0)),
+                              "light_radius")
+        else:
+          y_a = pos["angle_y"] - oy
+          self._draw_text_row(s, y_a, "angle",
+                              "%.3f" % float(getattr(view, "angle", 4.712)),
+                              "light_angle")
+          y_l = pos["length_y"] - oy
+          self._draw_text_row(s, y_l, "length",
+                              "%.1f" % float(getattr(view, "length", 600.0)),
+                              "light_length")
+          y_c = pos["cone_y"] - oy
+          self._draw_text_row(s, y_c, "cone",
+                              "%.3f" % float(getattr(view, "cone", 0.8)),
+                              "light_cone")
       if _is_anchor(view):
         yr = pos["variant_y"] - oy
         row = pygame.Rect(pad, yr, INSPECTOR_W - pad * 2, INSPECTOR_ROW_H)

@@ -12,7 +12,8 @@ from .const import (
 )
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-  EditorArtifact, EditorTrigger, EditorButton, EditorAnchor,
+  EditorArtifact, EditorTrigger, EditorButton, EditorAnchor, EditorLight,
+  EditorLabel,
 )
 from . import tar_io
 from .editor_core import CoreMixin, _game_version_read
@@ -48,11 +49,22 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     triggers = [o.to_json() for o in self.objects if isinstance(o, EditorTrigger)]
     # bag ??? ?????????????????? ????????????, ???????? ????????
     bag = None
+    lantern = None
     for o in self.objects:
       if isinstance(o, EditorArtifact):
-        bag = o.to_json()
-        break
+        if getattr(o, "artifact_type", "bag") == "lantern":
+          lantern = o.to_json()
+        else:
+          bag = o.to_json()
+    lights = self._lights_for_output()
     out = {"version": str(_game_version_read())}
+    if getattr(self, "lighting", None) is not None or lights:
+      cfg = getattr(self, "lighting", None) or {
+        "ambient": list(getattr(self, "lighting_ambient", (0, 0, 0))),
+        "gain": float(getattr(self, "lighting_gain", 1.0)),
+      }
+      out["lighting"] = dict(cfg)
+      out["lights"] = lights
     out.update({
       "pegs": pegs,
       "platforms": platforms,
@@ -64,12 +76,18 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     })
     if bag is not None:
       out["bag"] = bag
+    if lantern is not None:
+      out["lantern"] = lantern
     if str(path).lower().endswith(".tar"):
       extra = dict(getattr(self, "embedded_files", None) or {})
       try:
         anchors = [o.to_json() for o in self.objects
                    if isinstance(o, EditorAnchor)]
+        labels = [o.to_json() for o in self.objects
+                  if isinstance(o, EditorLabel)]
         meta = {"version": 1, "anchors": anchors}
+        if labels:
+          meta["labels"] = labels
         try:
           pt = list(getattr(self, "color_templates", {}).get("platform", []))
           bt = list(getattr(self, "color_templates", {}).get("background", []))
@@ -77,6 +95,9 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
             meta["platform_color_templates"] = pt
           if bt:
             meta["background_color_templates"] = bt
+          lt = list(getattr(self, "color_templates", {}).get("light", []))
+          if lt:
+            meta["light_color_templates"] = lt
         except Exception:
           pass
         extra["editor.json"] = json.dumps(meta, indent=2)
@@ -226,15 +247,85 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       if "layer" in tg:
         obj.layer = int(tg["layer"])
       self.objects.append(obj)
-    # bag ??? ??????????????????
+    # bag / lantern artifacts
     bag_data = data.get("bag")
     if bag_data:
       if isinstance(bag_data, dict):
-        b = EditorArtifact(bag_data.get("x", 0), bag_data.get("y", 0))
+        b = EditorArtifact(bag_data.get("x", 0), bag_data.get("y", 0), "bag")
         b.id = str(bag_data.get("id", ""))
       else:
-        b = EditorArtifact(bag_data[0], bag_data[1])
+        b = EditorArtifact(bag_data[0], bag_data[1], "bag")
       self.objects.append(b)
+    lantern_data = data.get("lantern")
+    if lantern_data:
+      if isinstance(lantern_data, dict):
+        b = EditorArtifact(lantern_data.get("x", 0), lantern_data.get("y", 0), "lantern")
+        b.id = str(lantern_data.get("id", ""))
+      else:
+        b = EditorArtifact(lantern_data[0], lantern_data[1], "lantern")
+      self.objects.append(b)
+    # <STRANGE>#1901: extract sun from lights[] into passive config
+    _raw_lights = list(data.get("lights", []))
+    _sun_entry = None
+    _non_sun_lights = []
+    for _ld in _raw_lights:
+      if isinstance(_ld, dict) and _ld.get("type") == "sun":
+        _sun_entry = _ld
+      else:
+        _non_sun_lights.append(_ld)
+    if _sun_entry is not None:
+      try:
+        self.sun_enabled = True
+        c = _sun_entry.get("color", [180, 200, 240])
+        self.sun_color = (int(c[0]), int(c[1]), int(c[2]))
+        self.sun_intensity = float(_sun_entry.get("intensity", 0.45))
+        d = _sun_entry.get("direction", [0.6, 1.0])
+        self.sun_direction = (float(d[0]), float(d[1]))
+        self.sun_shadow_length = float(_sun_entry.get("shadow_length", 2000.0))
+        self.sun_gradient_length = float(_sun_entry.get("gradient_length", 60.0))
+      except Exception:
+        self.sun_enabled = False
+    else:
+      self.sun_enabled = False
+    # <STRANGE>#1511: lights array + lighting block
+    for ld in _non_sun_lights:
+      try:
+        kind = ld.get("type", "lamp")
+        L = EditorLight(int(ld.get("x", 0)), int(ld.get("y", 0)), kind)
+        if "color" in ld:
+          L.color = tuple(int(c) for c in ld["color"][:3])
+        if "intensity" in ld:
+          L.intensity = float(ld["intensity"])
+        L.id = str(ld.get("id", ""))
+        L.locked = bool(ld.get("locked", False))
+        if "layer" in ld:
+          L.layer = int(ld["layer"])
+        if kind == "lamp" and "radius" in ld:
+          L.radius = float(ld["radius"])
+        if kind == "spot":
+          if "angle" in ld: L.angle = float(ld["angle"])
+          if "length" in ld: L.length = float(ld["length"])
+          if "cone" in ld: L.cone = float(ld["cone"])
+        if kind == "sun" and "direction" in ld:
+          try:
+            dirv = ld["direction"]
+            if isinstance(dirv, (list, tuple)) and len(dirv) >= 2:
+              L.direction = [float(dirv[0]), float(dirv[1])]
+          except Exception:
+            pass
+        self.objects.append(L)
+      except Exception:
+        pass
+    _lg = data.get("lighting")
+    if isinstance(_lg, dict):
+      self.lighting = {
+        "ambient": list(_lg.get("ambient", [0, 0, 0])),
+        "gain": float(_lg.get("gain", 1.0)),
+      }
+      self.lighting_ambient = tuple(self.lighting["ambient"])
+      self.lighting_gain = self.lighting["gain"]
+    else:
+      self.lighting = None
     # <STRANGE>#1411: anchors come from editor.json (tar only)
     if _editor_meta and isinstance(_editor_meta, dict):
       for ad in _editor_meta.get("anchors", []):
@@ -251,6 +342,22 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
           self.objects.append(a)
         except Exception:
           pass
+    # <STRANGE>#1902: restore labels from editor.json
+    if _editor_meta and isinstance(_editor_meta, dict):
+      for ldata in _editor_meta.get("labels", []):
+        try:
+          lb = EditorLabel(ldata.get("x", 0), ldata.get("y", 0),
+                           ldata.get("text", "label"))
+          lb.target_trigger_id = str(ldata.get("target_trigger_id", ""))
+          lb.chips = [{"kind": c.get("kind", ""),
+                       "params": dict(c.get("params", {}))}
+                      for c in ldata.get("chips", [])]
+          lb.locked = bool(ldata.get("locked", False))
+          if "layer" in ldata:
+            lb.layer = int(ldata["layer"])
+          self.objects.append(lb)
+        except Exception:
+          pass
     # <STRANGE>#1503: restore color templates from editor.json
     if _editor_meta and isinstance(_editor_meta, dict):
       try:
@@ -260,6 +367,9 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
         bt = _editor_meta.get("background_color_templates")
         if isinstance(bt, list):
           self.color_templates["background"] = list(bt)
+        lt = _editor_meta.get("light_color_templates")
+        if isinstance(lt, list):
+          self.color_templates["light"] = list(lt)
       except Exception:
         pass
     self._clear_selection()

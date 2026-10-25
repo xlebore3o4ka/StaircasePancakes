@@ -28,6 +28,10 @@ from .const import (
   ANCHOR_SIZE, ANCHOR_A_FILL, ANCHOR_A_EDGE,
   ANCHOR_B_FILL, ANCHOR_B_EDGE, ANCHOR_S_FILL, ANCHOR_S_EDGE,
   ANCHOR_ZONE_EDGE, ANCHOR_VARIANTS, DEFAULT_ANCHOR_VARIANT,
+  LIGHT_TYPES, DEFAULT_LIGHT_TYPE, LIGHT_GIZMO_R, LIGHT_GIZMO_EDGE, LIGHT_GIZMO_FILL,
+  LIGHT_DEFAULTS, LIGHT_DEFAULT_AMBIENT, LIGHT_DEFAULT_GAIN,
+  LABEL_PAD, LABEL_FONT_SIZE, LABEL_BG, LABEL_EDGE, LABEL_TEXT,
+  LABEL_GHOST_ALPHA, LABEL_CHIP_TYPES,
 )
 from .helpers import make_stripe_surface, make_circle_stripe_surface
 from . import settings
@@ -85,6 +89,74 @@ def make_fake_item(item_type):
   return None
 
 
+
+# <STRANGE>#2000: GLAdapter - acts as both a pygame.Surface and a GLRenderer.
+# Needed because game items call draw_at(screen_or_gl, ...) with different
+# first-arg semantics (CubeItem wants GLRenderer, BagItem wants Surface).
+class GLAdapter:
+  def __init__(self, surface):
+    self.surface = surface
+
+  # -- GLRenderer-like primitives (draw into the underlying Surface) --
+  def tri(self, p0, p1, p2, color):
+    try:
+      pygame.draw.polygon(self.surface, color,
+                          [(int(p0[0]), int(p0[1])),
+                           (int(p1[0]), int(p1[1])),
+                           (int(p2[0]), int(p2[1]))])
+    except Exception:
+      pass
+
+  def rect(self, x, y, w, h, color):
+    try:
+      pygame.draw.rect(self.surface, color,
+                       pygame.Rect(int(x), int(y), int(w), int(h)))
+    except Exception:
+      pass
+
+  def circle(self, cx, cy, r, color, segments=None):
+    try:
+      r_i = int(r)
+      if r_i <= 0:
+        return
+      pygame.draw.circle(self.surface, color, (int(cx), int(cy)), r_i)
+    except Exception:
+      pass
+
+  def ring(self, cx, cy, r, width, color, segments=None):
+    try:
+      r_i = int(r)
+      w_i = max(1, int(width))
+      if r_i <= 0:
+        return
+      pygame.draw.circle(self.surface, color,
+                         (int(cx), int(cy)), r_i, w_i)
+    except Exception:
+      pass
+
+  def polygon(self, points, color):
+    try:
+      if len(points) < 3:
+        return
+      ipts = [(int(p[0]), int(p[1])) for p in points]
+      pygame.draw.polygon(self.surface, color, ipts)
+    except Exception:
+      pass
+
+  def polyline(self, points, color, width=1.0):
+    try:
+      if len(points) < 2:
+        return
+      ipts = [(int(p[0]), int(p[1])) for p in points]
+      pygame.draw.lines(self.surface, color, False, ipts,
+                        max(1, int(width)))
+    except Exception:
+      pass
+
+  # -- anything else: delegate to the underlying Surface --
+  def __getattr__(self, name):
+    return getattr(self.surface, name)
+
 def _point_in_poly(px, py, poly):
   # <STRANGE>#507: even-odd ray casting
   inside = False
@@ -112,6 +184,10 @@ def default_layer_for(obj):
   if isinstance(obj, EditorTrigger):
     return LAYER_ITEM
   if isinstance(obj, EditorAnchor):
+    return LAYER_ITEM
+  if isinstance(obj, EditorLight):
+    return LAYER_ITEM
+  if isinstance(obj, EditorLabel):
     return LAYER_ITEM
   return 0
 
@@ -285,7 +361,12 @@ class EditorPlatform:
       d["id"] = str(self.id)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
-      d["points"] = [[int(p[0]), int(p[1])] for p in self.points]
+      pts = [[int(p[0]), int(p[1])] for p in self.points]
+      n = len(pts)
+      area2 = sum(pts[i][0]*pts[(i+1)%n][1] - pts[(i+1)%n][0]*pts[i][1] for i in range(n))
+      if area2 < 0:
+        pts.reverse()
+      d["points"] = pts
     else:
       d["w"] = int(self.w)
       d["h"] = int(self.h)
@@ -455,7 +536,12 @@ class EditorBackground:
       d["id"] = str(self.id)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
-      d["points"] = [[int(p[0]), int(p[1])] for p in self.points]
+      pts = [[int(p[0]), int(p[1])] for p in self.points]
+      n = len(pts)
+      area2 = sum(pts[i][0]*pts[(i+1)%n][1] - pts[(i+1)%n][0]*pts[i][1] for i in range(n))
+      if area2 < 0:
+        pts.reverse()
+      d["points"] = pts
     else:
       d["w"] = int(self.w)
       d["h"] = int(self.h)
@@ -588,7 +674,7 @@ class EditorItem:
         screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
       return
 
-    self._game.draw_at(screen, ed, (self.x, self.y), 0.0, 255, 1.0)
+    self._game.draw_at(GLAdapter(screen), ed, (self.x, self.y), 0.0, 255, 1.0)
 
     if self.locked:
       l, r, b, t = self.world_rect()
@@ -693,11 +779,32 @@ class EditorArtifact:
     return sx + r + 2, sy - r - 2
 
   def draw(self, screen, ed):
+    # <STRANGE>#1501: lantern has no game item class, draw manually
+    if self.artifact_type == "lantern":
+      sx, sy = ed.to_screen(self.x, self.y)
+      r = max(4, int(self.r * ed.zoom))
+      cx, cy = int(sx), int(sy)
+      # barrel-style lantern icon: body + handle + glass
+      body = pygame.Rect(cx - r, cy - r // 2, r * 2, int(r * 1.4))
+      pygame.draw.rect(screen, (60, 50, 40), body, border_radius=2)
+      pygame.draw.rect(screen, (200, 180, 100), body, 2, border_radius=2)
+      glass = pygame.Rect(cx - int(r * 0.6), cy - r // 4,
+                          int(r * 1.2), int(r * 0.8))
+      pygame.draw.rect(screen, (255, 230, 120), glass)
+      pygame.draw.rect(screen, (120, 100, 40), glass, 1)
+      # handle arc on top
+      pygame.draw.arc(screen, (200, 180, 100),
+                      (cx - int(r * 0.5), cy - r - 2, int(r), int(r * 0.8)),
+                      0, 3.14159, 2)
+      if self.locked:
+        surf_w = body.w; surf_h = body.h
+        screen.blit(make_stripe_surface(surf_w, surf_h), body.topleft)
+      return
     # <STRANGE>#740: prefer game draw_at so artifact looks exactly like in-game
     game = make_fake_item(self.artifact_type)
     if game is not None:
       try:
-        game.draw_at(screen, ed, (self.x, self.y), 0.0, 255, 1.0)
+        game.draw_at(GLAdapter(screen), ed, (self.x, self.y), 0.0, 255, 1.0)
         if self.locked:
           sx, sy = ed.to_screen(self.x, self.y)
           r = max(1, int(self.r * ed.zoom))
@@ -916,5 +1023,184 @@ class EditorAnchor:
       screen.blit(ts, ts.get_rect(center=rect.center))
     except Exception:
       pass
+    if self.locked:
+      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
+
+# =========================================================
+# Light - lamp or spot light source (engine renders it in-game)
+# =========================================================
+class EditorLight:
+  def __init__(self, x, y, kind=DEFAULT_LIGHT_TYPE):
+    self.x, self.y = x, y
+    self.kind = kind if kind in LIGHT_TYPES else DEFAULT_LIGHT_TYPE
+    defaults = LIGHT_DEFAULTS.get(self.kind, {})
+    self.color = tuple(defaults.get("color", (255, 200, 120)))
+    self.intensity = float(defaults.get("intensity", 1.0))
+    self.id = ""
+    self.layer = None
+    self.locked = False
+    if self.kind == "lamp":
+      self.radius = float(defaults.get("radius", 300.0))
+    elif self.kind == "spot":
+      self.angle = float(defaults.get("angle", 4.712389))
+      self.length = float(defaults.get("length", 600.0))
+      self.cone = float(defaults.get("cone", 0.8))
+    elif self.kind == "sun":
+      d = defaults.get("direction", (0.6, 1.0))
+      self.direction = [float(d[0]), float(d[1])]
+
+  def hit(self, wx, wy):
+    return (wx - self.x) ** 2 + (wy - self.y) ** 2 <= LIGHT_GIZMO_R ** 2
+
+  def intersects_rect(self, l, r, b, t):
+    nx = max(l, min(self.x, r))
+    ny = max(b, min(self.y, t))
+    return (self.x - nx) ** 2 + (self.y - ny) ** 2 <= LIGHT_GIZMO_R ** 2
+
+  def to_json(self):
+    d = {"type": self.kind,
+         "x": int(self.x), "y": int(self.y),
+         "color": list(self.color),
+         "intensity": float(self.intensity)}
+    if self.kind == "lamp":
+      d["radius"] = float(self.radius)
+    elif self.kind == "spot":
+      d["angle"] = float(self.angle)
+      d["length"] = float(self.length)
+      d["cone"] = float(self.cone)
+    elif self.kind == "sun":
+      d["direction"] = list(getattr(self, "direction", [0.6, 1.0]))
+    if self.id:
+      d["id"] = str(self.id)
+    if self.locked:
+      d["locked"] = True
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    return d
+
+  def badge_screen_pos(self, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    return sx + LIGHT_GIZMO_R + 2, sy - LIGHT_GIZMO_R - 2
+
+  def draw(self, screen, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    r = max(6, int(LIGHT_GIZMO_R * ed.zoom))
+    cx, cy = int(sx), int(sy)
+    # gizmo hint of light range/cone
+    if self.kind == "sun":
+      import math as _m
+      pygame.draw.circle(screen, LIGHT_GIZMO_FILL, (cx, cy), r)
+      pygame.draw.circle(screen, LIGHT_GIZMO_EDGE, (cx, cy), r, 2)
+      for i in range(8):
+        a = i * _m.pi / 4
+        x1 = int(cx + _m.cos(a) * (r + 3))
+        y1 = int(cy + _m.sin(a) * (r + 3))
+        x2 = int(cx + _m.cos(a) * (r + 8))
+        y2 = int(cy + _m.sin(a) * (r + 8))
+        pygame.draw.line(screen, LIGHT_GIZMO_EDGE, (x1, y1), (x2, y2), 2)
+      if self.locked:
+        screen.blit(make_circle_stripe_surface(r), (cx - r, cy - r))
+      return
+    if self.kind == "lamp":
+      rr = int(self.radius * ed.zoom)
+      if rr > r + 2 and rr < 4000:
+        ov = pygame.Surface((rr * 2, rr * 2), pygame.SRCALPHA)
+        pygame.draw.circle(ov, (*self.color, 30), (rr, rr), rr)
+        screen.blit(ov, (cx - rr, cy - rr))
+        pygame.draw.circle(screen, LIGHT_GIZMO_EDGE, (cx, cy), rr, 1)
+    else:
+      L = int(self.length * ed.zoom)
+      if 0 < L < 6000:
+        import math as _m
+        a1 = self.angle - self.cone / 2
+        a2 = self.angle + self.cone / 2
+        p1 = (cx + _m.cos(a1) * L, cy - _m.sin(a1) * L)
+        p2 = (cx + _m.cos(a2) * L, cy - _m.sin(a2) * L)
+        pts = [(cx, cy), (int(p1[0]), int(p1[1])),
+               (int(p2[0]), int(p2[1]))]
+        ov = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        pygame.draw.polygon(ov, (*self.color, 30), pts)
+        screen.blit(ov, (0, 0))
+        pygame.draw.polygon(screen, LIGHT_GIZMO_EDGE, pts, 1)
+    # center dot
+    pygame.draw.circle(screen, LIGHT_GIZMO_FILL, (cx, cy), r)
+    pygame.draw.circle(screen, LIGHT_GIZMO_EDGE, (cx, cy), r, 2)
+    # label letter (L or S)
+    try:
+      f = pygame.font.SysFont(None, max(10, int(r * 1.2)), bold=True)
+      _letter = "L" if self.kind == "lamp" else ("S" if self.kind == "spot" else "*")
+      ts = f.render(_letter, True, (30, 20, 0))
+      screen.blit(ts, ts.get_rect(center=(cx, cy)))
+    except Exception:
+      pass
+    if self.locked:
+      screen.blit(make_circle_stripe_surface(r), (cx - r, cy - r))
+
+# =========================================================
+# Label - text plate that generates a script bound to a trigger
+# =========================================================
+class EditorLabel:
+  def __init__(self, x, y, text=""):
+    self.x, self.y = x, y
+    self.text = str(text) if text else "label"
+    self.target_trigger_id = ""
+    self.chips = []
+    self.locked = False
+    self.layer = None
+
+  def _rect_world(self, zoom=1.0):
+    try:
+      f = pygame.font.SysFont(None, LABEL_FONT_SIZE, bold=True)
+      w = max(40, f.size(self.text)[0] + LABEL_PAD * 2)
+      h = max(20, f.get_height() + LABEL_PAD * 2)
+    except Exception:
+      w, h = 80, 20
+    hw = w / 2 / max(0.01, zoom)
+    hh = h / 2 / max(0.01, zoom)
+    return (self.x - hw, self.x + hw, self.y - hh, self.y + hh)
+
+  def hit(self, wx, wy):
+    l, r, b, t = self._rect_world(1.0)
+    return l <= wx <= r and b <= wy <= t
+
+  def intersects_rect(self, l, r, b, t):
+    ol, orr, ob, ot = self._rect_world(1.0)
+    return not (orr < l or ol > r or ot < b or ob > t)
+
+  def to_json(self):
+    d = {"x": int(self.x), "y": int(self.y),
+         "text": str(self.text),
+         "target_trigger_id": str(self.target_trigger_id),
+         "chips": [{"kind": c.get("kind", ""),
+                     "params": dict(c.get("params", {}))}
+                    for c in self.chips]}
+    if self.locked:
+      d["locked"] = True
+    if self.layer is not None:
+      d["layer"] = int(self.layer)
+    return d
+
+  def badge_screen_pos(self, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    return sx + 4, sy - 14
+
+  def draw(self, screen, ed):
+    sx, sy = ed.to_screen(self.x, self.y)
+    try:
+      f = pygame.font.SysFont(None, max(10, int(LABEL_FONT_SIZE * ed.zoom)),
+                              bold=True)
+      ts = f.render(str(self.text), True, LABEL_TEXT)
+      w = ts.get_width() + LABEL_PAD * 2
+      h = ts.get_height() + LABEL_PAD * 2
+    except Exception:
+      ts = None
+      w, h = 80, 20
+    rect = pygame.Rect(int(sx - w / 2), int(sy - h / 2), int(w), int(h))
+    ov = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+    ov.fill(LABEL_BG)
+    screen.blit(ov, rect.topleft)
+    pygame.draw.rect(screen, LABEL_EDGE, rect, 2)
+    if ts is not None:
+      screen.blit(ts, ts.get_rect(center=rect.center))
     if self.locked:
       screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
