@@ -57,6 +57,12 @@ def _ease(t, kind):
   return t
 from .panel import TopPanel
 
+try:
+  from game.core import light_c
+  light_c.install()
+except Exception as e:
+  print(f"editor: light_c not installed ({e}); using slow python preview")
+
 
 class CoreMixin:
   def __init__(self):

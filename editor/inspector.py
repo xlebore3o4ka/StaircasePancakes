@@ -179,6 +179,13 @@ class InspectorPanel:
       if _is_color_target(view):
         positions["color_y"] = y
         y += INSPECTOR_ROW_H + 6
+      try:
+        from .objects import EditorPlatform
+        if isinstance(view, EditorPlatform):
+          positions["absorption_y"] = y
+          y += INSPECTOR_ROW_H + 6
+      except Exception:
+        pass
       if _is_light(view):
         positions["intensity_y"] = y
         y += INSPECTOR_ROW_H + 6
@@ -255,6 +262,14 @@ class InspectorPanel:
         tmpl = pygame.Rect(crow.right - 100, crow.y + 2, 94, crow.h - 4)
         items.append((swatch, "color_swatch", None))
         items.append((tmpl, "color_template", None))
+      try:
+        from .objects import EditorPlatform
+        if isinstance(view, EditorPlatform):
+          arow = pygame.Rect(fr.x + pad, pos["absorption_y"],
+                             fr.w - pad * 2, INSPECTOR_ROW_H)
+          items.append((arow, "platform_absorption", None))
+      except Exception:
+        pass
       if _is_light(view):
         irow = pygame.Rect(fr.x + pad, pos["intensity_y"],
                            fr.w - pad * 2, INSPECTOR_ROW_H)
@@ -404,6 +419,15 @@ class InspectorPanel:
           self.editor._color_edit_begin(self.owner, "color")
         else:
           self.editor._color_edit_begin(self.owner, "fill")
+      return
+    if kind == "platform_absorption":
+      from .objects import EditorPlatform
+      if isinstance(self.owner, EditorPlatform):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("absorption", self.owner)
+        self.text_buffers["absorption"] = "%.2f" % float(getattr(self.owner, "absorption", 0.5))
+        self.cursor_blink = 0.0
       return
     if kind == "color_template":
       if _is_color_target(self.owner):
@@ -633,6 +657,11 @@ class InspectorPanel:
           owner.cone = max(0.01, min(6.28, float(txt)))
         except Exception:
           pass
+      elif which == "absorption":
+        try:
+          owner.absorption = max(0.0, min(1.0, float(txt)))
+        except Exception:
+          pass
     self.focused_text = None
     try:
       self.editor._mark_scene_dirty()
@@ -655,7 +684,7 @@ class InspectorPanel:
       return True
     if e.unicode and e.unicode.isprintable():
       buf = self.text_buffers.get(which, "")
-      if which in ("intensity", "radius", "angle", "length", "cone"):
+      if which in ("intensity", "radius", "angle", "length", "cone", "absorption"):
         if not (e.unicode.isdigit() or e.unicode in ".+-"):
           return True
       if len(buf) < 120:
@@ -800,6 +829,15 @@ class InspectorPanel:
         pygame.draw.rect(s, INSPECTOR_BTN_BORDER, tmpl_r, 1, border_radius=3)
         tt = self.font.render("Save tmpl", True, INSPECTOR_BTN_TEXT)
         s.blit(tt, tt.get_rect(center=tmpl_r.center))
+      try:
+        from .objects import EditorPlatform
+        if isinstance(view, EditorPlatform):
+          y_a = pos["absorption_y"] - oy
+          self._draw_text_row(s, y_a, "absorption",
+                              "%.2f" % float(getattr(view, "absorption", 0.5)),
+                              "platform_absorption")
+      except Exception:
+        pass
       if _is_light(view):
         y_i = pos["intensity_y"] - oy
         self._draw_text_row(s, y_i, "intensity",

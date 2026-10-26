@@ -72,7 +72,7 @@ class LightingPipeline:
   def __init__(self, size):
     self.size = size
     self.light_size = (max(1, size[0] // LIGHT_SCALE), max(1, size[1] // LIGHT_SCALE))
-    self.light = pygame.Surface(self.light_size)
+    self.light = pygame.Surface(self.light_size).convert(24)
     self.light.fill((255, 255, 255))
     self.gain = 1.0
     self._light_key = None
@@ -132,7 +132,7 @@ class LightingPipeline:
     parts = [tuple(config.get("ambient", (60, 60, 70))),
              float(config.get("gain", 1.0)),
              sx, sy, cam_scale, sox, soy,
-             tuple((plat["bbox"], tuple(plat["edges"])) for plat in occluders)]
+             id(occluders)]
     for l in lights:
       parts.append((
         type(l).__name__,
@@ -166,7 +166,11 @@ class LightingPipeline:
     light_cam = type(cam)(sx, sy, cam.w, cam.h, cam.scale / LIGHT_SCALE)
     light_cam._ox = sox / LIGHT_SCALE
     light_cam._oy = soy / LIGHT_SCALE
-    for lt in lights:
+    
+    # ???????????? ???????????? (???????????? ???????? ?????????? max), ?????????? ?????????????????? (??????????????????)
+    sun_lights = [l for l in lights if l.__class__.__name__ == "SunLight"]
+    other_lights = [l for l in lights if l.__class__.__name__ != "SunLight"]
+    for lt in sun_lights + other_lights:
       lt.contribute(self.light, light_cam, occluders)
 
   def begin(self, ambient=(255, 255, 255)):

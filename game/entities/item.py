@@ -14,6 +14,10 @@ from shared.const import (
 from shared.physics_util import has_ground_contact
 
 
+def _surf(screen):
+  return getattr(screen, "surface", screen)
+
+
 def _tint(color, k):
   # <STRANGE>#824 blend toward white; k=0 original, k=1 pure white; keeps alpha if present
   if k <= 0.0:
@@ -48,7 +52,7 @@ def _blit_bands(screen, cam, bands):
   needs_alpha = any(len(c) == 4 and c[3] < 255 for _, c, _ in bands)
   if not needs_alpha:
     for pts, color, w in bands:
-      pygame.draw.polygon(screen, color, [cam.to_screen(x, y) for x, y in pts], w)
+      pygame.draw.polygon(_surf(screen), color, [cam.to_screen(x, y) for x, y in pts], w)
     return
   all_pts = [cam.to_screen(x, y) for pts, _, _ in bands for x, y in pts]
   xs = [q[0] for q in all_pts]
@@ -395,9 +399,10 @@ class PortablePegItem(Item):
       pygame.draw.circle(surf, (*edge, alpha), (r, r), r, CIRCLE_LINE_W)
       screen.blit(surf, (int(x) - r, int(y) - r))
     else:
-      pygame.draw.circle(screen, fill, (int(x), int(y)), r)
-      pygame.draw.circle(screen, inner, (int(x), int(y)), inner_r)
-      pygame.draw.circle(screen, edge, (int(x), int(y)), r, CIRCLE_LINE_W)
+      _s = _surf(screen)
+      pygame.draw.circle(_s, fill, (int(x), int(y)), r)
+      pygame.draw.circle(_s, inner, (int(x), int(y)), inner_r)
+      pygame.draw.circle(_s, edge, (int(x), int(y)), r, CIRCLE_LINE_W)
 
 
 class BagItem(Item):
@@ -572,7 +577,7 @@ class LanternItem(Item):
       pygame.draw.circle(surf, (*glow_rgb, alpha), (r_glow, r_glow), r_glow)
       screen.blit(surf, (int(sx - r_glow), int(sy - r_glow)))
     else:
-      pygame.draw.circle(screen, glow_rgb, (int(sx), int(sy)), r_glow)
+      pygame.draw.circle(_surf(screen), glow_rgb, (int(sx), int(sy)), r_glow)
 
 
 def make_item(space, spec):

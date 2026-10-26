@@ -255,6 +255,7 @@ class EditorPlatform:
     self.w, self.h = w, h
     self.fill = PLAT_FILL
     self.edge = PLAT_EDGE
+    self.absorption = 0.5
     self.locked = False
     self.layer = None
     self.id = ""
@@ -359,6 +360,8 @@ class EditorPlatform:
       d["layer"] = int(self.layer)
     if getattr(self, "id", ""):
       d["id"] = str(self.id)
+    if getattr(self, "absorption", 0.5) != 0.5:
+      d["absorption"] = float(self.absorption)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
       pts = [[int(p[0]), int(p[1])] for p in self.points]
@@ -534,6 +537,8 @@ class EditorBackground:
       d["layer"] = int(self.layer)
     if getattr(self, "id", ""):
       d["id"] = str(self.id)
+    if getattr(self, "absorption", 0.5) != 0.5:
+      d["absorption"] = float(self.absorption)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
       pts = [[int(p[0]), int(p[1])] for p in self.points]

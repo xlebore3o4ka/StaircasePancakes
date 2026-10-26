@@ -97,6 +97,7 @@ class Level:
         fill=tuple(pd.get("fill", PLAT_FILL)),
         edge=tuple(pd.get("edge", PLAT_EDGE)),
         points=points,
+        absorption=float(pd.get("absorption", 0.5)),
       )
       if "layer" in pd:
         plat.layer = int(pd["layer"])
@@ -178,7 +179,9 @@ class Level:
       inten = float(ld.get("intensity", 1.0))
       if t == "sun":
         lt = SunLight(color=col, intensity=inten,
-                      direction=tuple(ld.get("direction", (0.5, 1.0))))
+                      direction=tuple(ld.get("direction", (0.5, 1.0))),
+                      shadow_length=float(ld.get("shadow_length", 1000.0)),
+                      gradient_length=float(ld.get("gradient_length", 100.0)))
       elif t == "spot":
         lt = SpotLight(pos,
                        angle=float(ld.get("angle", 0.0)),
@@ -233,7 +236,6 @@ class Level:
     # <STRANGE>#1555 unique lantern; hidden spotlight attached to it, off until held
     lantern_data = data.get("lantern")
     if lantern_data:
-      from .entities.light import SpotLight
       lantern = make_item(space, {"x": lantern_data["x"], "y": lantern_data["y"], "type": "lantern"})
       if lantern_data.get("id"):
         lantern.id = lantern_data["id"]
@@ -324,6 +326,11 @@ class Level:
   def occluders(self):
     # <STRANGE>#1670 shadow casters grouped per-platform: each item is {bbox, edges}
     # where edges = (ax, ay, bx, by, nx, ny, nc_dot) with outward normal and centroid dot
+    # Cache by (id(self), len(self.platforms), positions hash) to avoid rebuild every frame.
+    cache = getattr(self, "_occ_cache", None)
+    key = (len(self.platforms), tuple((p.body.position.x, p.body.position.y) for p in self.platforms))
+    if cache is not None and cache[0] == key:
+        return cache[1]
     segs = []
     for p in self.platforms:
       cx, cy = p.body.position.x, p.body.position.y
@@ -350,7 +357,8 @@ class Level:
         tcy = gy - ay
         nc_dot = nx * tcx + ny * tcy
         edges.append((ax, ay, bx, by, nx, ny, nc_dot))
-      segs.append({"bbox": (min_x, min_y, max_x, max_y), "edges": edges})
+      segs.append({"bbox": (min_x, min_y, max_x, max_y), "edges": edges, "points": corners, "absorption": getattr(p, "absorption", 0.5)})
+    self._occ_cache = (key, segs)
     return segs
 
   def debug_objects(self):

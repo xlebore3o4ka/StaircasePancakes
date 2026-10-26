@@ -1,11 +1,49 @@
 {
   "version": 1,
+  "platform_color_templates": [
+    {
+      "name": "box1",
+      "fill": [
+        80,
+        65,
+        62
+      ],
+      "edge": [
+        255,
+        255,
+        255
+      ]
+    },
+    {
+      "name": "box2",
+      "fill": [
+        108,
+        109,
+        123
+      ],
+      "edge": [
+        255,
+        255,
+        255
+      ]
+    }
+  ],
   "background_color_templates": [
     {
-      "name": "lamp",
+      "name": "dark",
       "color": [
-        194,
-        201,
+        44,
+        48,
+        52
+      ]
+    }
+  ],
+  "light_color_templates": [
+    {
+      "name": "blue",
+      "color": [
+        182,
+        185,
         255
       ]
     }

@@ -19,6 +19,13 @@ LOGICAL_H = 1080
 NET_TICK_HZ = 20
 
 
+try:
+    from .core import light_c
+    light_c.install()
+    print("light_c: C renderer enabled")
+except Exception as e:
+    print(f"light_c: not installed ({e}); using Python")
+
 class Game:
   def __init__(self, cheats=False, map_path="levels/test.json", debugview=False,
                debuginfo=False, name=None, server=None):

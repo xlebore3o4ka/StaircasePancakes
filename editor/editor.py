@@ -197,6 +197,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
                            pd.get("h", PLAT_DEFAULT_H))
       obj.fill = tuple(pd.get("fill", PLAT_FILL))
       obj.edge = tuple(pd.get("edge", PLAT_EDGE))
+      obj.absorption = float(pd.get("absorption", 0.5))
       obj.locked = bool(pd.get("locked", False))
       obj.id = str(pd.get("id", ""))
       if "layer" in pd:

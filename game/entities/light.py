@@ -47,7 +47,7 @@ class LightBase:
 
 class SunLight(LightBase):
   # <STRANGE>#1403 uniform sky light; casts parallel shadows from each occluder segment
-  def __init__(self, color=(200, 210, 240), intensity=0.5, direction=(0.5, 1.0)):
+  def __init__(self, color=(200, 210, 240), intensity=0.5, direction=(0.5, 1.0), shadow_length=1000.0, gradient_length=100.0):
     super().__init__((0, 0), color, intensity)
     nx, ny = float(direction[0]), float(direction[1])
     mag = math.hypot(nx, ny)
@@ -55,6 +55,8 @@ class SunLight(LightBase):
       self.direction = (nx / mag, ny / mag)
     else:
       self.direction = (0.0, 1.0)
+    self.shadow_length = shadow_length
+    self.gradient_length = gradient_length
     self._tint = None
     self._tint_key = None
     self._tmp = None

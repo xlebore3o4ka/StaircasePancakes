@@ -29,7 +29,8 @@ class UndoMixin:
               "fill": tuple(o.fill), "edge": tuple(o.edge),
               "locked": o.locked, "layer": o.layer,
               "polygon": bool(getattr(o, "polygon", False)),
-              "points": [list(p) for p in getattr(o, "points", [])]}
+              "points": [list(p) for p in getattr(o, "points", [])],
+              "absorption": float(getattr(o, "absorption", 0.5))}
     if isinstance(o, EditorBackground):
       return {"t": "bg", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
               "id": getattr(o, "id", ""),
@@ -98,6 +99,7 @@ class UndoMixin:
       o.fill = tuple(s["fill"]); o.edge = tuple(s["edge"])
       o.polygon = bool(s.get("polygon", False))
       o.points = [list(p) for p in s.get("points", [])]
+      o.absorption = float(s.get("absorption", 0.5))
     elif t == "bg":
       o = EditorBackground(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"])
