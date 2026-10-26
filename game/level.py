@@ -131,6 +131,17 @@ class Level:
       if self.sound is not None:
         item.sound = self.sound
       self.items.append(item)
+    # <STRANGE>#5001 notes array from editor: spawn NoteItem for each entry
+    for nt_spec in data.get("notes", []):
+      item = make_item(space, nt_spec)
+      if "layer" in nt_spec:
+        item.layer = int(nt_spec["layer"])
+      if "id" in nt_spec:
+        item.id = nt_spec["id"]
+      if self.sound is not None:
+        item.sound = self.sound
+      self.items.append(item)
+
     # <STRANGE>#562 itemSpawners roll once at load; weighted by count, "nothing" means no item
     self.spawners = []
     for sp in data.get("itemSpawners", []):
@@ -200,7 +211,7 @@ class Level:
     # <STRANGE>#1742 weak glow attached to player position; created only with lighting enabled
     if self.lighting_config is not None:
       self.player_light = LampLight((0, 0), radius=140,
-                                    color=(140, 160, 210), intensity=0.32)
+                                    color=(140, 160, 210), intensity=1.02)
       self.player_light.id = "_player_glow"
       self.lights.append(self.player_light)
     else:
@@ -358,6 +369,7 @@ class Level:
         nc_dot = nx * tcx + ny * tcy
         edges.append((ax, ay, bx, by, nx, ny, nc_dot))
       segs.append({"bbox": (min_x, min_y, max_x, max_y), "edges": edges, "points": corners, "absorption": getattr(p, "absorption", 0.5)})
+      
     self._occ_cache = (key, segs)
     return segs
 
@@ -426,6 +438,21 @@ class Level:
       return k * k * (3 - 2 * k)
     return k
 
+  def update_light_movers(self, dt):
+    # <STRANGE>#4004: ?????? ?????? ???????????????? ??????????
+    if not hasattr(self, "_light_movers") or not self._light_movers:
+      return
+    keep = []
+    for m in self._light_movers:
+      m["t"] += dt
+      k = min(1.0, m["t"] / m["dur"])
+      m["obj"].intensity = m["start"] + (m["end"] - m["start"]) * k
+      if m["t"] < m["dur"]:
+        keep.append(m)
+    self._light_movers = keep
+    if self._light_movers:
+      self._occ_cache = None
+
   def update_movers(self, dt):
     if not self.movers:
       return
@@ -470,10 +497,34 @@ class Level:
     if self.cam is not None:
       self.cam.shake(dur, amp, freq)
 
+  def add_mover_light(self, light, target_intensity, dur=1.0):
+    # <STRANGE>#4003: ?????????????? ?????????????????? ??????????????????????????
+    if not hasattr(self, "_light_movers"):
+      self._light_movers = []
+    self._light_movers.append({
+      "obj": light,
+      "start": float(getattr(light, "intensity", 1.0)),
+      "end": float(target_intensity),
+      "t": 0.0,
+      "dur": max(0.01, float(dur)),
+    })
+
   def shake(self, dur, amp, freq=0.0):
     # <STRANGE>#1195 forwarded to camera; no-op if the level has no camera yet
     if self.cam is not None:
       self.cam.shake(dur, amp, freq)
+
+  def add_mover_light(self, light, target_intensity, dur=1.0):
+    # <STRANGE>#4003: ?????????????? ?????????????????? ??????????????????????????
+    if not hasattr(self, "_light_movers"):
+      self._light_movers = []
+    self._light_movers.append({
+      "obj": light,
+      "start": float(getattr(light, "intensity", 1.0)),
+      "end": float(target_intensity),
+      "t": 0.0,
+      "dur": max(0.01, float(dur)),
+    })
 
   def update_lanterns(self, player, cam, dt):
     # <STRANGE>#1743 weak glow follows player, snapped to avoid per-frame rebuilds
@@ -664,7 +715,7 @@ class Level:
       hud.rect(0, 0, sw, sh, f["color"], a)
     for tx in self.texts:
       k = tx["t"] / tx["dur"]
-      alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 0.3))
+      alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 1.0))
       if alpha <= 0:
         continue
       size = max(8, int(tx["size"] * cam.scale))
@@ -676,7 +727,7 @@ class Level:
       y = sh - 120
       for tst in reversed(self.toasts):
         k = tst["t"] / tst["dur"]
-        alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 0.3))
+        alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 1.0))
         if alpha <= 0:
           continue
         w, h = tst["w"], tst["h"]
@@ -696,6 +747,90 @@ class Level:
             self._draw_toast_shape(slot, sh_, lcx, lcy, alpha)
         hud.surface(slot, cx - w // 2, y - h // 2, alpha=255, anchor="topleft")
         y -= h
+
+  def open_note_ui(self, title, text):
+    self.note_ui = {"title": title, "text": text, "t": 0.0}
+    if self.cam:
+      self.cam.shake(0.1, 2.0)
+
+  def close_note_ui(self):
+    if hasattr(self, "note_ui"):
+      self.note_ui = None
+
+  def update_notes(self, dt, events):
+    if not hasattr(self, "note_ui") or not self.note_ui:
+      return
+    self.note_ui["t"] += dt
+
+  def draw_notes(self, hud, cam):
+    if not hasattr(self, "note_ui") or not self.note_ui:
+      return
+    sw, sh = hud.get_size()
+    
+    if not hasattr(self, "_note_ui_surf") or self._note_ui_surf.get_size() != (sw, sh):
+        self._note_ui_surf = pygame.Surface((sw, sh), pygame.SRCALPHA)
+    surf = self._note_ui_surf
+    surf.fill((0, 0, 0, 0))
+    
+    # ????????????????????
+    dim_alpha = int(180 * min(1.0, self.note_ui["t"] * 4))
+    surf.fill((0, 0, 0, dim_alpha))
+    
+    # ???????????????????? ????????????????????
+    box_w = int(sw * 0.32)
+    box_h = int(box_w * 1.55)
+    
+    if box_h > sh * 0.85:
+        box_h = int(sh * 0.85)
+        box_w = int(box_h / 1.55)
+    
+    box_w = max(400, box_w)
+    box_h = max(620, box_h)
+    
+    if box_w > sw * 0.9:
+        box_w = int(sw * 0.9)
+        box_h = int(box_w * 1.55)
+    if box_h > sh * 0.95:
+        box_h = int(sh * 0.95)
+        box_w = int(box_h / 1.55)
+        
+    cx, cy = sw // 2, sh // 2
+    box_rect = pygame.Rect(cx - box_w // 2, cy - box_h // 2, box_w, box_h)
+    
+    pygame.draw.rect(surf, (240, 235, 220), box_rect)
+    pygame.draw.rect(surf, (100, 100, 100), box_rect, 2)
+    
+    font_title = pygame.font.SysFont("consolas", 32, bold=True)
+    ts = font_title.render(self.note_ui["title"], True, (50, 50, 50))
+    surf.blit(ts, ts.get_rect(center=(cx, box_rect.y + 60)))
+    
+    font = pygame.font.SysFont("consolas", 24)
+    words = self.note_ui["text"].split()
+    lines = []
+    current_line = []
+    max_line_w = box_w - 80
+    for w in words:
+      test_line = " ".join(current_line + [w])
+      if font.size(test_line)[0] < max_line_w:
+        current_line.append(w)
+      else:
+        if current_line:
+          lines.append(" ".join(current_line))
+        current_line = [w]
+    if current_line:
+      lines.append(" ".join(current_line))
+      
+    line_h = 34
+    y = box_rect.y + 130
+    max_y = box_rect.y + box_h - 40
+    for line in lines:
+      if y + line_h > max_y:
+        break
+      ts = font.render(line, True, (30, 30, 30))
+      surf.blit(ts, ts.get_rect(center=(cx, y)))
+      y += line_h
+      
+    hud.surface(surf, 0, 0, anchor="topleft")
 
   def unload(self):
     # <STRANGE>#1028 on_unload for every script, called once when the level goes away

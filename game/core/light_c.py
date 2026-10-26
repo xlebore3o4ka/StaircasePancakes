@@ -51,6 +51,7 @@ def _load():
             ("grad", ctypes.c_void_p),
             ("grad_w", ctypes.c_int), ("grad_h", ctypes.c_int),
             ("grad_radius", ctypes.c_float), ("grad_intensity", ctypes.c_float),
+            ("grad_angle", ctypes.c_float), ("grad_cone", ctypes.c_float),
             ("grad_color", ctypes.c_ubyte * 3),
             ("grad_bgr", ctypes.c_int),
         ]
@@ -99,6 +100,8 @@ def _c_contribute(self, light_surf, cam, occluders):
         c.angle = self.angle
         c.length = self.length
         c.cone = self.cone
+    for i in range(3):
+        c.color[i] = self.color[i]
 
     cam_struct = _Cam(
         cam.x, cam.y, cam.w, cam.h, cam.scale,

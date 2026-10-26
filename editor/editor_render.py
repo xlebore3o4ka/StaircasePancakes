@@ -166,6 +166,7 @@ class RenderMixin:
     self._draw_level_settings()
     self._draw_color_picker()
     self._draw_label_modal()
+    self._draw_note_preview()
 
   def _collect_occluders(self):
     from .objects import EditorPlatform
@@ -214,6 +215,7 @@ class RenderMixin:
                 out.append({"bbox": (l, b, r, t), "edges": edges, "points": corners, "absorption": getattr(o, "absorption", 0.5)})
         except Exception:
             continue
+            
     return out
 
   def _apply_light_preview(self, scene):
@@ -278,7 +280,7 @@ class RenderMixin:
     # <STRANGE>#526: ???????????????????????????? ???????????? ?????? ???????????????? ?????? ???????????? ????????????
     from .objects import (
       EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-      EditorButton, EditorAnchor,
+      EditorButton, EditorAnchor, EditorLight, EditorLabel,
     )
     col = (255, 255, 255, 70)
     if isinstance(obj, EditorAnchor):
@@ -291,6 +293,20 @@ class RenderMixin:
       sx, sy = self.to_screen(obj.x, obj.y)
       r = max(1, int(obj.r * self.zoom))
       pygame.draw.circle(self.screen, col, (int(sx), int(sy)), r, 1)
+      return
+    if isinstance(obj, EditorLight):
+      from .const import LIGHT_GIZMO_R
+      sx, sy = self.to_screen(obj.x, obj.y)
+      r = max(1, int(LIGHT_GIZMO_R * self.zoom))
+      pygame.draw.circle(self.screen, col, (int(sx), int(sy)), r, 1)
+      return
+    if isinstance(obj, EditorLabel):
+      l, r, b, t = obj._rect_world(self.zoom)
+      x0, y0 = self.to_screen(l, t)
+      x1, y1 = self.to_screen(r, b)
+      rr = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                       int(abs(x1 - x0)), int(abs(y1 - y0)))
+      pygame.draw.rect(self.screen, col, rr, 1)
       return
     if isinstance(obj, (EditorBackground, EditorPlatform)) \
        and getattr(obj, "polygon", False) and len(obj.points) >= 3:
@@ -1534,6 +1550,28 @@ class RenderMixin:
       return True
     return False
 
+  def _draw_note_preview(self):
+    note = getattr(self, "note_preview_target", None)
+    if note is None:
+      return
+    sw, sh = self.screen.get_size()
+    dim = pygame.Surface((sw, sh), pygame.SRCALPHA)
+    dim.fill((0, 0, 0, 180))
+    self.screen.blit(dim, (0, 0))
+    
+    box_w, box_h = 600, 400
+    cx, cy = sw // 2, sh // 2
+    rect = pygame.Rect(cx - box_w // 2, cy - box_h // 2, box_w, box_h)
+    pygame.draw.rect(self.screen, (240, 235, 220), rect, border_radius=8)
+    pygame.draw.rect(self.screen, (100, 100, 100), rect, 2, border_radius=8)
+    
+    title_font = pygame.font.SysFont("consolas", 32, bold=True)
+    ts = title_font.render(note.title, True, (50, 50, 50))
+    self.screen.blit(ts, (rect.centerx - ts.get_width() // 2, rect.y + 40))
+    
+    from shared.html_text import draw_html
+    draw_html(self.screen, note.text, rect.x + 40, rect.y + 100, box_w - 80, 24, (30, 30, 30))
+
   def draw_snap_guides(self):
     sw, sh = self.screen.get_size()
     for gx in self.snap_guides_x:
@@ -1644,6 +1682,7 @@ class RenderMixin:
       self.draw_tab(self.tab_plat_rect(), "platform", self.tool == "platform")
       self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
       self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
+      self.draw_tab(self.tab_note_rect(), "note", self.tool == "note")
       self.draw_tab(self.tab_spawner_rect(), "spawner", self.tool == "spawner")
       self.draw_tab(self.tab_artifact_rect(), "artifact", self.tool == "artifact")
       self.draw_tab(self.tab_trigger_rect(), "trigger", self.tool == "trigger")
@@ -1688,6 +1727,14 @@ class RenderMixin:
       band = pygame.Rect(rr.x, rr.centery - 4, rr.w, 8)
       pygame.draw.rect(self.screen, (200, 90, 120), band)
       pygame.draw.rect(self.screen, (60, 60, 70), rr, 2, border_radius=4)
+    elif name == "note":
+      rr = pygame.Rect(0, 0, 24, 32)
+      rr.center = r.center
+      pygame.draw.rect(self.screen, (255, 255, 255), rr)
+      pygame.draw.rect(self.screen, (150, 150, 150), rr, 2)
+      for i in range(1, 4):
+        ly = rr.y + i * (rr.h / 4)
+        pygame.draw.line(self.screen, (150, 150, 150), (rr.x + 4, ly), (rr.right - 4, ly), 1)
     elif name == "item":
       self._draw_item_icon(self.screen, r, self.current_item_type)
     elif name == "spawner":
@@ -1815,6 +1862,10 @@ class RenderMixin:
     return pygame.Rect(610, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_spawner_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(730, h - BOT_H + 6, 110, BOT_H - 12)
+
+  def tab_note_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(730, h - BOT_H + 6, 110, BOT_H - 12)
 

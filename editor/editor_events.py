@@ -26,6 +26,16 @@ class EventsMixin:
     if getattr(self, "_level_settings_open", False):
       self._handle_level_settings_event(e)
       return
+    # 0b2. note preview
+    if getattr(self, "note_preview_target", None) is not None:
+      if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
+        self.note_preview_target = None
+        return
+      if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+        self.note_preview_target = None
+        return
+      return
+
     # 0c. label modal
     if getattr(self, "_label_modal_open", False):
       self._handle_label_modal_event(e)
@@ -1147,6 +1157,16 @@ class EventsMixin:
   def _open_change_type_menu(self, item, pos):
     before = self._snapshot()
     def on_select(t):
+      if t == "note" and isinstance(item, EditorItem):
+        from .objects import EditorNote
+        new_obj = EditorNote(item.x, item.y)
+        new_obj.locked = item.locked
+        new_obj.layer = item.layer
+        new_obj.id = item.id
+        self.objects = [new_obj if o is item else o for o in self.objects]
+        self._set_selection([new_obj])
+        self._mark_scene_dirty()
+        return
       item.set_type(t)
       self.current_item_type = t
       self._push_undo_now(before)

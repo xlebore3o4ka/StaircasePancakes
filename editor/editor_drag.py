@@ -569,8 +569,19 @@ class DragMixin:
       self._set_selection([obj])
       self.drag = ("create", (wx, wy))
       self._mark_scene_dirty()
+    elif self.tool == "note":
+      from .objects import EditorNote
+      obj = EditorNote(wx, wy)
+      self.objects.append(obj)
+      self._set_selection([obj])
+      self._begin_move(wx, wy, obj)
+      self._mark_scene_dirty()
     elif self.tool == "item":
-      obj = EditorItem(wx, wy, self.current_item_type)
+      if self.current_item_type == "note":
+        from .objects import EditorNote
+        obj = EditorNote(wx, wy)
+      else:
+        obj = EditorItem(wx, wy, self.current_item_type)
       self.objects.append(obj)
       self._set_selection([obj])
       self._begin_move(wx, wy, obj)

@@ -116,18 +116,27 @@ class Game:
         fps_value = clock.get_fps()
         # <STRANGE>#377 sub-step long frames: 1/30 broken into two 1/60 steps reduces penetration and phantom bounces
         substeps = 2 if dt > 1/45 else 1
-        for e in pygame.event.get():
+        events = pygame.event.get()
+        for e in events:
           if e.type == pygame.QUIT:
             running = False
           elif e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
-            running = False
+            if getattr(level, "note_ui", None):
+              level.close_note_ui()
+            else:
+              running = False
           player.handle_event(e)
+        old_hp = player.hp
         player.update(cam, level.grabbables(), level.items, dt, level.backgrounds)
+        if player.hp < old_hp and getattr(level, "note_ui", None):
+          level.close_note_ui()
         level.update_lanterns(player, cam, dt)
         level.update_buttons(dt, player)
         level.update_triggers(dt, (player.body.position.x, player.body.position.y), player.events)
         player.events.clear()
+        level.update_notes(dt, events)
         level.update_movers(dt)
+        level.update_light_movers(dt)
         level.update_overlays(dt)
         for rp in remotes.values():
           rp.update(dt)
@@ -248,6 +257,7 @@ class Game:
         # <STRANGE>#620 height is distance from spawn, not absolute y
         hud_info.draw(w.hud, player.body.position.y - spawn_y)
         level.draw_overlays(w.hud, cam)
+        level.draw_notes(w.hud, cam)
         # <STRANGE>#1521 FPS in bottom-left corner
         _sh = w.hud.get_size()[1]
         w.hud.text(f"FPS {fps_value:.0f}", 12, _sh - 36, 24,

@@ -168,6 +168,7 @@ void light_contribute(Light *l, unsigned char *buf, int bw, int bh, int bgr, Cam
   int need_rebuild = (l->grad_w != sw || l->grad_h != sh ||
                       l->grad_intensity != l->intensity ||
                       l->grad_radius != r_world || l->grad_bgr != bgr ||
+                      l->grad_angle != l->angle || l->grad_cone != l->cone ||
                       memcmp(l->grad_color, l->color, 3) != 0);
 
   if (need_rebuild) {
@@ -218,6 +219,8 @@ void light_contribute(Light *l, unsigned char *buf, int bw, int bh, int bgr, Cam
     l->grad_intensity = l->intensity;
     l->grad_radius = r_world;
     l->grad_bgr = bgr;
+    l->grad_angle = l->angle;
+    l->grad_cone = l->cone;
     memcpy(l->grad_color, l->color, 3);
   }
 

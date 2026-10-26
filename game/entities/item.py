@@ -580,6 +580,42 @@ class LanternItem(Item):
       pygame.draw.circle(_surf(screen), glow_rgb, (int(sx), int(sy)), r_glow)
 
 
+
+class NoteItem(Item):
+  net_type = "note"
+  pickup_sound = "pickup_item"
+  use_sound = "button_down"
+  instant_use = True
+
+  def __init__(self, space, pos, text="", title="??????????????"):
+    super().__init__(space, pos, 30, 40)
+    self.text = str(text) if text else "..."
+    self.title = str(title) if title else "??????????????"
+
+  def use(self):
+    # ?????????????? ???? ???????????????????? ??????????????
+    return (False, None, 0)
+
+  def on_use(self, player, hand):
+    if player.level is not None:
+      if getattr(player.level, "note_ui", None):
+        player.level.close_note_ui()
+      else:
+        player.level.open_note_ui(self.title, self.text)
+    # True - ???????????????????? ??????????, ???? ???????? ?????????????????? ???? ????????
+    return True
+
+  def draw_at(self, screen, cam, pos, angle, alpha, scale, whiten=0.0, y_up=True):
+    sc = cam.scale * scale
+    hw, hh = self.w / 2 * scale, self.h / 2 * scale
+    pts = _corners(pos, angle, hw, hh)
+    fill = (255, 255, 255)
+    edge = (180, 180, 180)
+    if alpha < 255:
+      fill = (*fill, alpha)
+      edge = (*edge, alpha)
+    _blit_bands(screen, cam, [(pts, fill, 0), (pts, edge, max(1, int(LINE_W * sc)))])
+
 def make_item(space, spec):
   t = spec.get("type", "cube")
   pos = (spec["x"], spec["y"])
@@ -593,6 +629,8 @@ def make_item(space, spec):
     return BagItem(space, pos)
   if t == "lantern":
     return LanternItem(space, pos)
+  if t == "note":
+    return NoteItem(space, pos, text=spec.get("text"), title=spec.get("title"))
   if t == "cube":
     return CubeItem(space, pos, contents=spec.get("contents"))
   return CubeItem(space, pos)

@@ -25,6 +25,7 @@ typedef struct {
   unsigned char *grad;
   int grad_w, grad_h;
   float grad_radius, grad_intensity;
+  float grad_angle, grad_cone;
   unsigned char grad_color[3];
   int grad_bgr;
 } Light;

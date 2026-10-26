@@ -360,8 +360,6 @@ class EditorPlatform:
       d["layer"] = int(self.layer)
     if getattr(self, "id", ""):
       d["id"] = str(self.id)
-    if getattr(self, "absorption", 0.5) != 0.5:
-      d["absorption"] = float(self.absorption)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
       pts = [[int(p[0]), int(p[1])] for p in self.points]
@@ -537,8 +535,6 @@ class EditorBackground:
       d["layer"] = int(self.layer)
     if getattr(self, "id", ""):
       d["id"] = str(self.id)
-    if getattr(self, "absorption", 0.5) != 0.5:
-      d["absorption"] = float(self.absorption)
     if self.polygon and len(self.points) >= 3:
       d["polygon"] = True
       pts = [[int(p[0]), int(p[1])] for p in self.points]
@@ -591,6 +587,58 @@ class EditorBackground:
 # =========================================================
 # Item — delegate to game, supports recursive contents
 # =========================================================
+
+class EditorNote:
+  def __init__(self, x, y, text="", title="Note"):
+    self.x, self.y = x, y
+    self.w, self.h = 30, 40
+    self.text = str(text)
+    self.title = str(title)
+    self.locked = False
+    self.layer = None
+    self.id = ""
+
+  def world_rect(self):
+    return (self.x - self.w / 2, self.x + self.w / 2,
+            self.y - self.h / 2, self.y + self.h / 2)
+
+  def hit(self, wx, wy):
+    l, r, b, t = self.world_rect()
+    return l <= wx <= r and b <= wy <= t
+
+  def intersects_rect(self, l, r, b, t):
+    ol, orr, ob, ot = self.world_rect()
+    return not (orr < l or ol > r or ot < b or ob > t)
+
+  def to_json(self):
+    d = {"x": int(self.x), "y": int(self.y), "type": "note",
+         "title": self.title, "text": self.text}
+    if self.locked: d["locked"] = True
+    if self.layer is not None: d["layer"] = int(self.layer)
+    if self.id: d["id"] = self.id
+    return d
+
+  def badge_screen_pos(self, ed):
+    l, r, b, t = self.world_rect()
+    x1, y0 = ed.to_screen(r, t)
+    return x1 - 12, y0 + 12
+
+  def draw(self, screen, ed):
+    l, r, b, t = self.world_rect()
+    x0, y0 = ed.to_screen(l, t)
+    x1, y1 = ed.to_screen(r, b)
+    rect = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                       int(abs(x1 - x0)), int(abs(y1 - y0)))
+    pygame.draw.rect(screen, (255, 255, 255), rect)
+    pygame.draw.rect(screen, (180, 180, 180), rect, 2)
+    # ???????? ?????????? ????????????
+    for i in range(1, 4):
+      ly = y0 + i * (y1 - y0) / 5
+      pygame.draw.line(screen, (180, 180, 180), (x0 + 4, ly), (x1 - 4, ly), 1)
+    if self.locked:
+      screen.blit(make_stripe_surface(rect.w, rect.h), rect.topleft)
+
+
 class EditorItem:
   """Превью игрового предмета. Отрисовка и размеры — из игрового класса.
 
