@@ -115,6 +115,17 @@ void light_contribute(Light *l, unsigned char *buf, int bw, int bh, int bgr, Cam
     if (occs && n_occs > 0) {
       for (int pi = 0; pi < n_occs; pi++) {
         Occluder *p = &occs[pi];
+        /* <STRANGE>#5012 cull occluders whose (screen bbox + shadow) misses the canvas */
+        {
+          float _sax, _say, _sbx, _sby;
+          camera_to_screen(cam, p->min_x, p->min_y, &_sax, &_say);
+          camera_to_screen(cam, p->max_x, p->max_y, &_sbx, &_sby);
+          float _sminx = fminf(_sax, _sbx) + fminf(0.0f, sh_dx);
+          float _smaxx = fmaxf(_sax, _sbx) + fmaxf(0.0f, sh_dx);
+          float _sminy = fminf(_say, _sby) + fminf(0.0f, sh_dy);
+          float _smaxy = fmaxf(_say, _sby) + fmaxf(0.0f, sh_dy);
+          if (_smaxx < 0.0f || _sminx > (float)bw || _smaxy < 0.0f || _sminy > (float)bh) continue;
+        }
         for (int ei = 0; ei < p->n_edges; ei++) {
           float *e = p->edges + ei * 7;
           float ax = e[0], ay = e[1], bx = e[2], by = e[3];

@@ -26,6 +26,46 @@ try:
 except Exception as e:
     print(f"light_c: not installed ({e}); using Python")
 
+def _visible_obj(d, cam, screen_size):
+  # <STRANGE>#5010 viewport cull: skip drawables whose bbox is entirely off-screen
+  body = getattr(d, "body", None)
+  vw, vh = screen_size
+  if body is not None:
+    px, py = body.position.x, body.position.y
+    w = getattr(d, "w", 0) or 0
+    h = getattr(d, "h", 0) or 0
+    r = getattr(d, "r", None)
+    if r is not None:
+      w = h = r * 2
+    pts = getattr(d, "points", None)
+    if pts:
+      xs = [q[0] for q in pts]; ys = [q[1] for q in pts]
+      if len(xs) > 1 and len(ys) > 1:
+        w = max(xs) - min(xs)
+        h = max(ys) - min(ys)
+    rr = max(w, h) * 0.5 * cam.scale + 96
+    sx, sy = cam.to_screen(px, py)
+    return -rr <= sx <= vw + rr and -rr <= sy <= vh + rr
+  x = getattr(d, "x", None)
+  y = getattr(d, "y", None)
+  if x is None or y is None:
+    return True
+  pts = getattr(d, "points", None)
+  if pts:
+    xs = [x + q[0] for q in pts]
+    ys = [y + q[1] for q in pts]
+    l, r_, b, t = min(xs), max(xs), min(ys), max(ys)
+  else:
+    w = getattr(d, "w", 0)
+    h = getattr(d, "h", 0)
+    l, r_, b, t = x - w / 2, x + w / 2, y - h / 2, y + h / 2
+  sx0, sy0 = cam.to_screen(l, t)
+  sx1, sy1 = cam.to_screen(r_, b)
+  lo_x, hi_x = (sx0, sx1) if sx0 < sx1 else (sx1, sx0)
+  lo_y, hi_y = (sy0, sy1) if sy0 < sy1 else (sy1, sy0)
+  return hi_x >= 0 and lo_x <= vw and hi_y >= 0 and lo_y <= vh
+
+
 class Game:
   def __init__(self, cheats=False, map_path="levels/test.json", debugview=False,
                debuginfo=False, name=None, server=None):
@@ -231,18 +271,28 @@ class Game:
         cam.follow(player.body.position, dt)
         cam.update(dt)
         cam.update(dt)
-        w.screen.fill((89, 95, 102))
+        if w.world is not None:
+          from .core.gpu_render import WorldCtx
+          w.world.begin()
+          target = WorldCtx(w.world, cam)
+        else:
+          w.screen.fill((89, 95, 102))
+          target = w.screen
         # <NOTE>#445 single sorted pass: backgrounds -> floor -> platforms/pegs -> items -> player
         drawables = level.drawables() + [floor_fill, player]
         drawables.sort(key=lambda o: o.layer)
         for d in drawables:
-          d.draw(w.screen, cam)
+          if not _visible_obj(d, cam, w.size):
+            continue
+          d.draw(target, cam)
         ghost_items.update(dt)
-        ghost_items.draw(w.screen, cam)
+        ghost_items.draw(target, cam)
         for rp in remotes.values():
-          rp.draw(w.screen, cam)
+          rp.draw(target, cam)
+        if w.world is not None:
+          w.world.flush()
         if self.debugview:
-          level.draw_debug(w.screen, cam, player.body.position)
+          level.draw_debug(target, cam, player.body.position)
         # <STRANGE>#1330 lighting: scene * light, then HUD composited on top
         if level.lighting_config is not None:
           _occ = level.occluders()
