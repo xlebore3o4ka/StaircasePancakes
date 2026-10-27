@@ -1,12 +1,14 @@
 import ctypes
 import math
 import os
+import sys
 
 import moderngl
 import numpy as np
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_DLL_PATH = os.path.join(_ROOT, "libraries", "render.dll")
+_LIB_EXT = ".dll" if os.name == "nt" else (".dylib" if sys.platform == "darwin" else ".so")
+_DLL_PATH = os.path.join(_ROOT, "libraries", "render" + _LIB_EXT)
 
 _SOLID_VERT = """
 #version 330

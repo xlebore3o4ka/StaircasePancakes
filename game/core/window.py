@@ -17,6 +17,7 @@ class Window:
       print(f"window: OPENGL mode failed ({e}); software fallback")
       _ = pygame.display.set_mode((0, 0), pygame.FULLSCREEN, vsync=1)
       size = pygame.display.get_surface().get_size()
+    self.size = size
     self.screen = pygame.Surface(size).convert()
     self.scale = size[1] / DESIGN_H
     from .lighting import LightingPipeline
