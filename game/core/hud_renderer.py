@@ -232,24 +232,40 @@ class HudRenderer:
     self._sprites.append((tex, data))
 
   def flush(self):
-    self.gl_ctx.enable(moderngl.BLEND)
-    self.gl_ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
-    self.solid_prog["screen_size"] = self.size
+    try:
+      self.gl_ctx.enable(moderngl.BLEND)
+      self.gl_ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
+    except Exception:
+      pass
+    try:
+      self.solid_prog["screen_size"] = self.size
+    except Exception:
+      pass
     if self._solid_count > 0:
       try:
         self.solid_vbo.write(self._solid_np[:self._solid_count].tobytes())
         self.solid_vao.render(moderngl.TRIANGLES, vertices=self._solid_count // 6)
-      except Exception as e:
-        print(f"hud.flush solid failed: {e}")
-    self.sprite_prog["screen_size"] = self.size
+      except Exception:
+        pass
+    try:
+      self.sprite_prog["screen_size"] = self.size
+    except Exception:
+      pass
     for tex, data in self._sprites:
       try:
+        if tex is None or not hasattr(tex, 'use'):
+          continue
         self.sprite_vbo.write(data.tobytes())
-        tex.use(0)
-        self.sprite_prog["tex"] = 0
+        try:
+          tex.use(0)
+        except Exception:
+          continue
+        try:
+          self.sprite_prog["tex"] = 0
+        except Exception:
+          pass
         self.sprite_vao.render(moderngl.TRIANGLES, vertices=6)
-      except Exception as e:
-        print(f"hud.flush sprite failed: {e}")
+      except Exception:
         continue
 
 

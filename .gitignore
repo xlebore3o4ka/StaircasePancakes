@@ -11,3 +11,6 @@ editor/settings.json
 editor/settings.json
 todo.txt
 repo2txt.txt
+editor/autosave/editor.json
+editor/autosave/editor.json
+/editor/autosave

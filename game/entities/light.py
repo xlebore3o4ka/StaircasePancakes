@@ -18,11 +18,12 @@ def _fill_shadow(surf, pts, color):
 
 class LightBase:
   # <STRANGE>#1402 base for light sources; contribute() paints additive light into light_surf
-  def __init__(self, pos, color=(255, 240, 200), intensity=1.0):
+  def __init__(self, pos, color=(255, 240, 200), intensity=1.0, static=False):
     self.pos = pos
     self.color = color
     self.intensity = intensity
     self.id = None
+    self.static = bool(static)
 
   # <STRANGE>#1530 x/y accessors so Level.move_to and _snap work on lights (no .body needed)
   @property

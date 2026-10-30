@@ -1,10 +1,11 @@
 import argparse
+import sys
 from game import Game
 
 def main():
   p = argparse.ArgumentParser()
   p.add_argument("--cheats", action="store_true", help="infinite stamina and free air jump while space is held")
-  p.add_argument("--map", default="levels/test.json", help="path to level json (default: levels/test.json)")
+  p.add_argument("--map", default="levels/The_Outskirts_v0.tar", help="path to level json/tar (default: levels/The_Outskirts_v0.tar)")
   p.add_argument("--debugview", action="store_true", help="overlay spawner markers and trigger zones")
   p.add_argument("--debuginfo", action="store_true", help="top-right pos/vel readout")
   p.add_argument("--name", default=None, help="player name for multiplayer")

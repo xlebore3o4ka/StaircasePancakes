@@ -5,9 +5,11 @@ try:
     import moderngl
     import numpy as np
     _GL_OK = True
+    _NP_OK = True
 except Exception as _e:
     print(f"lighting: moderngl/numpy unavailable ({_e}); software fallback")
     _GL_OK = False
+    _NP_OK = False
 
 
 LIGHT_SCALE = 2
@@ -68,6 +70,23 @@ void main() {
 """
 
 
+<<<<<<< Updated upstream
+=======
+def _light_in_view(lt, cam, vw, vh, margin=32.0):
+  # <STRANGE>#5011 skip lights whose reach does not intersect the viewport
+  if lt.__class__.__name__ == "SunLight":
+    return True
+  r_world = getattr(lt, "radius", None)
+  if r_world is None:
+    r_world = getattr(lt, "length", None)
+  if r_world is None:
+    return True
+  r = float(r_world) * cam.scale + float(margin)
+  cx, cy = cam.to_screen(lt.pos[0], lt.pos[1])
+  return not (cx + r < 0.0 or cx - r > vw or cy + r < 0.0 or cy - r > vh)
+
+
+>>>>>>> Stashed changes
 class LightingPipeline:
   def __init__(self, size):
     self.size = size
@@ -112,7 +131,6 @@ class LightingPipeline:
     self.light_tex_raw.filter = (moderngl.LINEAR, moderngl.LINEAR)
     self.light_tex_raw.repeat_x = False
     self.light_tex_raw.repeat_y = False
-    # <STRANGE>#1430 ping-pong blur: two textures + two FBOs, no read-write feedback
     self.blur_tex_A = self.gl_ctx.texture(self.light_size, 3)
     self.blur_tex_A.filter = (moderngl.LINEAR, moderngl.LINEAR)
     self.blur_tex_A.repeat_x = False
@@ -156,18 +174,34 @@ class LightingPipeline:
       ((cam.x - sx) * cam.scale + (sox - cam._ox)) / w,
       ((sy - cam.y) * cam.scale + (soy - cam._oy)) / h,
     )
+<<<<<<< Updated upstream
     key = self._compute_key(config, lights, cam.scale, sx, sy, sox, soy, occluders)
+=======
+    margin = float((config or {}).get("cull_margin", 32))
+    vis = [lt for lt in lights if _light_in_view(lt, cam, w, h, margin)]
+    key = self._compute_key(config, vis, cam.scale, sx, sy, sox, soy, occluders)
+>>>>>>> Stashed changes
     if key == self._light_key:
       return
     self._light_key = key
     self._light_dirty = True
-    self.gain = float(config.get("gain", 1.6))
-    self.light.fill(config.get("ambient", (60, 60, 70)))
+    self.gain = float((config or {}).get("gain", 1.6))
+    self.light.fill((config or {}).get("ambient", (60, 60, 70)))
     light_cam = type(cam)(sx, sy, cam.w, cam.h, cam.scale / LIGHT_SCALE)
     light_cam._ox = sox / LIGHT_SCALE
     light_cam._oy = soy / LIGHT_SCALE
+<<<<<<< Updated upstream
     for lt in lights:
       lt.contribute(self.light, light_cam, occluders)
+=======
+    sun_lights = [l for l in vis if l.__class__.__name__ == "SunLight"]
+    other_lights = [l for l in vis if l.__class__.__name__ != "SunLight"]
+    for lt in sun_lights + other_lights:
+      try:
+        lt.contribute(self.light, light_cam, occluders)
+      except Exception:
+        pass
+>>>>>>> Stashed changes
 
   def begin(self, ambient=(255, 255, 255)):
     self._light_key = None

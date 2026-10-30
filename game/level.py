@@ -689,6 +689,97 @@ class Level:
         hud.surface(slot, cx - w // 2, y - h // 2, alpha=255, anchor="topleft")
         y -= h
 
+<<<<<<< Updated upstream
+=======
+  def open_note_ui(self, title, text):
+    self.note_ui = {"title": title, "text": text, "t": 0.0}
+    if self.cam:
+      self.cam.shake(0.1, 2.0)
+
+  def close_note_ui(self):
+    if hasattr(self, "note_ui"):
+      self.note_ui = None
+
+  def update_notes(self, dt, events):
+    if not hasattr(self, "note_ui") or not self.note_ui:
+      return
+    self.note_ui["t"] += dt
+
+  def draw_notes(self, hud, cam):
+    if not hasattr(self, "note_ui") or not self.note_ui:
+      return
+    sw, sh = hud.get_size()
+    
+    if not hasattr(self, "_note_ui_surf") or self._note_ui_surf.get_size() != (sw, sh):
+        self._note_ui_surf = pygame.Surface((sw, sh), pygame.SRCALPHA)
+    surf = self._note_ui_surf
+    surf.fill((0, 0, 0, 0))
+    
+    dim_alpha = int(180 * min(1.0, self.note_ui["t"] * 4))
+    surf.fill((0, 0, 0, dim_alpha))
+    
+    box_w = int(sw * 0.32)
+    box_h = int(box_w * 1.55)
+    
+    if box_h > sh * 0.85:
+        box_h = int(sh * 0.85)
+        box_w = int(box_h / 1.55)
+    
+    box_w = max(400, box_w)
+    box_h = max(620, box_h)
+    
+    if box_w > sw * 0.9:
+        box_w = int(sw * 0.9)
+        box_h = int(box_w * 1.55)
+    if box_h > sh * 0.95:
+        box_h = int(sh * 0.95)
+        box_w = int(box_h / 1.55)
+        
+    cx, cy = sw // 2, sh // 2
+    box_rect = pygame.Rect(cx - box_w // 2, cy - box_h // 2, box_w, box_h)
+    
+    pygame.draw.rect(surf, (240, 235, 220), box_rect)
+    pygame.draw.rect(surf, (100, 100, 100), box_rect, 2)
+    
+    if not hasattr(self, "_note_font_title") or getattr(self, "_note_font_title_size", None) != 32:
+      self._note_font_title = pygame.font.SysFont("consolas", 32, bold=True)
+      self._note_font_title_size = 32
+    font_title = self._note_font_title
+    ts = font_title.render(self.note_ui["title"], True, (50, 50, 50))
+    surf.blit(ts, ts.get_rect(center=(cx, box_rect.y + 60)))
+    
+    if not hasattr(self, "_note_font") or getattr(self, "_note_font_size", None) != 24:
+      self._note_font = pygame.font.SysFont("consolas", 24)
+      self._note_font_size = 24
+    font = self._note_font
+    words = self.note_ui["text"].split()
+    lines = []
+    current_line = []
+    max_line_w = box_w - 80
+    for w in words:
+      test_line = " ".join(current_line + [w])
+      if font.size(test_line)[0] < max_line_w:
+        current_line.append(w)
+      else:
+        if current_line:
+          lines.append(" ".join(current_line))
+        current_line = [w]
+    if current_line:
+      lines.append(" ".join(current_line))
+      
+    line_h = 34
+    y = box_rect.y + 130
+    max_y = box_rect.y + box_h - 40
+    for line in lines:
+      if y + line_h > max_y:
+        break
+      ts = font.render(line, True, (30, 30, 30))
+      surf.blit(ts, ts.get_rect(center=(cx, y)))
+      y += line_h
+      
+    hud.surface(surf, 0, 0, anchor="topleft")
+
+>>>>>>> Stashed changes
   def unload(self):
     # <STRANGE>#1028 on_unload for every script, called once when the level goes away
     for t in self.triggers:
