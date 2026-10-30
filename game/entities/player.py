@@ -170,6 +170,8 @@ class Player:
       return
     self.hp = max(0.0, self.hp - amount)
     self.hp_regen_t = HP_REGEN_DELAY
+    if self.level is not None:
+      self.level.close_note_ui()
     if self.sound is not None:
       # <STRANGE>#1196 volume scales with damage up to HURT_VOL_DMG_FULL
       vol = max(0.15, min(1.0, amount / HURT_VOL_DMG_FULL))
@@ -838,6 +840,8 @@ class Player:
         self.throw_requested[i] = False
         item = self.held[i]
         if item is not None:
+          if getattr(item, "net_type", None) == "note" and self.level is not None:
+            self.level.close_note_ui()
           self._release_item(i, item)
 
     for i in range(2):

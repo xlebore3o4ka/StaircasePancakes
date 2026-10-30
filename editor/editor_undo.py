@@ -8,7 +8,7 @@ from .const import (
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
   EditorArtifact, EditorTrigger, EditorButton, EditorAnchor,
-  EditorLight, EditorLabel,
+  EditorLight, EditorLabel, EditorNote,
 )
 
 
@@ -29,12 +29,13 @@ class UndoMixin:
               "fill": tuple(o.fill), "edge": tuple(o.edge),
               "locked": o.locked, "layer": o.layer,
               "polygon": bool(getattr(o, "polygon", False)),
-              "points": [list(p) for p in getattr(o, "points", [])]}
+              "points": [list(p) for p in getattr(o, "points", [])],
+              "absorption": float(getattr(o, "absorption", 0.5))}
     if isinstance(o, EditorBackground):
       return {"t": "bg", "x": o.x, "y": o.y, "w": o.w, "h": o.h,
               "id": getattr(o, "id", ""),
               "fill": tuple(o.fill), "locked": o.locked, "layer": o.layer,
-              "polygon": bool(getattr(o, "polygon", False)),
+                                          "polygon": bool(getattr(o, "polygon", False)),
               "points": [list(p) for p in getattr(o, "points", [])]}
     if isinstance(o, EditorItem):
       return {"t": "item", "x": o.x, "y": o.y, "item_type": o.item_type,
@@ -69,6 +70,10 @@ class UndoMixin:
         d["length"] = float(getattr(o, "length", 600.0))
         d["cone"] = float(getattr(o, "cone", 0.8))
       return d
+    if isinstance(o, EditorNote):
+      return {"t": "note", "x": o.x, "y": o.y,
+              "title": o.title, "text": o.text,
+              "locked": o.locked, "layer": o.layer}
     if isinstance(o, EditorLabel):
       return {"t": "label", "x": o.x, "y": o.y,
               "text": str(getattr(o, "text", "")),
@@ -98,6 +103,7 @@ class UndoMixin:
       o.fill = tuple(s["fill"]); o.edge = tuple(s["edge"])
       o.polygon = bool(s.get("polygon", False))
       o.points = [list(p) for p in s.get("points", [])]
+      o.absorption = float(s.get("absorption", 0.5))
     elif t == "bg":
       o = EditorBackground(s["x"], s["y"], s["w"], s["h"])
       o.fill = tuple(s["fill"])
@@ -124,6 +130,8 @@ class UndoMixin:
         o.angle = float(s.get("angle", 4.712))
         o.length = float(s.get("length", 600.0))
         o.cone = float(s.get("cone", 0.8))
+    elif t == "note":
+      o = EditorNote(s["x"], s["y"], s.get("text", ""), s.get("title", "??????????????"))
     elif t == "label":
       o = EditorLabel(s["x"], s["y"], s.get("text", ""))
       o.target_trigger_id = str(s.get("target_trigger_id", ""))

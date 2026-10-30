@@ -152,8 +152,8 @@ class InspectorPanel:
 
   # ---------- positions (единый источник истины) ----------
   def _row_positions(self, fr):
-    """Возвращает dict с y координатами строк. Работает одинаково для
-    layout и draw, поэтому клики совпадают с картинкой."""
+    """???????????????????? dict ?? y ???????????????????????? ??????????. ???????????????? ?????????????????? ??????
+    layout ?? draw, ?????????????? ?????????? ?????????????????? ?? ??????????????????."""
     view = self._view()
     if view is None:
       return None
@@ -176,9 +176,30 @@ class InspectorPanel:
       if _has_id(view):
         positions["id_y"] = y
         y += INSPECTOR_ROW_H + 6
+      
+      try:
+        from .objects import EditorNote
+        if isinstance(view, EditorNote):
+          positions["note_title_y"] = y
+          y += INSPECTOR_ROW_H + 6
+          positions["note_text_y"] = y
+          positions["note_text_h"] = 250
+          y += 250 + 6
+          positions["note_preview_y"] = y
+          y += INSPECTOR_ROW_H + 6
+      except Exception:
+        pass
+      
       if _is_color_target(view):
         positions["color_y"] = y
         y += INSPECTOR_ROW_H + 6
+      try:
+        from .objects import EditorPlatform
+        if isinstance(view, EditorPlatform):
+          positions["absorption_y"] = y
+          y += INSPECTOR_ROW_H + 6
+      except Exception:
+        pass
       if _is_light(view):
         positions["intensity_y"] = y
         y += INSPECTOR_ROW_H + 6
@@ -244,10 +265,21 @@ class InspectorPanel:
       inc = pygame.Rect(row.right - 26, row.y + 2, 24, row.h - 4)
       items.append((dec, "layer_dec", None))
       items.append((inc, "layer_inc", None))
+      
       if _has_id(view):
         id_row = pygame.Rect(fr.x + pad, pos["id_y"],
                              fr.w - pad * 2, INSPECTOR_ROW_H)
         items.append((id_row, "id", None))
+      
+      try:
+        from .objects import EditorNote
+        if isinstance(view, EditorNote):
+          items.append((pygame.Rect(fr.x + pad, pos["note_title_y"], fr.w - pad * 2, INSPECTOR_ROW_H), "note_title", None))
+          items.append((pygame.Rect(fr.x + pad, pos["note_text_y"], fr.w - pad * 2, pos["note_text_h"]), "note_text", None))
+          items.append((pygame.Rect(fr.x + pad, pos["note_preview_y"], fr.w - pad * 2, INSPECTOR_ROW_H), "note_preview", None))
+      except Exception:
+        pass
+      
       if _is_color_target(view):
         crow = pygame.Rect(fr.x + pad, pos["color_y"],
                            fr.w - pad * 2, INSPECTOR_ROW_H)
@@ -255,6 +287,16 @@ class InspectorPanel:
         tmpl = pygame.Rect(crow.right - 100, crow.y + 2, 94, crow.h - 4)
         items.append((swatch, "color_swatch", None))
         items.append((tmpl, "color_template", None))
+      
+      try:
+        from .objects import EditorPlatform
+        if isinstance(view, EditorPlatform):
+          arow = pygame.Rect(fr.x + pad, pos["absorption_y"],
+                             fr.w - pad * 2, INSPECTOR_ROW_H)
+          items.append((arow, "platform_absorption", None))
+      except Exception:
+        pass
+      
       if _is_light(view):
         irow = pygame.Rect(fr.x + pad, pos["intensity_y"],
                            fr.w - pad * 2, INSPECTOR_ROW_H)
@@ -273,10 +315,12 @@ class InspectorPanel:
           crow = pygame.Rect(fr.x + pad, pos["cone_y"],
                              fr.w - pad * 2, INSPECTOR_ROW_H)
           items.append((crow, "light_cone", None))
+      
       if _is_anchor(view):
         var_row = pygame.Rect(fr.x + pad, pos["variant_y"],
                               fr.w - pad * 2, INSPECTOR_ROW_H)
         items.append((var_row, "anchor_variant", None))
+      
       if _is_trigger(view):
         script_row = pygame.Rect(fr.x + pad, pos["script_y"],
                                  fr.w - pad * 2, INSPECTOR_ROW_H)
@@ -404,6 +448,36 @@ class InspectorPanel:
           self.editor._color_edit_begin(self.owner, "color")
         else:
           self.editor._color_edit_begin(self.owner, "fill")
+      return
+    if kind == "platform_absorption":
+      from .objects import EditorPlatform
+      if isinstance(self.owner, EditorPlatform):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("absorption", self.owner)
+        self.text_buffers["absorption"] = "%.2f" % float(getattr(self.owner, "absorption", 0.5))
+        self.cursor_blink = 0.0
+      return
+    if kind == "note_preview":
+      self.editor.note_preview_target = self.owner
+      return
+    if kind == "note_title":
+      from .objects import EditorNote
+      if isinstance(self.owner, EditorNote):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("title", self.owner)
+        self.text_buffers["title"] = self.owner.title
+        self.cursor_blink = 0.0
+      return
+    if kind == "note_text":
+      from .objects import EditorNote
+      if isinstance(self.owner, EditorNote):
+        if self.focused_text is not None:
+          self._commit_text()
+        self.focused_text = ("text", self.owner)
+        self.text_buffers["text"] = self.owner.text
+        self.cursor_blink = 0.0
       return
     if kind == "color_template":
       if _is_color_target(self.owner):
@@ -633,6 +707,15 @@ class InspectorPanel:
           owner.cone = max(0.01, min(6.28, float(txt)))
         except Exception:
           pass
+      elif which == "absorption":
+        try:
+          owner.absorption = max(0.0, min(1.0, float(txt)))
+        except Exception:
+          pass
+      elif which == "title":
+        if hasattr(owner, "title"): owner.title = txt
+      elif which == "text":
+        if hasattr(owner, "text"): owner.text = txt
     self.focused_text = None
     try:
       self.editor._mark_scene_dirty()
@@ -644,8 +727,26 @@ class InspectorPanel:
       return False
     which, owner = self.focused_text
     if e.key == pygame.K_ESCAPE:
-      self.focused_text = None
+      self._commit_text()
       return True
+      
+    if which == "text":
+      if e.key == pygame.K_RETURN:
+        self.text_buffers[which] = self.text_buffers.get(which, "") + chr(10)
+        if hasattr(owner, "text"): owner.text = self.text_buffers[which]
+        return True
+      if e.key == pygame.K_BACKSPACE:
+        buf = self.text_buffers.get(which, "")
+        self.text_buffers[which] = buf[:-1]
+        if hasattr(owner, "text"): owner.text = self.text_buffers[which]
+        return True
+      if e.unicode and e.unicode.isprintable():
+        buf = self.text_buffers.get(which, "")
+        self.text_buffers[which] = buf + e.unicode
+        if hasattr(owner, "text"): owner.text = self.text_buffers[which]
+        return True
+      return True
+
     if e.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
       self._commit_text()
       return True
@@ -655,7 +756,7 @@ class InspectorPanel:
       return True
     if e.unicode and e.unicode.isprintable():
       buf = self.text_buffers.get(which, "")
-      if which in ("intensity", "radius", "angle", "length", "cone"):
+      if which in ("intensity", "radius", "angle", "length", "cone", "absorption"):
         if not (e.unicode.isdigit() or e.unicode in ".+-"):
           return True
       if len(buf) < 120:
@@ -776,9 +877,52 @@ class InspectorPanel:
         t = "-" if key == "layer_dec" else "+"
         ts = self.font.render(t, True, INSPECTOR_BTN_TEXT)
         s.blit(ts, ts.get_rect(center=rr.center))
+      
       if _has_id(view):
         self._draw_text_row(s, pos["id_y"] - oy, "id",
                             getattr(view, "id", ""), "id")
+      
+      try:
+        from .objects import EditorNote
+        if isinstance(view, EditorNote):
+          y_t = pos["note_title_y"] - oy
+          self._draw_text_row(s, y_t, "title", view.title, "title")
+          
+          y_x = pos["note_text_y"] - oy
+          h = pos["note_text_h"]
+          focused = (self.focused_text is not None and self.focused_text[0] == "text")
+          txt = self.text_buffers.get("text", view.text) if focused else view.text
+          
+          rect = pygame.Rect(pad, y_x, INSPECTOR_W - pad * 2, h)
+          pygame.draw.rect(s, INSPECTOR_INPUT_BG, rect, border_radius=3)
+          pygame.draw.rect(s, (255, 215, 0) if focused else INSPECTOR_INPUT_EDGE, rect, 1, border_radius=3)
+          
+          lines = txt.split(chr(10))
+          ly = y_x + 6
+          for line in lines:
+            ts = self.font.render(line, True, INSPECTOR_INPUT_TEXT)
+            s.blit(ts, (pad + 6, ly))
+            ly += 20
+            if ly > y_x + h - 10:
+              break
+              
+          if focused and self.cursor_blink < 0.5:
+            last_y = y_x + 6 + min(len(lines)-1, (h-20)//20) * 20
+            last_x = pad + 6 + self.font.size(lines[-1] if lines else "")[0]
+            pygame.draw.line(s, INSPECTOR_INPUT_TEXT, (last_x, last_y), (last_x, last_y + 18), 2)
+
+          y_p = pos["note_preview_y"] - oy
+          row = pygame.Rect(pad, y_p, INSPECTOR_W - pad * 2, INSPECTOR_ROW_H)
+          self._row_bg(s, row, self._is_hover("note_preview", None))
+          s.blit(self.font.render("Preview", True, INSPECTOR_LABEL), (row.x + 10, row.y + (row.h - self.font.get_height()) // 2))
+          btn_r = pygame.Rect(row.right - 60, row.y + 2, 50, row.h - 4)
+          pygame.draw.rect(s, INSPECTOR_BTN_BG, btn_r, border_radius=3)
+          pygame.draw.rect(s, INSPECTOR_BTN_BORDER, btn_r, 1, border_radius=3)
+          bts = self.font.render("Open", True, INSPECTOR_BTN_TEXT)
+          s.blit(bts, bts.get_rect(center=btn_r.center))
+      except Exception:
+        pass
+      
       if _is_color_target(view):
         y_c = pos["color_y"] - oy
         crow = pygame.Rect(pad, y_c, INSPECTOR_W - pad * 2, INSPECTOR_ROW_H)
@@ -800,6 +944,17 @@ class InspectorPanel:
         pygame.draw.rect(s, INSPECTOR_BTN_BORDER, tmpl_r, 1, border_radius=3)
         tt = self.font.render("Save tmpl", True, INSPECTOR_BTN_TEXT)
         s.blit(tt, tt.get_rect(center=tmpl_r.center))
+      
+      try:
+        from .objects import EditorPlatform
+        if isinstance(view, EditorPlatform):
+          y_a = pos["absorption_y"] - oy
+          self._draw_text_row(s, y_a, "absorption",
+                              "%.2f" % float(getattr(view, "absorption", 0.5)),
+                              "platform_absorption")
+      except Exception:
+        pass
+      
       if _is_light(view):
         y_i = pos["intensity_y"] - oy
         self._draw_text_row(s, y_i, "intensity",
@@ -823,6 +978,7 @@ class InspectorPanel:
           self._draw_text_row(s, y_c, "cone",
                               "%.3f" % float(getattr(view, "cone", 0.8)),
                               "light_cone")
+      
       if _is_anchor(view):
         yr = pos["variant_y"] - oy
         row = pygame.Rect(pad, yr, INSPECTOR_W - pad * 2, INSPECTOR_ROW_H)
@@ -833,6 +989,7 @@ class InspectorPanel:
                               True, INSPECTOR_TITLE)
         s.blit(vs, (row.right - vs.get_width() - 10,
                     row.y + (row.h - vs.get_height()) // 2))
+      
       if _is_trigger(view):
         self._draw_text_row(s, pos["script_y"] - oy, "script",
                             view.script, "trigger_script",

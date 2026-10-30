@@ -8,13 +8,14 @@ PLAT_H = 2 * BODY_R
 class Platform:
   layer = LAYER_PLATFORM
 
-  def __init__(self, space, pos, w=PLAT_W, h=PLAT_H, fill=PLAT_FILL, edge=PLAT_EDGE, points=None):
+  def __init__(self, space, pos, w=PLAT_W, h=PLAT_H, fill=PLAT_FILL, edge=PLAT_EDGE, points=None, absorption=0.5):
     self.grab_count = 0
     self.id = None
     self.w = w
     self.h = h
     self.fill = fill
     self.edge = edge
+    self.absorption = absorption
     # <STRANGE>#841 polygon mode: centre-relative points; if set, w/h are ignored for both physics and draw
     self.points = points
     # <STRANGE>#1062 kinematic from start so move_to can set velocity; static->kinematic switch is forbidden when joints exist
