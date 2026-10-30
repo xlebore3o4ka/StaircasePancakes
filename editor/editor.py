@@ -13,7 +13,7 @@ from .const import (
 from .objects import (
   EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
   EditorArtifact, EditorTrigger, EditorButton, EditorAnchor, EditorLight,
-  EditorLabel,
+  EditorLabel, EditorNote,
 )
 from . import tar_io
 from .editor_core import CoreMixin, _game_version_read
@@ -45,6 +45,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
     platforms = [o.to_json() for o in self.objects if isinstance(o, EditorPlatform)]
     backgrounds = [o.to_json() for o in self.objects if isinstance(o, EditorBackground)]
     items = [o.to_json() for o in self.objects if isinstance(o, EditorItem)]
+    notes = [o.to_json() for o in self.objects if isinstance(o, EditorNote)]
     spawners = [o.to_json() for o in self.objects if isinstance(o, EditorSpawner)]
     triggers = [o.to_json() for o in self.objects if isinstance(o, EditorTrigger)]
     # bag ??? ?????????????????? ????????????, ???????? ????????
@@ -70,6 +71,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       "platforms": platforms,
       "backgrounds": backgrounds,
       "items": items,
+      "notes": notes,
       "itemSpawners": spawners,
       "triggers": triggers,
       "buttons": buttons,
@@ -197,6 +199,7 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
                            pd.get("h", PLAT_DEFAULT_H))
       obj.fill = tuple(pd.get("fill", PLAT_FILL))
       obj.edge = tuple(pd.get("edge", PLAT_EDGE))
+      obj.absorption = float(pd.get("absorption", 0.5))
       obj.locked = bool(pd.get("locked", False))
       obj.id = str(pd.get("id", ""))
       if "layer" in pd:
@@ -218,6 +221,13 @@ class Editor(CoreMixin, UndoMixin, EventsMixin, DragMixin, RenderMixin):
       if bd.get("polygon"):
         obj.polygon = True
         obj.points = [[int(p[0]), int(p[1])] for p in bd.get("points", [])]
+      self.objects.append(obj)
+    for nt in data.get("notes", []):
+      obj = EditorNote(nt["x"], nt["y"], nt.get("text", ""), nt.get("title", "??????????????"))
+      obj.locked = bool(nt.get("locked", False))
+      obj.id = str(nt.get("id", ""))
+      if "layer" in nt:
+        obj.layer = int(nt["layer"])
       self.objects.append(obj)
     for it in data.get("items", []):
       obj = EditorItem(it["x"], it["y"], it.get("type", DEFAULT_ITEM_TYPE),

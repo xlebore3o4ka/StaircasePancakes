@@ -57,6 +57,12 @@ def _ease(t, kind):
   return t
 from .panel import TopPanel
 
+try:
+  from game.core import light_c
+  light_c.install()
+except Exception as e:
+  print(f"editor: light_c not installed ({e}); using slow python preview")
+
 
 class CoreMixin:
   def __init__(self):
@@ -173,6 +179,7 @@ class CoreMixin:
     self._autosave_period = 30.0
     self._autosave_last_path = None
     # <STRANGE>#1700: label state
+    self.note_preview_target = None
     self._label_modal_open = False
     self._label_modal_cursor = 0.0
     self._label_modal_target = None
@@ -1243,6 +1250,7 @@ class CoreMixin:
     self._label_modal_cursor = 0.0
 
   def _close_label_modal(self, apply_changes=True):
+    self.note_preview_target = None
     self._label_modal_open = False
     self._label_modal_target = None
     self._label_modal_geom = {}

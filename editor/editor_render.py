@@ -166,6 +166,7 @@ class RenderMixin:
     self._draw_level_settings()
     self._draw_color_picker()
     self._draw_label_modal()
+    self._draw_note_preview()
 
   def _collect_occluders(self):
     from .objects import EditorPlatform
@@ -175,38 +176,49 @@ class RenderMixin:
             continue
         try:
             if getattr(o, "polygon", False):
-                pts = o.world_points()
-                if len(pts) < 3:
+                corners = o.world_points()
+                if len(corners) < 3:
                     continue
-                cx = sum(p[0] for p in pts) / len(pts)
-                cy = sum(p[1] for p in pts) / len(pts)
-                l = min(p[0] for p in pts)
-                r = max(p[0] for p in pts)
-                b = min(p[1] for p in pts)
-                t = max(p[1] for p in pts)
+                n = len(corners)
+                gx = sum(c[0] for c in corners) / n
+                gy = sum(c[1] for c in corners) / n
+                min_x = min(c[0] for c in corners)
+                min_y = min(c[1] for c in corners)
+                max_x = max(c[0] for c in corners)
+                max_y = max(c[1] for c in corners)
                 edges = []
-                for i in range(len(pts)):
-                    a = pts[i]
-                    bb = pts[(i + 1) % len(pts)]
-                    edges.append((a, bb, (cx, cy)))
-                out.append({"edges": edges, "bbox": (l, r, b, t)})
+                for i in range(n):
+                    ax, ay = corners[i]
+                    bx, by = corners[(i + 1) % n]
+                    nx = by - ay
+                    ny = -(bx - ax)
+                    tcx = gx - ax
+                    tcy = gy - ay
+                    nc_dot = nx * tcx + ny * tcy
+                    edges.append((ax, ay, bx, by, nx, ny, nc_dot))
+                out.append({"bbox": (min_x, min_y, max_x, max_y), "edges": edges, "points": corners, "absorption": getattr(o, "absorption", 0.5)})
             else:
                 l, r, b, t = o.world_rect()
-                cx = (l + r) / 2
-                cy = (b + t) / 2
-                edges = [
-                    ((l, b), (r, b), (cx, cy)),
-                    ((r, b), (r, t), (cx, cy)),
-                    ((r, t), (l, t), (cx, cy)),
-                    ((l, t), (l, b), (cx, cy)),
-                ]
-                out.append({"edges": edges, "bbox": (l, r, b, t)})
+                corners = [(l, b), (r, b), (r, t), (l, t)]
+                gx = (l + r) / 2
+                gy = (b + t) / 2
+                edges = []
+                for i in range(4):
+                    ax, ay = corners[i]
+                    bx, by = corners[(i + 1) % 4]
+                    nx = by - ay
+                    ny = -(bx - ax)
+                    tcx = gx - ax
+                    tcy = gy - ay
+                    nc_dot = nx * tcx + ny * tcy
+                    edges.append((ax, ay, bx, by, nx, ny, nc_dot))
+                out.append({"bbox": (l, b, r, t), "edges": edges, "points": corners, "absorption": getattr(o, "absorption", 0.5)})
         except Exception:
             continue
+            
     return out
 
   def _apply_light_preview(self, scene):
-    import math as _m
     from .objects import EditorLight
     sw, sh = scene.get_size()
     cfg = self.lighting or {}
@@ -215,188 +227,60 @@ class RenderMixin:
     LS = 2
     lsw = max(1, sw // LS)
     lsh = max(1, sh // LS)
-    light = pygame.Surface((lsw, lsh))
-    light.fill(ambient)
-    occluders = self._collect_occluders()
+    
+    try:
+        from game.core.camera import Camera
+        from game.entities.light import SunLight, LampLight, SpotLight
+        from game.core import light_c
+        if light_c._lib is None:
+            light_c._load()
+            
+        lcam = Camera(self.cam_x, self.cam_y, sw / self.zoom, sh / self.zoom, self.zoom / LS)
+        lcam._ox = 0.0
+        lcam._oy = 0.0
 
-    def w2l(wx, wy):
-        sx, sy = self.to_screen(wx, wy)
-        return sx / LS, sy / LS
+        light = pygame.Surface((lsw, lsh)).convert(24)
+        light.fill(ambient)
+        occluders = self._collect_occluders()
 
-    # sun: uniform tint + gradient shadows, then MAX
-    if getattr(self, "sun_enabled", False):
-        sc = tuple(self.sun_color)[:3]
-        si = float(self.sun_intensity)
-        tint = (min(255, int(sc[0] * si)),
-                min(255, int(sc[1] * si)),
-                min(255, int(sc[2] * si)))
-        sun_layer = pygame.Surface((lsw, lsh))
-        sun_layer.fill(tint)
-        shadow_mask = pygame.Surface((lsw, lsh), pygame.SRCALPHA)
-        dxw, dyw = self.sun_direction
-        nd = _m.hypot(dxw, dyw) or 1.0
-        ndx, ndy = dxw / nd, dyw / nd
-        # direction = ?????? ???????????? (?? ????????). ???????? ???????????? ?? -direction (?? ????????).
-        # screen shadow: (-ndx, +ndy)
-        shs_x = -ndx
-        shs_y = ndy
-        zoom = self.zoom
-        gl = float(getattr(self, "sun_gradient_length", 60.0)) * zoom / LS
-        sl = float(getattr(self, "sun_shadow_length", 2000.0)) * zoom / LS
-        N = 6
-        gstep = gl / N if N > 0 else gl
-        for oc in occluders:
-            for a_w, b_w, centroid in oc["edges"]:
-                ax_w, ay_w = a_w
-                bx_w, by_w = b_w
-                nx = by_w - ay_w
-                ny = -(bx_w - ax_w)
-                nc_dot = nx * (centroid[0] - ax_w) + ny * (centroid[1] - ay_w)
-                dot = nx * ndx + ny * ndy
-                if dot * nc_dot > 0:
-                    continue
-                a_lx, a_ly = w2l(ax_w, ay_w)
-                b_lx, b_ly = w2l(bx_w, by_w)
-                for i in range(N):
-                    d0 = i * gstep
-                    alpha = int(255 * (1.0 - i / max(1, N)))
-                    if alpha <= 0:
-                        continue
-                    d1 = gl
-                    p1 = (a_lx + shs_x * d0, a_ly + shs_y * d0)
-                    p2 = (b_lx + shs_x * d0, b_ly + shs_y * d0)
-                    p3 = (b_lx + shs_x * d1, b_ly + shs_y * d1)
-                    p4 = (a_lx + shs_x * d1, a_ly + shs_y * d1)
-                    pygame.draw.polygon(shadow_mask, (0, 0, 0, alpha),
-                                        [p1, p2, p3, p4])
-                d0 = gl
-                d1 = sl
-                p1 = (a_lx + shs_x * d0, a_ly + shs_y * d0)
-                p2 = (b_lx + shs_x * d0, b_ly + shs_y * d0)
-                p3 = (b_lx + shs_x * d1, b_ly + shs_y * d1)
-                p4 = (a_lx + shs_x * d1, a_ly + shs_y * d1)
-                pygame.draw.polygon(shadow_mask, (0, 0, 0, 255),
-                                    [p1, p2, p3, p4])
-        sun_layer.blit(shadow_mask, (0, 0))
-        light.blit(sun_layer, (0, 0), special_flags=pygame.BLEND_RGB_MAX)
+        if getattr(self, "sun_enabled", False):
+            sun = SunLight(
+                color=tuple(self.sun_color),
+                intensity=float(self.sun_intensity),
+                direction=tuple(self.sun_direction),
+                shadow_length=float(self.sun_shadow_length),
+                gradient_length=float(self.sun_gradient_length)
+            )
+            sun.contribute(light, lcam, occluders)
 
-    # lamps / spots: MAX blend
-    for o in self.objects:
-        if not isinstance(o, EditorLight):
-            continue
-        if getattr(o, "kind", "") == "sun":
-            continue
-        contrib = self._light_contrib(o, occluders, lsw, lsh, LS)
-        if contrib is not None:
-            light.blit(contrib, (0, 0), special_flags=pygame.BLEND_RGB_MAX)
-
-    bw = max(1, lsw // 2)
-    bh = max(1, lsh // 2)
-    tiny = pygame.transform.smoothscale(light, (bw, bh))
-    light = pygame.transform.smoothscale(tiny, (lsw, lsh))
-    big = pygame.transform.smoothscale(light, (sw, sh))
-    scene.blit(big, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
-    if abs(gain - 1.0) > 1e-3:
-        g = int(max(0, min(255, round(gain * 255))))
-        scene.fill((g, g, g), special_flags=pygame.BLEND_RGB_MULT)
-
-  def _light_contrib(self, o, occluders, lsw, lsh, LS):
-    import math as _m
-    sx, sy = self.to_screen(o.x, o.y)
-    lx = sx / LS
-    ly = sy / LS
-    if lx < -lsw or lx > lsw * 2 or ly < -lsh or ly > lsh * 2:
-        return None
-    contrib = pygame.Surface((lsw, lsh))
-    contrib.fill((0, 0, 0))
-    color = tuple(o.color)[:3]
-    inten = float(o.intensity)
-    if inten <= 0:
-        return None
-    if o.kind == "lamp":
-        R = int(o.radius * self.zoom / LS)
-        if R <= 0:
-            return None
-        if R > max(lsw, lsh) * 3:
-            R = max(lsw, lsh) * 3
-        step = max(1, R // 64)
-        r = R
-        while r > 0:
-            t = 1.0 - (r / R) ** 2
-            b_ = inten * t
-            c = (min(255, int(color[0] * b_)),
-                 min(255, int(color[1] * b_)),
-                 min(255, int(color[2] * b_)))
-            if c != (0, 0, 0):
-                pygame.draw.circle(contrib, c, (int(lx), int(ly)), r)
-            r -= step
-        c_c = (min(255, int(color[0] * inten)),
-               min(255, int(color[1] * inten)),
-               min(255, int(color[2] * inten)))
-        pygame.draw.circle(contrib, c_c, (int(lx), int(ly)), max(1, step))
-    elif o.kind == "spot":
-        L = int(o.length * self.zoom / LS)
-        if L <= 0:
-            return None
-        if L > max(lsw, lsh) * 3:
-            L = max(lsw, lsh) * 3
-        a1 = o.angle - o.cone / 2
-        a2 = o.angle + o.cone / 2
-        step = max(1, L // 48)
-        r = L
-        while r > 0:
-            t = 1.0 - (r / L) ** 2
-            b_ = inten * t
-            c = (min(255, int(color[0] * b_)),
-                 min(255, int(color[1] * b_)),
-                 min(255, int(color[2] * b_)))
-            if c != (0, 0, 0):
-                pts = [(int(lx), int(ly))]
-                steps = 12
-                for i in range(steps + 1):
-                    a = a1 + (a2 - a1) * i / steps
-                    pts.append((int(lx + _m.cos(a) * r),
-                                int(ly - _m.sin(a) * r)))
-                pygame.draw.polygon(contrib, c, pts)
-            r -= step
-    # hard shadows from occluders (bowtie fix: skip occluder if light inside bbox)
-    for oc in occluders:
-        bbox = oc["bbox"]
-        if bbox[0] <= o.x <= bbox[1] and bbox[2] <= o.y <= bbox[3]:
-            continue
-        for a_w, b_w, centroid in oc["edges"]:
-            ax_w, ay_w = a_w
-            bx_w, by_w = b_w
-            nx = by_w - ay_w
-            ny = -(bx_w - ax_w)
-            nc_dot = nx * (centroid[0] - ax_w) + ny * (centroid[1] - ay_w)
-            tlx = o.x - ax_w
-            tly = o.y - ay_w
-            if (nx * tlx + ny * tly) * nc_dot >= 0:
+        for o in self.objects:
+            if not isinstance(o, EditorLight):
                 continue
-            a_sx, a_sy = self.to_screen(ax_w, ay_w)
-            b_sx, b_sy = self.to_screen(bx_w, by_w)
-            a_lx, a_ly = a_sx / LS, a_sy / LS
-            b_lx, b_ly = b_sx / LS, b_sy / LS
-            def _ext(px, py):
-                ddx = px - lx
-                ddy = py - ly
-                mag = _m.hypot(ddx, ddy) or 1.0
-                return (px + ddx / mag * 5000.0, py + ddy / mag * 5000.0)
-            f1 = _ext(a_lx, a_ly)
-            f2 = _ext(b_lx, b_ly)
-            pygame.draw.polygon(contrib, (0, 0, 0),
-                                [(int(a_lx), int(a_ly)),
-                                 (int(b_lx), int(b_ly)),
-                                 (int(f2[0]), int(f2[1])),
-                                 (int(f1[0]), int(f1[1]))])
-    return contrib
+            if getattr(o, "kind", "") == "sun":
+                continue
+            if o.kind == "lamp":
+                lt = LampLight(pos=(o.x, o.y), radius=o.radius, color=o.color, intensity=o.intensity)
+            else:
+                lt = SpotLight(pos=(o.x, o.y), angle=o.angle, length=o.length, cone=o.cone, color=o.color, intensity=o.intensity)
+            lt.contribute(light, lcam, occluders)
+
+        big = pygame.transform.smoothscale(light, (sw, sh))
+        scene.blit(big, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        if abs(gain - 1.0) > 1e-3:
+            g = int(max(0, min(255, round(gain * 255))))
+            scene.fill((g, g, g), special_flags=pygame.BLEND_RGB_MULT)
+    except Exception as e:
+        print(f"Editor light preview failed: {e}")
+        scene.fill(ambient, special_flags=pygame.BLEND_RGB_MULT)
+        if abs(gain - 1.0) > 1e-3:
+            g = int(max(0, min(255, round(gain * 255))))
+            scene.fill((g, g, g), special_flags=pygame.BLEND_RGB_MULT)
 
   def _draw_ghosted(self, obj):
     # <STRANGE>#526: ???????????????????????????? ???????????? ?????? ???????????????? ?????? ???????????? ????????????
     from .objects import (
       EditorPeg, EditorPlatform, EditorBackground, EditorItem, EditorSpawner,
-      EditorButton, EditorAnchor,
+      EditorButton, EditorAnchor, EditorLight, EditorLabel,
     )
     col = (255, 255, 255, 70)
     if isinstance(obj, EditorAnchor):
@@ -409,6 +293,20 @@ class RenderMixin:
       sx, sy = self.to_screen(obj.x, obj.y)
       r = max(1, int(obj.r * self.zoom))
       pygame.draw.circle(self.screen, col, (int(sx), int(sy)), r, 1)
+      return
+    if isinstance(obj, EditorLight):
+      from .const import LIGHT_GIZMO_R
+      sx, sy = self.to_screen(obj.x, obj.y)
+      r = max(1, int(LIGHT_GIZMO_R * self.zoom))
+      pygame.draw.circle(self.screen, col, (int(sx), int(sy)), r, 1)
+      return
+    if isinstance(obj, EditorLabel):
+      l, r, b, t = obj._rect_world(self.zoom)
+      x0, y0 = self.to_screen(l, t)
+      x1, y1 = self.to_screen(r, b)
+      rr = pygame.Rect(int(min(x0, x1)), int(min(y0, y1)),
+                       int(abs(x1 - x0)), int(abs(y1 - y0)))
+      pygame.draw.rect(self.screen, col, rr, 1)
       return
     if isinstance(obj, (EditorBackground, EditorPlatform)) \
        and getattr(obj, "polygon", False) and len(obj.points) >= 3:
@@ -1652,6 +1550,28 @@ class RenderMixin:
       return True
     return False
 
+  def _draw_note_preview(self):
+    note = getattr(self, "note_preview_target", None)
+    if note is None:
+      return
+    sw, sh = self.screen.get_size()
+    dim = pygame.Surface((sw, sh), pygame.SRCALPHA)
+    dim.fill((0, 0, 0, 180))
+    self.screen.blit(dim, (0, 0))
+    
+    box_w, box_h = 600, 400
+    cx, cy = sw // 2, sh // 2
+    rect = pygame.Rect(cx - box_w // 2, cy - box_h // 2, box_w, box_h)
+    pygame.draw.rect(self.screen, (240, 235, 220), rect, border_radius=8)
+    pygame.draw.rect(self.screen, (100, 100, 100), rect, 2, border_radius=8)
+    
+    title_font = pygame.font.SysFont("consolas", 32, bold=True)
+    ts = title_font.render(note.title, True, (50, 50, 50))
+    self.screen.blit(ts, (rect.centerx - ts.get_width() // 2, rect.y + 40))
+    
+    from shared.html_text import draw_html
+    draw_html(self.screen, note.text, rect.x + 40, rect.y + 100, box_w - 80, 24, (30, 30, 30))
+
   def draw_snap_guides(self):
     sw, sh = self.screen.get_size()
     for gx in self.snap_guides_x:
@@ -1762,6 +1682,7 @@ class RenderMixin:
       self.draw_tab(self.tab_plat_rect(), "platform", self.tool == "platform")
       self.draw_tab(self.tab_bg_rect(), "background", self.tool == "background")
       self.draw_tab(self.tab_item_rect(), "item", self.tool == "item")
+      self.draw_tab(self.tab_note_rect(), "note", self.tool == "note")
       self.draw_tab(self.tab_spawner_rect(), "spawner", self.tool == "spawner")
       self.draw_tab(self.tab_artifact_rect(), "artifact", self.tool == "artifact")
       self.draw_tab(self.tab_trigger_rect(), "trigger", self.tool == "trigger")
@@ -1806,6 +1727,14 @@ class RenderMixin:
       band = pygame.Rect(rr.x, rr.centery - 4, rr.w, 8)
       pygame.draw.rect(self.screen, (200, 90, 120), band)
       pygame.draw.rect(self.screen, (60, 60, 70), rr, 2, border_radius=4)
+    elif name == "note":
+      rr = pygame.Rect(0, 0, 24, 32)
+      rr.center = r.center
+      pygame.draw.rect(self.screen, (255, 255, 255), rr)
+      pygame.draw.rect(self.screen, (150, 150, 150), rr, 2)
+      for i in range(1, 4):
+        ly = rr.y + i * (rr.h / 4)
+        pygame.draw.line(self.screen, (150, 150, 150), (rr.x + 4, ly), (rr.right - 4, ly), 1)
     elif name == "item":
       self._draw_item_icon(self.screen, r, self.current_item_type)
     elif name == "spawner":
@@ -1933,6 +1862,10 @@ class RenderMixin:
     return pygame.Rect(610, h - BOT_H + 6, 110, BOT_H - 12)
 
   def tab_spawner_rect(self):
+    h = self.screen.get_height()
+    return pygame.Rect(730, h - BOT_H + 6, 110, BOT_H - 12)
+
+  def tab_note_rect(self):
     h = self.screen.get_height()
     return pygame.Rect(730, h - BOT_H + 6, 110, BOT_H - 12)
 

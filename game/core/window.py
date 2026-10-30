@@ -17,10 +17,23 @@ class Window:
       print(f"window: OPENGL mode failed ({e}); software fallback")
       _ = pygame.display.set_mode((0, 0), pygame.FULLSCREEN, vsync=1)
       size = pygame.display.get_surface().get_size()
+    self.size = size
     self.screen = pygame.Surface(size).convert()
     self.scale = size[1] / DESIGN_H
     from .lighting import LightingPipeline
     self.lighting = LightingPipeline(size)
+    self.world = None
+    if self.lighting.has_gl:
+      from .gpu_render import WorldRenderer
+      try:
+        self.world = WorldRenderer(self.lighting.gl_ctx, size)
+      except Exception as e:
+        print(f"window: WorldRenderer init failed ({e}); world GPU disabled")
+        self.world = None
+    if self.world is not None:
+      from . import pygame_shim
+      pygame_shim.install()
+      print("window: pygame_shim installed (WorldCtx active)")
     if self.lighting.has_gl:
       from .hud_renderer import HudRenderer
       try:
@@ -39,8 +52,8 @@ class Window:
     pygame.quit()
 
   def flip(self):
-    if self.lighting.has_gl:
-      self.lighting.present(self.screen)
+    if self.world is not None:
+      self.lighting.present(self.world.scene_tex)
       self.hud.flush()
     else:
       self.lighting.present_software(self.screen, getattr(self.hud, "surf", None))

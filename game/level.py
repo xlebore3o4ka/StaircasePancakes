@@ -97,6 +97,7 @@ class Level:
         fill=tuple(pd.get("fill", PLAT_FILL)),
         edge=tuple(pd.get("edge", PLAT_EDGE)),
         points=points,
+        absorption=float(pd.get("absorption", 0.5)),
       )
       if "layer" in pd:
         plat.layer = int(pd["layer"])
@@ -130,6 +131,17 @@ class Level:
       if self.sound is not None:
         item.sound = self.sound
       self.items.append(item)
+    # <STRANGE>#5001 notes array from editor: spawn NoteItem for each entry
+    for nt_spec in data.get("notes", []):
+      item = make_item(space, nt_spec)
+      if "layer" in nt_spec:
+        item.layer = int(nt_spec["layer"])
+      if "id" in nt_spec:
+        item.id = nt_spec["id"]
+      if self.sound is not None:
+        item.sound = self.sound
+      self.items.append(item)
+
     # <STRANGE>#562 itemSpawners roll once at load; weighted by count, "nothing" means no item
     self.spawners = []
     for sp in data.get("itemSpawners", []):
@@ -178,7 +190,9 @@ class Level:
       inten = float(ld.get("intensity", 1.0))
       if t == "sun":
         lt = SunLight(color=col, intensity=inten,
-                      direction=tuple(ld.get("direction", (0.5, 1.0))))
+                      direction=tuple(ld.get("direction", (0.5, 1.0))),
+                      shadow_length=float(ld.get("shadow_length", 1000.0)),
+                      gradient_length=float(ld.get("gradient_length", 100.0)))
       elif t == "spot":
         lt = SpotLight(pos,
                        angle=float(ld.get("angle", 0.0)),
@@ -197,7 +211,7 @@ class Level:
     # <STRANGE>#1742 weak glow attached to player position; created only with lighting enabled
     if self.lighting_config is not None:
       self.player_light = LampLight((0, 0), radius=140,
-                                    color=(140, 160, 210), intensity=0.32)
+                                    color=(140, 160, 210), intensity=1.02)
       self.player_light.id = "_player_glow"
       self.lights.append(self.player_light)
     else:
@@ -233,7 +247,6 @@ class Level:
     # <STRANGE>#1555 unique lantern; hidden spotlight attached to it, off until held
     lantern_data = data.get("lantern")
     if lantern_data:
-      from .entities.light import SpotLight
       lantern = make_item(space, {"x": lantern_data["x"], "y": lantern_data["y"], "type": "lantern"})
       if lantern_data.get("id"):
         lantern.id = lantern_data["id"]
@@ -324,6 +337,11 @@ class Level:
   def occluders(self):
     # <STRANGE>#1670 shadow casters grouped per-platform: each item is {bbox, edges}
     # where edges = (ax, ay, bx, by, nx, ny, nc_dot) with outward normal and centroid dot
+    # Cache by (id(self), len(self.platforms), positions hash) to avoid rebuild every frame.
+    cache = getattr(self, "_occ_cache", None)
+    key = (len(self.platforms), tuple((p.body.position.x, p.body.position.y) for p in self.platforms))
+    if cache is not None and cache[0] == key:
+        return cache[1]
     segs = []
     for p in self.platforms:
       cx, cy = p.body.position.x, p.body.position.y
@@ -350,7 +368,9 @@ class Level:
         tcy = gy - ay
         nc_dot = nx * tcx + ny * tcy
         edges.append((ax, ay, bx, by, nx, ny, nc_dot))
-      segs.append({"bbox": (min_x, min_y, max_x, max_y), "edges": edges})
+      segs.append({"bbox": (min_x, min_y, max_x, max_y), "edges": edges, "points": corners, "absorption": getattr(p, "absorption", 0.5)})
+      
+    self._occ_cache = (key, segs)
     return segs
 
   def debug_objects(self):
@@ -418,6 +438,21 @@ class Level:
       return k * k * (3 - 2 * k)
     return k
 
+  def update_light_movers(self, dt):
+    # <STRANGE>#4004: ?????? ?????? ???????????????? ??????????
+    if not hasattr(self, "_light_movers") or not self._light_movers:
+      return
+    keep = []
+    for m in self._light_movers:
+      m["t"] += dt
+      k = min(1.0, m["t"] / m["dur"])
+      m["obj"].intensity = m["start"] + (m["end"] - m["start"]) * k
+      if m["t"] < m["dur"]:
+        keep.append(m)
+    self._light_movers = keep
+    if self._light_movers:
+      self._occ_cache = None
+
   def update_movers(self, dt):
     if not self.movers:
       return
@@ -462,10 +497,34 @@ class Level:
     if self.cam is not None:
       self.cam.shake(dur, amp, freq)
 
+  def add_mover_light(self, light, target_intensity, dur=1.0):
+    # <STRANGE>#4003: ?????????????? ?????????????????? ??????????????????????????
+    if not hasattr(self, "_light_movers"):
+      self._light_movers = []
+    self._light_movers.append({
+      "obj": light,
+      "start": float(getattr(light, "intensity", 1.0)),
+      "end": float(target_intensity),
+      "t": 0.0,
+      "dur": max(0.01, float(dur)),
+    })
+
   def shake(self, dur, amp, freq=0.0):
     # <STRANGE>#1195 forwarded to camera; no-op if the level has no camera yet
     if self.cam is not None:
       self.cam.shake(dur, amp, freq)
+
+  def add_mover_light(self, light, target_intensity, dur=1.0):
+    # <STRANGE>#4003: ?????????????? ?????????????????? ??????????????????????????
+    if not hasattr(self, "_light_movers"):
+      self._light_movers = []
+    self._light_movers.append({
+      "obj": light,
+      "start": float(getattr(light, "intensity", 1.0)),
+      "end": float(target_intensity),
+      "t": 0.0,
+      "dur": max(0.01, float(dur)),
+    })
 
   def update_lanterns(self, player, cam, dt):
     # <STRANGE>#1743 weak glow follows player, snapped to avoid per-frame rebuilds
@@ -656,7 +715,7 @@ class Level:
       hud.rect(0, 0, sw, sh, f["color"], a)
     for tx in self.texts:
       k = tx["t"] / tx["dur"]
-      alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 0.3))
+      alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 1.0))
       if alpha <= 0:
         continue
       size = max(8, int(tx["size"] * cam.scale))
@@ -668,7 +727,7 @@ class Level:
       y = sh - 120
       for tst in reversed(self.toasts):
         k = tst["t"] / tst["dur"]
-        alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 0.3))
+        alpha = 255 if k < 0.7 else int(255 * (1.0 - (k - 0.7) / 1.0))
         if alpha <= 0:
           continue
         w, h = tst["w"], tst["h"]
@@ -689,8 +748,6 @@ class Level:
         hud.surface(slot, cx - w // 2, y - h // 2, alpha=255, anchor="topleft")
         y -= h
 
-<<<<<<< Updated upstream
-=======
   def open_note_ui(self, title, text):
     self.note_ui = {"title": title, "text": text, "t": 0.0}
     if self.cam:
@@ -715,9 +772,11 @@ class Level:
     surf = self._note_ui_surf
     surf.fill((0, 0, 0, 0))
     
+    # ????????????????????
     dim_alpha = int(180 * min(1.0, self.note_ui["t"] * 4))
     surf.fill((0, 0, 0, dim_alpha))
     
+    # ???????????????????? ????????????????????
     box_w = int(sw * 0.32)
     box_h = int(box_w * 1.55)
     
@@ -741,17 +800,11 @@ class Level:
     pygame.draw.rect(surf, (240, 235, 220), box_rect)
     pygame.draw.rect(surf, (100, 100, 100), box_rect, 2)
     
-    if not hasattr(self, "_note_font_title") or getattr(self, "_note_font_title_size", None) != 32:
-      self._note_font_title = pygame.font.SysFont("consolas", 32, bold=True)
-      self._note_font_title_size = 32
-    font_title = self._note_font_title
+    font_title = pygame.font.SysFont("consolas", 32, bold=True)
     ts = font_title.render(self.note_ui["title"], True, (50, 50, 50))
     surf.blit(ts, ts.get_rect(center=(cx, box_rect.y + 60)))
     
-    if not hasattr(self, "_note_font") or getattr(self, "_note_font_size", None) != 24:
-      self._note_font = pygame.font.SysFont("consolas", 24)
-      self._note_font_size = 24
-    font = self._note_font
+    font = pygame.font.SysFont("consolas", 24)
     words = self.note_ui["text"].split()
     lines = []
     current_line = []
@@ -779,7 +832,6 @@ class Level:
       
     hud.surface(surf, 0, 0, anchor="topleft")
 
->>>>>>> Stashed changes
   def unload(self):
     # <STRANGE>#1028 on_unload for every script, called once when the level goes away
     for t in self.triggers:
